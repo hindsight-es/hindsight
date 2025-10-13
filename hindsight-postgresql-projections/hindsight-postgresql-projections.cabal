@@ -1,0 +1,47 @@
+cabal-version:      3.4
+name:               hindsight-postgresql-projections
+version:            0.1.0.0
+synopsis:           Backend-agnostic PostgreSQL projections for Hindsight
+description:
+    PostgreSQL-based projection system for building read models from event streams.
+
+    Projections use PostgreSQL for state management and execution, but can subscribe to
+    events from ANY Hindsight event store backend (Memory, Filesystem, or PostgreSQL).
+
+    This enables flexible deployment patterns:
+    - Testing: Memory store + PostgreSQL projections (fast!)
+    - Single-node: Filesystem store + PostgreSQL projections
+    - Production: PostgreSQL store + PostgreSQL projections
+license:            NONE
+author:             Gaël Deest
+maintainer:         gael.deest@franbec.org
+category:           Web
+build-type:         Simple
+
+common warnings
+    ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -Wunused-packages
+
+common opts
+    ghc-options: -O
+
+library
+    import:           warnings, opts
+    exposed-modules:  Hindsight.Projection,
+                      Hindsight.Projection.Common,
+                      Hindsight.Projection.Matching
+    build-depends:    base,
+                      aeson,
+                      bytestring,
+                      hasql,
+                      hasql-notifications >= 0.2.3.0,
+                      hasql-pool,
+                      hasql-th,
+                      hasql-transaction,
+                      hindsight,
+                      profunctors,
+                      text,
+                      time,
+                      unliftio
+    hs-source-dirs:   src
+    default-language: GHC2021
+    default-extensions: OverloadedRecordDot, DataKinds, DuplicateRecordFields, StrictData, Strict, RequiredTypeArguments

@@ -1,0 +1,39 @@
+packages:
+  ./*/*.cabal
+-- Uncomment this line and use:
+--
+--   cabal get --destdir=./deps <somedep>-<version>
+--
+-- To get "jump to definition" for Haskell dependencies in HLS.
+--
+--  ./deps/*/*.cabal
+--
+-- Make sure to use the proper version of your package, as `cabal get` does NOT use the freeze file.
+-- You may use `cabal-plan | grep <your-pkg>` to indirectly query it.
+
+-- Performance profiling configuration
+-- Enable with: cabal configure --enable-profiling  
+-- profiling: True
+-- library-profiling: True
+-- executable-profiling: True
+
+package hindsight
+  profiling-detail: all-functions
+  ghc-options: -fprof-auto -fprof-auto-top -rtsopts -threaded -fwrite-ide-info
+
+allow-newer:
+    hasql-notifications:hasql-pool
+
+source-repository-package
+    type: git
+    location: https://github.com/jfischoff/tmp-postgres.git
+    tag: 7f2467a6d6d5f6db7eed59919a6773fe006cf22b
+
+source-repository-package
+   type:     git
+   location: https://github.com/ocharles/weeder.git
+   tag: fb052ddad9a69442937feed5958fe9bab03b1fc1
+
+multi-repl: True
+
+

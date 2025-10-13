@@ -1,0 +1,94 @@
+cabal-version:      3.4
+name:               hindsight-postgresql-store
+version:            0.1.0.0
+synopsis:           PostgreSQL event store for Hindsight
+description:        Production-ready PostgreSQL backend with ACID guarantees and scalability. Event storage implementation only - projections are in hindsight-postgresql-projections.
+license:            NONE
+author:             Gaël Deest
+maintainer:         gael.deest@franbec.org
+category:           Web
+build-type:         Simple
+
+common warnings
+    ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -Wunused-packages
+
+common opts
+    ghc-options: -O
+
+library
+    import:           warnings, opts
+    exposed-modules:  Hindsight.Store.PostgreSQL,
+                      Hindsight.Store.PostgreSQL.Core.Schema,
+                      Hindsight.Store.PostgreSQL.Events.Insertion,
+                      Hindsight.Store.PostgreSQL.Events.Subscription,
+                      Hindsight.Store.PostgreSQL.Events.Parsing,
+                      Hindsight.Store.PostgreSQL.Events.Concurrency,
+                      Hindsight.Store.PostgreSQL.Projections.Sync,
+                      Hindsight.Store.PostgreSQL.Projections.State
+    other-modules:    Hindsight.Store.PostgreSQL.Core.Types
+    build-depends:    base,
+                      aeson,
+                      async,
+                      bytestring,
+                      containers,
+                      file-embed,
+                      hasql,
+                      hasql-notifications >= 0.2.3.0,
+                      hasql-transaction,
+                      hasql-pool,
+                      hasql-th,
+                      hindsight,
+                      hindsight-postgresql-projections,
+                      profunctors,
+                      random,
+                      stm,
+                      text,
+                      time,
+                      unliftio,
+                      uuid,
+                      vector
+    hs-source-dirs:   src
+    default-language: GHC2021
+    default-extensions: OverloadedRecordDot, DataKinds, DuplicateRecordFields, StrictData, Strict, RequiredTypeArguments
+
+test-suite hindsight-postgresql-store-test
+    import:           warnings, opts
+    default-language: GHC2021
+    type:             exitcode-stdio-1.0
+    ghc-options:      -threaded -rtsopts
+    hs-source-dirs:   test
+    main-is:          Main.hs
+    other-modules:    Test.Hindsight.Store.PostgreSQL.LiveSubscriptionOrderingTest,
+                      Test.Hindsight.Store.PostgreSQL.VersionStress,
+                      Test.Hindsight.Store.PostgreSQL.PathologicalTests,
+                      Test.Hindsight.Store.PostgreSQL.PropertyBasedTests,
+                      Test.Hindsight.Store.PostgreSQL.StreamHeadCorrectnessTest,
+                      Test.Hindsight.Store.PostgreSQL.SyncProjectionTests,
+                      Test.Hindsight.Store.PostgreSQL.SyncProjectionStateTests,
+                      Test.Hindsight.SyncProjection,
+                      Test.Hindsight.PostgreSQL.Temp
+    build-depends:
+        base,
+        aeson,
+        async,
+        bytestring,
+        containers,
+        hasql,
+        hasql-pool,
+        hasql-transaction,
+        hasql-th,
+        hedgehog,
+        hindsight,
+        hindsight-postgresql-projections,
+        hindsight-postgresql-store,
+        hindsight:store-testing,
+        random,
+        stm,
+        tasty,
+        tasty-hunit,
+        tasty-hedgehog,
+        text,
+        time,
+        tmp-postgres,
+        unliftio,
+        uuid

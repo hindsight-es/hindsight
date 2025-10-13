@@ -1,0 +1,49 @@
+cabal-version:      3.4
+name:               hindsight-memory-store
+version:            0.1.0.0
+synopsis:           In-memory event store for Hindsight
+description:        In-memory implementation of event store using STM. Data is lost on process termination. Suitable for testing and development.
+license:            NONE
+author:             Gaël Deest
+maintainer:         gael.deest@franbec.org
+category:           Web
+build-type:         Simple
+
+common warnings
+    ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -Wunused-packages
+
+common opts
+    ghc-options: -O
+
+library
+    import:           warnings, opts
+    exposed-modules:  Hindsight.Store.Memory,
+                      Hindsight.Store.Memory.Internal
+    build-depends:    base,
+                      aeson,
+                      containers,
+                      hindsight,
+                      stm,
+                      text,
+                      time,
+                      unliftio,
+                      uuid
+    hs-source-dirs:   src
+    default-language: GHC2021
+    default-extensions: OverloadedRecordDot, DataKinds, DuplicateRecordFields, StrictData, Strict, RequiredTypeArguments
+
+test-suite hindsight-memory-store-test
+    import:           warnings, opts
+    default-language: GHC2021
+    type:             exitcode-stdio-1.0
+    ghc-options:      -threaded -rtsopts
+    hs-source-dirs:   test
+    main-is:          Main.hs
+    build-depends:
+        base,
+        hindsight,
+        hindsight-memory-store,
+        hindsight:store-testing,
+        tasty,
+        tasty-hunit,
+        uuid

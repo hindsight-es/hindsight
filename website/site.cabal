@@ -1,0 +1,21 @@
+cabal-version:      3.4
+name:               hindsight-website
+version:            0.1.0.0
+synopsis:           Static site generator for Hindsight project website
+description:        Hakyll-based site generator that integrates Sphinx documentation
+                    with blog posts and static pages.
+license:            NONE
+author:             Hindsight Contributors
+maintainer:         gael.deest@franbec.org
+category:           Web
+build-type:         Simple
+
+executable site
+    main-is:          site.hs
+    build-depends:    base >= 4.16 && < 5,
+                      hakyll >= 4.16,
+                      pandoc >= 3.0,
+                      filepath
+    hs-source-dirs:   .
+    default-language: GHC2021
+    ghc-options:      -Wall -threaded -O2

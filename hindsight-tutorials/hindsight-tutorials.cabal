@@ -1,0 +1,155 @@
+cabal-version:      3.4
+name:               hindsight-tutorials
+version:            0.1.0.0
+synopsis:           Tutorials for the Hindsight event sourcing library
+description:
+    A collection of literate Haskell tutorials demonstrating how to use Hindsight
+    for event sourcing applications. Covers getting started, projections, versioning,
+    consistency patterns, and backend-agnostic design.
+license:            NONE
+author:             Gaël Deest
+maintainer:         gael.deest@franbec.org
+category:           Web
+build-type:         Simple
+
+common warnings
+    ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -Wunused-packages
+
+common opts
+    ghc-options: -O
+
+executable tutorial-01
+    import:           warnings, opts
+    default-language: GHC2021
+    main-is:          tutorials/01-getting-started.lhs
+    hs-source-dirs:   .
+    build-depends:
+        base,
+        aeson,
+        containers,
+        hindsight,
+        hindsight-memory-store,
+        text,
+        uuid
+
+executable tutorial-02
+    import:           warnings, opts
+    default-language: GHC2021
+    main-is:          tutorials/02-in-memory-projections.lhs
+    hs-source-dirs:   .
+    build-depends:
+        base,
+        aeson,
+        containers,
+        hindsight,
+        hindsight-memory-store,
+        stm,
+        text,
+        uuid
+
+executable tutorial-03
+    import:           warnings, opts
+    default-language: GHC2021
+    main-is:          tutorials/03-postgresql-projections.lhs
+    hs-source-dirs:   .
+    build-depends:
+        base,
+        aeson,
+        bytestring,
+        containers,
+        hasql,
+        hasql-pool,
+        hasql-transaction,
+        hindsight,
+        hindsight-memory-store,
+        hindsight-postgresql-store,
+        hindsight-postgresql-projections,
+        text,
+        tmp-postgres,
+        uuid
+
+executable tutorial-04
+    import:           warnings, opts
+    default-language: GHC2021
+    main-is:          tutorials/04-event-versioning.lhs
+    hs-source-dirs:   .
+    build-depends:
+        base,
+        aeson,
+        containers,
+        hindsight,
+        hindsight-memory-store,
+        text,
+        uuid
+
+executable tutorial-05
+    import:           warnings, opts
+    default-language: GHC2021
+    main-is:          tutorials/05-consistency-patterns.lhs
+    hs-source-dirs:   .
+    build-depends:
+        base,
+        aeson,
+        containers,
+        hindsight,
+        hindsight-memory-store,
+        text,
+        uuid
+
+executable tutorial-06
+    import:           warnings, opts
+    default-language: GHC2021
+    main-is:          tutorials/06-backend-agnostic.lhs
+    hs-source-dirs:   .
+    build-depends:
+        base,
+        aeson,
+        containers,
+        directory,
+        hindsight,
+        hindsight-memory-store,
+        hindsight-filesystem-store,
+        stm,
+        temporary,
+        text,
+        uuid
+
+executable tutorial-07
+    import:           warnings, opts
+    default-language: GHC2021
+    main-is:          tutorials/07-advanced-postgresql.lhs
+    hs-source-dirs:   .
+    build-depends:
+        base,
+        aeson,
+        bytestring,
+        containers,
+        hasql,
+        hasql-pool,
+        hasql-transaction,
+        hindsight,
+        hindsight-postgresql-store,
+        hindsight-postgresql-projections,
+        text,
+        tmp-postgres,
+        uuid
+
+executable tutorial-08
+    import:           warnings, opts
+    default-language: GHC2021
+    main-is:          tutorials/08-multi-stream-consistency.lhs
+    hs-source-dirs:   .
+    build-depends:
+        base,
+        aeson,
+        containers,
+        hasql,
+        hasql-pool,
+        hasql-th,
+        hasql-transaction,
+        hindsight,
+        hindsight-postgresql-store,
+        hindsight-postgresql-projections,
+        text,
+        tmp-postgres,
+        uuid

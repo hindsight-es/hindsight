@@ -1,0 +1,65 @@
+cabal-version:      3.4
+name:               hindsight-filesystem-store
+version:            0.1.0.0
+synopsis:           Filesystem event store for Hindsight
+description:        File-based persistent event store with multi-process support. Suitable for single-node deployments where durability is needed without a database dependency.
+license:            NONE
+author:             Gaël Deest
+maintainer:         gael.deest@franbec.org
+category:           Web
+build-type:         Simple
+
+common warnings
+    ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -Wunused-packages
+
+common opts
+    ghc-options: -O
+
+library
+    import:           warnings, opts
+    exposed-modules:  Hindsight.Store.Filesystem
+    build-depends:    base,
+                      aeson,
+                      async,
+                      bytestring,
+                      containers,
+                      directory,
+                      filelock,
+                      filepath,
+                      fsnotify >= 0.4,
+                      hindsight,
+                      hindsight-memory-store,
+                      stm,
+                      text,
+                      time,
+                      unix,
+                      unliftio,
+                      uuid
+    hs-source-dirs:   src
+    default-language: GHC2021
+    default-extensions: OverloadedRecordDot, DataKinds, DuplicateRecordFields, StrictData, Strict, RequiredTypeArguments
+
+test-suite hindsight-filesystem-store-test
+    import:           warnings, opts
+    default-language: GHC2021
+    type:             exitcode-stdio-1.0
+    ghc-options:      -threaded -rtsopts
+    hs-source-dirs:   test
+    main-is:          Main.hs
+    other-modules:    Test.Hindsight.Store.Filesystem
+    build-depends:
+        base,
+        aeson,
+        bytestring,
+        containers,
+        directory,
+        hindsight,
+        hindsight-filesystem-store,
+        hindsight-memory-store,
+        hindsight:store-testing,
+        tasty,
+        tasty-hunit,
+        temporary,
+        unix,
+        unliftio,
+        uuid

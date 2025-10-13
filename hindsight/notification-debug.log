@@ -1,0 +1,21 @@
+Configuration is affected by the following files:
+- cabal.project
+- cabal.project.freeze
+- cabal.project.local
+Build profile: -w ghc-9.10.2 -O1
+In order, the following will be built (use -v for more details):
+ - hindsight-0.1.0.0 (lib)  --enable-profiling (file src/Hindsight/Store/PostgreSQL/Events/Dispatcher.hs changed)
+ - hindsight-0.1.0.0 (test:hindsight-test)  --enable-profiling (dependency rebuilt)
+Preprocessing library for hindsight-0.1.0.0...
+Building library for hindsight-0.1.0.0...
+[13 of 23] Compiling Hindsight.Store.PostgreSQL.Events.Dispatcher ( src/Hindsight/Store/PostgreSQL/Events/Dispatcher.hs, /Users/huginn/code/hindsight2/hindsight/dist-newstyle/build/aarch64-osx/ghc-9.10.2/hindsight-0.1.0.0/build/Hindsight/Store/PostgreSQL/Events/Dispatcher.o, /Users/huginn/code/hindsight2/hindsight/dist-newstyle/build/aarch64-osx/ghc-9.10.2/hindsight-0.1.0.0/build/Hindsight/Store/PostgreSQL/Events/Dispatcher.dyn_o ) [Source file changed]
+src/Hindsight/Store/PostgreSQL/Events/Dispatcher.hs:613:81: error: [GHC-76037]
+    Not in scope: ‘Text.unpack’
+    NB: the module ‘Data.Text.Encoding’ does not export ‘unpack’.
+    |
+613 |   debugConnection dispatcher.config $ "📡 Received notification on channel: " <> Text.unpack channelText <> ", payload: " <> show payload
+    |                                                                                 ^^^^^^^^^^^
+
+Error: [Cabal-7125]
+Failed to build hindsight-0.1.0.0 (which is required by test:hindsight-test from hindsight-0.1.0.0).
+

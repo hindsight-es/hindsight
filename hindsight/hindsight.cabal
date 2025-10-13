@@ -1,0 +1,280 @@
+cabal-version:      3.4
+name:               hindsight
+version:            0.1.0.0
+-- synopsis:
+-- description:
+license:            NONE
+author:             Gaël Deest
+maintainer:         gael.deest@franbec.org
+-- copyright:
+category:           Web
+build-type:         Simple
+extra-doc-files:    CHANGELOG.md
+-- extra-source-files:
+
+common warnings
+    ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -Wunused-packages
+
+common opts
+    ghc-options: -O
+
+library
+    import:           warnings, opts
+    exposed-modules:  Hindsight,
+                      Hindsight.Core,
+                      Hindsight.TH,
+                      Hindsight.Store,
+                      Hindsight.Store.Parsing
+
+
+    other-modules:
+                      Hindsight.Store.Internal.Common
+    -- other-modules:
+    -- other-extensions:
+    build-depends:    base,
+                      aeson,
+                      async,
+                      bytestring,
+                      containers,
+                      directory,
+                      file-embed,
+                      filelock,
+                      filepath,
+                      fsnotify >= 0.4,
+                      hashable,
+                      hasql,
+                      hasql-notifications >= 0.2.3.0,
+                      hasql-transaction,
+                      hasql-pool,
+                      hasql-th,
+                      profunctors,
+                      random,
+                      stm,
+                      template-haskell,
+                      ttrie >= 0.1.2 && < 0.2,
+                      text,
+                      time,
+                      unix,
+                      unliftio,
+                      unordered-containers,
+                      uuid,
+                      vector
+    hs-source-dirs:   src
+    default-language: GHC2021
+    default-extensions: OverloadedRecordDot, DataKinds, DuplicateRecordFields, StrictData, Strict, RequiredTypeArguments
+
+-- Internal library for event testing utilities
+library event-testing
+    import:           warnings, opts
+    visibility:       public
+    exposed-modules:  Test.Hindsight.Generate
+    build-depends:    base,
+                      aeson,
+                      aeson-pretty,
+                      bytestring,
+                      filepath,
+                      hindsight,
+                      QuickCheck,
+                      tasty,
+                      tasty-golden,
+                      tasty-quickcheck,
+                      text
+    hs-source-dirs:   test-lib
+    default-language: GHC2021
+    default-extensions: OverloadedRecordDot, DataKinds, DuplicateRecordFields, StrictData, Strict, RequiredTypeArguments
+
+-- Internal library for store testing utilities
+library store-testing
+    import:           warnings, opts
+    visibility:       public
+    exposed-modules:  Test.Hindsight.Store.Common,
+                      Test.Hindsight.Store.TestRunner,
+                      Test.Hindsight.Examples
+    other-modules:    Test.Hindsight.Generate
+    build-depends:    base,
+                      aeson,
+                      aeson-pretty,
+                      bytestring,
+                      containers,
+                      filepath,
+                      hindsight,
+                      hindsight:event-testing,
+                      QuickCheck,
+                      quickcheck-instances,
+                      random,
+                      stm,
+                      tasty,
+                      tasty-golden,
+                      tasty-hunit,
+                      tasty-quickcheck,
+                      text,
+                      unliftio,
+                      uuid
+    hs-source-dirs:   test-lib
+    default-language: GHC2021
+    default-extensions: OverloadedRecordDot, DataKinds, DuplicateRecordFields, StrictData, Strict, RequiredTypeArguments
+
+test-suite hindsight-test
+    import:           warnings, opts
+    default-language: GHC2021
+    type:             exitcode-stdio-1.0
+    ghc-options:      -threaded -rtsopts
+    other-modules:    Test.Hindsight
+    hs-source-dirs:   test
+    main-is:          Main.hs
+    build-depends:
+        base,
+        aeson-pretty,
+        async,
+        bytestring,
+        aeson,
+        containers,
+        directory,
+        filepath,
+        hedgehog,
+        hindsight,
+        hindsight:event-testing,
+        hindsight:store-testing,
+        QuickCheck,
+        random,
+        stm,
+        tasty,
+        tasty-hunit,
+        tasty-golden,
+        tasty-quickcheck,
+        tasty-hedgehog,
+        time,
+        temporary,
+        text,
+        unix,
+        unliftio,
+        uuid
+
+-- CLEANUP: Tutorials temporarily disabled during extraction
+-- Will be moved to hindsight-tutorials package
+-- executable tutorial-01
+--     import:           warnings, opts
+--     default-language: GHC2021
+--     main-is:          tutorials/01-getting-started.lhs
+--     hs-source-dirs:   .
+--     build-depends:
+--         base,
+--         aeson,
+--         containers,
+--         hindsight,
+--         text,
+--         uuid
+--
+-- executable tutorial-02
+--     import:           warnings, opts
+--     default-language: GHC2021
+--     main-is:          tutorials/02-in-memory-projections.lhs
+--     hs-source-dirs:   .
+--     build-depends:
+--         base,
+--         aeson,
+--         containers,
+--         hindsight,
+--         stm,
+--         text,
+--         uuid
+--
+-- executable tutorial-03
+--     import:           warnings, opts
+--     default-language: GHC2021
+--     main-is:          tutorials/03-postgresql-projections.lhs
+--     hs-source-dirs:   .
+--     build-depends:
+--         base,
+--         aeson,
+--         bytestring,
+--         containers,
+--         hasql,
+--         hasql-pool,
+--         hasql-transaction,
+--         hindsight,
+--         text,
+--         tmp-postgres,
+--         uuid
+--
+-- executable tutorial-04
+--     import:           warnings, opts
+--     default-language: GHC2021
+--     main-is:          tutorials/04-event-versioning.lhs
+--     hs-source-dirs:   .
+--     build-depends:
+--         base,
+--         aeson,
+--         containers,
+--         hindsight,
+--         text,
+--         uuid
+--
+-- executable tutorial-05
+--     import:           warnings, opts
+--     default-language: GHC2021
+--     main-is:          tutorials/05-consistency-patterns.lhs
+--     hs-source-dirs:   .
+--     build-depends:
+--         base,
+--         aeson,
+--         containers,
+--         hindsight,
+--         text,
+--         uuid
+--
+-- executable tutorial-06
+--     import:           warnings, opts
+--     default-language: GHC2021
+--     main-is:          tutorials/06-backend-agnostic.lhs
+--     hs-source-dirs:   .
+--     build-depends:
+--         base,
+--         aeson,
+--         containers,
+--         directory,
+--         hindsight,
+--         stm,
+--         temporary,
+--         text,
+--         uuid
+--
+-- executable tutorial-07
+--     import:           warnings, opts
+--     default-language: GHC2021
+--     main-is:          tutorials/07-advanced-postgresql.lhs
+--     hs-source-dirs:   .
+--     build-depends:
+--         base,
+--         aeson,
+--         bytestring,
+--         containers,
+--         hasql,
+--         hasql-pool,
+--         hasql-transaction,
+--         hindsight,
+--         text,
+--         tmp-postgres,
+--         uuid
+--
+-- executable tutorial-08
+--     import:           warnings, opts
+--     default-language: GHC2021
+--     main-is:          tutorials/08-multi-stream-consistency.lhs
+--     hs-source-dirs:   .
+--     build-depends:
+--         base,
+--         aeson,
+--         containers,
+--         hasql,
+--         hasql-pool,
+--         hasql-th,
+--         hasql-transaction,
+--         hindsight,
+--         text,
+--         tmp-postgres,
+--         uuid
+
+-- CLEANUP: Benchmarks have been moved to hindsight-benchmarks package
+-- See hindsight-benchmarks/*.cabal for benchmark definitions
+

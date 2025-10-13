@@ -1,0 +1,10 @@
+# Sphinx build outputs
+build/
+
+# Generated RST files from LHS conversion  
+source/tutorials/*.rst
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo

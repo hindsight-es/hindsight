@@ -1,0 +1,10 @@
+# Improving PostgreSQL subscriptions
+
+## Problem: PostgreSQL subscriptions are HIGHLY inefficient
+
+Loads of ~25-100 subscriptions almost entirely overload the system under constant event insertion pressure. The system ends up only being able to process a few dozens events per second. Profiling seems to prove that:
+
+- CPU load is high.
+- Allocations are high.
+
+##

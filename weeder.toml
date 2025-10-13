@@ -1,0 +1,27 @@
+roots = [
+  "^Main.main$",          # Main executable entry points
+  "^Main\\..*",           # All exports from Main modules (demo code)
+  "^EventualConsistency\\..*",  # Eventual consistency demo module
+  "^Paths_.*",            # Cabal-generated paths modules
+
+  # Test modules - all test code is intentionally used
+  "^Test\\..*",
+
+  # MuniHac demo code - all exported for demonstration purposes
+  "^MuniHac\\..*",
+
+  # Benchmark entry points and utilities
+  "^Backends\\..*",       # Benchmark backend implementations
+  "^Core\\..*",           # Benchmark core utilities (metrics, etc)
+  "^Scenarios\\..*",      # Benchmark scenarios
+  "^Bench\\..*",          # Legacy benchmark modules
+]
+
+type-class-roots = true
+
+
+unused-types = true
+
+# Template Haskell modules - functions are used at compile-time but weeder can't detect this
+root-modules = ["Hindsight.TH"]
+

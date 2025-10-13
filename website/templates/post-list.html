@@ -1,0 +1,13 @@
+<section class="blog-archive">
+    <h1>$title$</h1>
+    <ul class="post-list">
+        $for(posts)$
+        <li>
+            <article class="post-preview">
+                <h2><a href="$url$">$title$</a></h2>
+                <time datetime="$date$">$date$</time>
+            </article>
+        </li>
+        $endfor$
+    </ul>
+</section>

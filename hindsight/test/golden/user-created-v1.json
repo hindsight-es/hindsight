@@ -1,0 +1,9 @@
+{
+	"data": {
+		"userEmail": "john@example.com",
+		"userId": 1,
+		"userName": "john_doe"
+	},
+	"event_type": "user_created",
+	"version": 1
+}
