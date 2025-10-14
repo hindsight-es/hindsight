@@ -11,15 +11,18 @@ packages:
 -- Make sure to use the proper version of your package, as `cabal get` does NOT use the freeze file.
 -- You may use `cabal-plan | grep <your-pkg>` to indirectly query it.
 
+-- Enable HIE file generation for all packages (needed for HLS and weeder)
+ghc-options: -fwrite-ide-info
+
 -- Performance profiling configuration
--- Enable with: cabal configure --enable-profiling  
+-- Enable with: cabal configure --enable-profiling
 -- profiling: True
 -- library-profiling: True
 -- executable-profiling: True
 
 package hindsight
   profiling-detail: all-functions
-  ghc-options: -fprof-auto -fprof-auto-top -rtsopts -threaded -fwrite-ide-info
+  ghc-options: -fprof-auto -fprof-auto-top -rtsopts -threaded
 
 allow-newer:
     hasql-notifications:hasql-pool

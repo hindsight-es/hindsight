@@ -94,15 +94,15 @@ testMultiStreamHeadCorrectness store = do
   -- Stream A: 2 events, Stream B: 3 events, Stream C: 1 event
   result <-
     insertEvents store Nothing $
-      Map.fromList
-        [ (streamA, StreamEventBatch NoStream [makeUserEvent 1, makeUserEvent 2]),
-          (streamB, StreamEventBatch NoStream [makeUserEvent 10, makeUserEvent 20, makeUserEvent 30]),
-          (streamC, StreamEventBatch NoStream [makeUserEvent 100])
-        ]
+      Transaction (Map.fromList
+        [ (streamA, StreamWrite NoStream [makeUserEvent 1, makeUserEvent 2]),
+          (streamB, StreamWrite NoStream [makeUserEvent 10, makeUserEvent 20, makeUserEvent 30]),
+          (streamC, StreamWrite NoStream [makeUserEvent 100])
+        ])
 
   case result of
     FailedInsertion err -> assertFailure $ "Failed to insert events: " ++ show err
-    SuccessfulInsertion _ -> pure ()
+    SuccessfulInsertion{} -> pure ()
 
   -- Now query the database directly to verify stream_heads correctness
   let pool = getPool store

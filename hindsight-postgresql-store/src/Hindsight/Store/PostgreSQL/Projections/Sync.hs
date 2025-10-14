@@ -59,8 +59,7 @@ import Hasql.Pool (Pool)
 import Hasql.Pool qualified as Pool
 import Hasql.Statement (Statement)
 import Hasql.TH
-import Hasql.Transaction (Transaction)
-import Hasql.Transaction qualified as Transaction
+import Hasql.Transaction qualified as HasqlTransaction
 import Hasql.Transaction.Sessions qualified as TransactionSession
 import Hindsight.Core (IsEvent)
 import Hindsight.Projection (ProjectionId (..))
@@ -128,7 +127,7 @@ executeHandlerChain ::
   (IsEvent event) =>
   [ProjectionHandler event backend] ->
   EventEnvelope event backend ->
-  Transaction [ProjectionResult]
+  HasqlTransaction.Transaction [ProjectionResult]
 executeHandlerChain [] _ = pure []
 executeHandlerChain (handler:rest) envelope = do
   -- Execute the handler directly - exceptions will naturally propagate up
@@ -140,10 +139,10 @@ executeHandlerChain (handler:rest) envelope = do
   pure (result : results)
 
 -- | Handle projection errors in PostgreSQL Transaction context
-handleProjectionError :: ProjectionError -> Transaction ProjectionResult
+handleProjectionError :: ProjectionError -> HasqlTransaction.Transaction ProjectionResult
 handleProjectionError err = do
   -- In sync projections, errors should propagate to roll back the transaction  
-  Transaction.condemn
+  HasqlTransaction.condemn
   pure (ProjectionError err)
 
 -- =============================================================================
@@ -175,7 +174,7 @@ executeSyncProjectionForEvent ::
   SyncProjectionRegistry ->
   Proxy event ->
   EventEnvelope event SQLStore ->
-  Transaction ()
+  HasqlTransaction.Transaction ()
 executeSyncProjectionForEvent (SyncProjectionRegistry reg) eventProxy envelope = do
   forM_ (Map.elems reg) $ \(SomeProjectionHandlers handlers) ->
     processHandlersWithCommonLogic handlers eventProxy envelope
@@ -187,7 +186,7 @@ processHandlersWithCommonLogic ::
   ProjectionHandlers ts SQLStore ->
   Proxy event ->
   EventEnvelope event SQLStore ->
-  Transaction ()
+  HasqlTransaction.Transaction ()
 processHandlersWithCommonLogic handlers eventProxy envelope = do
   -- Use the common handler matching logic
   let matchingHandlers = matchEventHandlers handlers eventProxy
@@ -221,7 +220,7 @@ catchUpSyncProjections pool registry@(SyncProjectionRegistry regMap) = do
         Right res -> pure res
 
 -- | Internal transaction for catching up projections
-catchUpTransaction :: SyncProjectionRegistry -> Transaction (Either CatchUpError ())
+catchUpTransaction :: SyncProjectionRegistry -> HasqlTransaction.Transaction (Either CatchUpError ())
 catchUpTransaction registry@(SyncProjectionRegistry regMap) = do
   -- Register all projections in the database
   forM_ (Map.keys regMap) $ \projId ->
@@ -266,7 +265,7 @@ catchUpProjection ::
   SyncProjectionRegistry ->
   ProjectionId ->
   SQLCursor ->
-  Transaction (Either CatchUpError ())
+  HasqlTransaction.Transaction (Either CatchUpError ())
 catchUpProjection (SyncProjectionRegistry regMap) projId cursor = do
   -- Check if this projection is actually registered
   case Map.lookup projId regMap of
@@ -291,7 +290,7 @@ processStoredEvent ::
   forall ts.
   ProjectionHandlers ts SQLStore ->
   StoredEvent ->
-  Transaction ()
+  HasqlTransaction.Transaction ()
 processStoredEvent handlers storedEvent = do
   -- Find matching handlers for the event
   let matchingHandlers = handlersForEventName storedEvent.eventName handlers
@@ -315,9 +314,9 @@ processStoredEvent handlers storedEvent = do
 -- | Get unprocessed events from the database
 getUnprocessedEvents ::
   SQLCursor ->
-  Transaction [StoredEvent]
+  HasqlTransaction.Transaction [StoredEvent]
 getUnprocessedEvents (SQLCursor lastTxNo lastSeqNo) = do
-  results <- Transaction.statement (lastTxNo, lastSeqNo) getEventsStmt
+  results <- HasqlTransaction.statement (lastTxNo, lastSeqNo) getEventsStmt
   pure $ map toStoredEvent $ Vector.toList results
   where
     getEventsStmt :: Statement (Int64, Int32) (Vector.Vector (Int64, Int32, UUID, UUID, UTCTime, Maybe UUID, Text, Int32, Aeson.Value, Int64))

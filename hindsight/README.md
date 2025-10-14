@@ -102,8 +102,8 @@ main = do
   let userInfo = UserInfo "john.doe" "john@example.com"
       event = SomeLatestEvent (Proxy @UserCreated) userInfo
   
-  result <- insertEvents store Nothing $ 
-    Map.singleton streamId (StreamEventBatch NoStream [event])
+  result <- insertEvents store Nothing $
+    Map.singleton streamId (StreamWrite NoStream [event])
 
   -- Subscribe to events
   let handler :: EventHandler UserCreated IO SQLStore

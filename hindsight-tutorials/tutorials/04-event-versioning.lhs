@@ -132,7 +132,7 @@ demoVersioning = do
         UserInfoV1 2 "Bob" Nothing  -- Old user without email
 
   void $ insertEvents store Nothing $
-    Map.singleton streamId (StreamEventBatch Any [event1, event2])
+    multiEvent streamId Any [event1, event2]
 
   putStrLn "✓ Inserted events (V1 format)"
 

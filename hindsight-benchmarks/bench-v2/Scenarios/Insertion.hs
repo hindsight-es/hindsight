@@ -66,9 +66,9 @@ singleStoreBenchmarks runner = return
         streamId <- StreamId <$> UUID.nextRandom
         let event = makeBenchEvent 1 1000  -- 1KB event
         result <- insertEvents backend Nothing $
-          Map.singleton streamId (StreamEventBatch Any [event])
+          singleEvent streamId Any event
         case result of
-          SuccessfulInsertion _ -> pure ()
+          SuccessfulInsertion{} -> pure ()
           FailedInsertion err -> error $ (backendName runner) <> " insertion failed: " <> show err
           
   , bench "Batch Insert (10 events)" $
@@ -76,9 +76,9 @@ singleStoreBenchmarks runner = return
         streamId <- StreamId <$> UUID.nextRandom
         let events = makeBenchEventBatch 10 1000  -- 10 x 1KB events
         result <- insertEvents backend Nothing $
-          Map.singleton streamId (StreamEventBatch Any events)
+          multiEvent streamId Any events
         case result of
-          SuccessfulInsertion _ -> pure ()
+          SuccessfulInsertion{} -> pure ()
           FailedInsertion err -> error $ (backendName runner) <> " batch insertion failed: " <> show err
           
   , bench "Large Batch Insert (100 events)" $
@@ -86,9 +86,9 @@ singleStoreBenchmarks runner = return
         streamId <- StreamId <$> UUID.nextRandom
         let events = makeBenchEventBatch 100 1000  -- 100 x 1KB events
         result <- insertEvents backend Nothing $
-          Map.singleton streamId (StreamEventBatch Any events)
+          multiEvent streamId Any events
         case result of
-          SuccessfulInsertion _ -> pure ()
+          SuccessfulInsertion{} -> pure ()
           FailedInsertion err -> error $ (backendName runner) <> " large batch insertion failed: " <> show err
 
   , bench "Small Event Batch (1000 x 100B)" $
@@ -96,9 +96,9 @@ singleStoreBenchmarks runner = return
         streamId <- StreamId <$> UUID.nextRandom
         let events = makeBenchEventBatch 1000 100  -- 1000 x 100B events
         result <- insertEvents backend Nothing $
-          Map.singleton streamId (StreamEventBatch Any events)
+          multiEvent streamId Any events
         case result of
-          SuccessfulInsertion _ -> pure ()
+          SuccessfulInsertion{} -> pure ()
           FailedInsertion err -> error $ (backendName runner) <> " small event batch failed: " <> show err
 
   , bench "Large Event Batch (10 x 10KB)" $
@@ -106,9 +106,9 @@ singleStoreBenchmarks runner = return
         streamId <- StreamId <$> UUID.nextRandom
         let events = makeBenchEventBatch 10 10000  -- 10 x 10KB events
         result <- insertEvents backend Nothing $
-          Map.singleton streamId (StreamEventBatch Any events)
+          multiEvent streamId Any events
         case result of
-          SuccessfulInsertion _ -> pure ()
+          SuccessfulInsertion{} -> pure ()
           FailedInsertion err -> error $ (backendName runner) <> " large event batch failed: " <> show err
   ]
 
@@ -130,9 +130,9 @@ runInsertionBenchmarks = runForAllBackends $ \(runner :: BenchmarkRunner backend
               streamId <- StreamId <$> UUID.nextRandom
               let events = makeBenchEventBatch eventsPerTx eventSize
               result <- insertEvents backend Nothing $
-                Map.singleton streamId (StreamEventBatch Any events)
+                multiEvent streamId Any events
               case result of
-                SuccessfulInsertion _ -> pure ()
+                SuccessfulInsertion{} -> pure ()
                 FailedInsertion err -> error $ "Insertion failed: " <> show err
         mapM_ insertTransaction [1..numTx]
     

@@ -75,10 +75,10 @@ testStateTracking = withTempDb $ \connStr -> do
   
   -- Insert some events
   result1 <- insertEvents store Nothing $
-    Map.singleton streamId (StreamEventBatch NoStream [makeUserEvent 1])
-  
+    Transaction (Map.singleton streamId (StreamWrite NoStream [makeUserEvent 1]))
+
   _ <- insertEvents store Nothing $
-    Map.singleton streamId (StreamEventBatch (cursorToExpectation result1) [makeUserEvent 2, makeUserEvent 3])
+    Transaction (Map.singleton streamId (StreamWrite (cursorToExpectation result1) [makeUserEvent 2, makeUserEvent 3]))
   
   -- Check projection state in database
   stateResult <- Pool.use (getPool store) $ Session.statement () getProjectionStateStmt
@@ -122,7 +122,7 @@ testCatchUp = withTempDb $ \connStr -> do
   
   -- Insert events without projections
   _ <- insertEvents store1 Nothing $
-    Map.singleton streamId (StreamEventBatch NoStream [makeUserEvent 1, makeUserEvent 2])
+    Transaction (Map.singleton streamId (StreamWrite NoStream [makeUserEvent 1, makeUserEvent 2]))
   
   -- Create projection that counts calls
   let projectionHandlers =
@@ -222,8 +222,8 @@ testMultipleProjections = withTempDb $ \connStr -> do
   
   -- Insert events
   _ <- insertEvents store Nothing $
-    Map.singleton streamId (StreamEventBatch NoStream 
-      [makeUserEvent 1, makeUserEvent 2, makeUserEvent 3])
+    Transaction (Map.singleton streamId (StreamWrite NoStream
+      [makeUserEvent 1, makeUserEvent 2, makeUserEvent 3]))
   
   -- Check both projections have state
   stateResult <- Pool.use (getPool store) $ Session.statement () getAllProjectionStatesStmt
@@ -276,7 +276,7 @@ testFailedProjections = withTempDb $ \connStr -> do
   tryResult <- try $ do
     store <- newSQLStoreWithProjections connStr registry
     insertEvents store Nothing $
-      Map.singleton streamId (StreamEventBatch NoStream [makeUserEvent 1])
+      Transaction (Map.singleton streamId (StreamWrite NoStream [makeUserEvent 1]))
   
   case tryResult of
     Right _ -> assertFailure "Should have failed due to failing projection"
@@ -294,7 +294,7 @@ testStartupFailure = withTempDb $ \connStr -> do
   -- First, insert events without projections
   store1 <- newSQLStore connStr
   _ <- insertEvents store1 Nothing $
-    Map.singleton streamId (StreamEventBatch NoStream [makeUserEvent 1])
+    Transaction (Map.singleton streamId (StreamWrite NoStream [makeUserEvent 1]))
   
   -- Create a projection that always fails
   let failingProjection =
@@ -346,7 +346,7 @@ testResumeFromPosition = withTempDb $ \connStr -> do
   -- Create store and insert some events
   store1 <- newSQLStoreWithProjections connStr registry
   result1 <- insertEvents store1 Nothing $
-    Map.singleton streamId (StreamEventBatch NoStream [makeUserEvent 1, makeUserEvent 2])
+    Transaction (Map.singleton streamId (StreamWrite NoStream [makeUserEvent 1, makeUserEvent 2]))
   
   -- Check the events that were processed
   countResult1 <- Pool.use (getPool store1) $ Session.statement () $
@@ -379,7 +379,7 @@ testResumeFromPosition = withTempDb $ \connStr -> do
   
   -- Insert new events
   _ <- insertEvents store2 Nothing $
-    Map.singleton streamId (StreamEventBatch (cursorToExpectation result1) [makeUserEvent 3])
+    Transaction (Map.singleton streamId (StreamWrite (cursorToExpectation result1) [makeUserEvent 3]))
   
   countResult3 <- Pool.use (getPool store2) $ Session.statement () $
     Statement
@@ -443,5 +443,5 @@ withTempDb action = do
     Right val -> pure val
 
 cursorToExpectation :: InsertionResult backend -> ExpectedVersion backend
-cursorToExpectation (SuccessfulInsertion cursor) = ExactVersion cursor
+cursorToExpectation (SuccessfulInsertion{finalCursor = cursor}) = ExactVersion cursor
 cursorToExpectation _ = NoStream

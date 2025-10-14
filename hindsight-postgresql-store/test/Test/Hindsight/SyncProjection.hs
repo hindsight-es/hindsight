@@ -73,20 +73,20 @@ syncProjectionTests =
                       }
 
                 batch =
-                  StreamEventBatch
+                  StreamWrite
                     { expectedVersion = Any,
                       events = [event]
                     }
 
             result <-
-              insertEvents 
+              insertEvents
                 store
                 Nothing
-                (Map.singleton streamId batch)
+                (Transaction (Map.singleton streamId batch))
 
             -- Verify the event was inserted
             case result of
-              SuccessfulInsertion _ -> pure ()
+              SuccessfulInsertion{} -> pure ()
               FailedInsertion err -> assertFailure $ "Insertion failed: " ++ show err
 
             -- First check if events were actually inserted
@@ -155,20 +155,20 @@ syncProjectionTests =
                       }
 
                 batch =
-                  StreamEventBatch
+                  StreamWrite
                     { expectedVersion = Any,
                       events = [event]
                     }
 
             result <-
-              insertEvents 
+              insertEvents
                 store
                 Nothing
-                (Map.singleton streamId batch)
+                (Transaction (Map.singleton streamId batch))
 
             -- Verify insertion succeeded
             case result of
-              SuccessfulInsertion _ -> pure ()
+              SuccessfulInsertion{} -> pure ()
               FailedInsertion err -> assertFailure $ "Insertion failed: " ++ show err
 
             -- Verify both projections executed
@@ -219,20 +219,20 @@ syncProjectionTests =
                       }
 
                 batch =
-                  StreamEventBatch
+                  StreamWrite
                     { expectedVersion = Any,
                       events = [event]
                     }
 
             result <-
-              insertEvents 
+              insertEvents
                 store
                 Nothing
-                (Map.singleton streamId batch)
+                (Transaction (Map.singleton streamId batch))
 
             -- Verify the insertion failed
             case result of
-              SuccessfulInsertion _ ->
+              SuccessfulInsertion{} ->
                 assertFailure "Expected insertion to fail due to projection error"
               FailedInsertion _ ->
                 pure () -- Expected
@@ -268,20 +268,20 @@ syncProjectionTests =
                       }
 
                 batch =
-                  StreamEventBatch
+                  StreamWrite
                     { expectedVersion = Any,
                       events = [event]
                     }
 
             result <-
-              insertEvents 
+              insertEvents
                 store
                 Nothing
-                (Map.singleton streamId batch)
+                (Transaction (Map.singleton streamId batch))
 
             -- Should succeed
             case result of
-              SuccessfulInsertion _ -> pure ()
+              SuccessfulInsertion{} -> pure ()
               FailedInsertion err ->
                 assertFailure $ "Insertion should succeed with empty registry: " ++ show err
     ]

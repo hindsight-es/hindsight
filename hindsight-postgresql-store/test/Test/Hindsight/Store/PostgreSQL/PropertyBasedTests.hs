@@ -37,18 +37,18 @@ prop_exactVersionUniqueness = property $ do
     -- First, create the stream and get a cursor
     initResult <-
       insertEvents store Nothing $
-        Map.singleton streamId (StreamEventBatch NoStream [makeUserEvent 0])
+        Transaction (Map.singleton streamId (StreamWrite NoStream [makeUserEvent 0]))
 
     cursor <- case initResult of
-      SuccessfulInsertion c -> pure c
+      SuccessfulInsertion{finalCursor = c} -> pure c
       FailedInsertion err -> assertFailure $ "Failed to initialize stream: " ++ show err
 
     -- Now try two operations with the same exact cursor
-    let operation1 = Map.singleton streamId (StreamEventBatch (ExactVersion cursor) [makeUserEvent 1])
-    let operation2 = Map.singleton streamId (StreamEventBatch (ExactVersion cursor) [makeUserEvent 2])
+    let operation1 = Map.singleton streamId (StreamWrite (ExactVersion cursor) [makeUserEvent 1])
+    let operation2 = Map.singleton streamId (StreamWrite (ExactVersion cursor) [makeUserEvent 2])
 
-    result1 <- insertEvents store Nothing operation1
-    result2 <- insertEvents store Nothing operation2
+    result1 <- insertEvents store Nothing (Transaction operation1)
+    result2 <- insertEvents store Nothing (Transaction operation2)
 
     let successes = length $ filter isSuccessfulInsertion [result1, result2]
     if successes == 1
@@ -57,5 +57,5 @@ prop_exactVersionUniqueness = property $ do
 
 -- Helper functions
 isSuccessfulInsertion :: InsertionResult backend -> Bool
-isSuccessfulInsertion (SuccessfulInsertion _) = True
+isSuccessfulInsertion (SuccessfulInsertion{}) = True
 isSuccessfulInsertion (FailedInsertion _) = False

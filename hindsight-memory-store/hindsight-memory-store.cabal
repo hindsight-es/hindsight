@@ -21,6 +21,7 @@ library
                       Hindsight.Store.Memory.Internal
     build-depends:    base,
                       aeson,
+                      async,
                       containers,
                       hindsight,
                       stm,

@@ -81,11 +81,11 @@ runLowContentionBenchmark runner backend = do
       -- Run concurrent insertions to different streams (low contention)
       forConcurrently_ [1..numConcurrent] $ \i -> do
         streamId <- StreamId <$> UUID.nextRandom
-        let events = Map.singleton streamId (StreamEventBatch Any [makeBenchEvent i (eventSizeBytes config)])
+        let events = Transaction $ Map.singleton streamId (StreamWrite Any [makeBenchEvent i (eventSizeBytes config)])
         result <- insertEvents backend Nothing events
         case result of
           FailedInsertion err -> throwIO $ BenchmarkError $ "Low contention insertion failed: " <> show err
-          SuccessfulInsertion _ -> pure ()
+          SuccessfulInsertion{} -> pure ()
   
   let totalEvents = numConcurrent * eventsPerTransaction config
       elapsedTime = case maybeLatency of
@@ -123,11 +123,11 @@ runHighContentionBenchmark runner backend = do
     withLatencyMeasurement numConcurrent $ do
       -- Run concurrent insertions to same stream (high contention)
       forConcurrently_ [1..numConcurrent] $ \i -> do
-        let events = Map.singleton sharedStreamId (StreamEventBatch Any [makeBenchEvent i (eventSizeBytes config)])
+        let events = Transaction $ Map.singleton sharedStreamId (StreamWrite Any [makeBenchEvent i (eventSizeBytes config)])
         result <- insertEvents backend Nothing events
         case result of
           FailedInsertion err -> throwIO $ BenchmarkError $ "High contention insertion failed: " <> show err
-          SuccessfulInsertion _ -> pure ()
+          SuccessfulInsertion{} -> pure ()
   
   let elapsedTime = case maybeLatency of
         Just lat -> lat
@@ -167,11 +167,11 @@ runMixedContentionBenchmark runner backend = do
       forConcurrently_ [1..numConcurrent] $ \i -> do
         -- Pick a stream (some contention but not maximum)
         let streamId = sharedStreams !! (i `mod` length sharedStreams)
-        let events = Map.singleton streamId (StreamEventBatch Any [makeBenchEvent i (eventSizeBytes config)])
+        let events = Transaction $ Map.singleton streamId (StreamWrite Any [makeBenchEvent i (eventSizeBytes config)])
         result <- insertEvents backend Nothing events
         case result of
           FailedInsertion err -> throwIO $ BenchmarkError $ "Mixed contention insertion failed: " <> show err
-          SuccessfulInsertion _ -> pure ()
+          SuccessfulInsertion{} -> pure ()
   
   let elapsedTime = case maybeLatency of
         Just lat -> lat
@@ -205,11 +205,11 @@ runLowContentionTest runner backend numConcurrent = do
   
   forConcurrently_ [1..numConcurrent] $ \i -> do
     streamId <- StreamId <$> UUID.nextRandom
-    let events = Map.singleton streamId (StreamEventBatch Any [makeBenchEvent i 100])
+    let events = Transaction $ Map.singleton streamId (StreamWrite Any [makeBenchEvent i 100])
     result <- insertEvents backend Nothing events
     case result of
       FailedInsertion err -> throwIO $ BenchmarkError $ "Insertion failed: " <> show err
-      SuccessfulInsertion _ -> pure ()
+      SuccessfulInsertion{} -> pure ()
   
   putStrLn "✓"
 
@@ -225,11 +225,11 @@ runHighContentionTest runner backend numConcurrent = do
   sharedStreamId <- StreamId <$> UUID.nextRandom
   
   forConcurrently_ [1..numConcurrent] $ \i -> do
-    let events = Map.singleton sharedStreamId (StreamEventBatch Any [makeBenchEvent i 100])
+    let events = Transaction $ Map.singleton sharedStreamId (StreamWrite Any [makeBenchEvent i 100])
     result <- insertEvents backend Nothing events
     case result of
       FailedInsertion err -> throwIO $ BenchmarkError $ "High contention insertion failed: " <> show err
-      SuccessfulInsertion _ -> pure ()
+      SuccessfulInsertion{} -> pure ()
   
   putStrLn "✓"
 
@@ -246,10 +246,10 @@ runMixedContentionTest runner backend numConcurrent = do
   
   forConcurrently_ [1..numConcurrent] $ \i -> do
     let streamId = sharedStreams !! (i `mod` length sharedStreams)
-    let events = Map.singleton streamId (StreamEventBatch Any [makeBenchEvent i 100])
+    let events = Transaction $ Map.singleton streamId (StreamWrite Any [makeBenchEvent i 100])
     result <- insertEvents backend Nothing events
     case result of
       FailedInsertion err -> throwIO $ BenchmarkError $ "Mixed contention insertion failed: " <> show err
-      SuccessfulInsertion _ -> pure ()
+      SuccessfulInsertion{} -> pure ()
   
   putStrLn "✓"

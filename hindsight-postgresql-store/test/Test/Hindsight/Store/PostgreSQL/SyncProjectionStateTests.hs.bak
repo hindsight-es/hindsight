@@ -1,0 +1,447 @@
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedRecordDot #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
+
+module Test.Hindsight.Store.PostgreSQL.SyncProjectionStateTests 
+  ( tests
+  ) where
+
+import Control.Exception (SomeException, try)
+import Control.Monad (forM_, forM_)
+import Data.Aeson qualified as Aeson
+import Data.ByteString.Char8 qualified as BS
+import Data.Int (Int32, Int64)
+import Data.Map.Strict qualified as Map
+import Data.Proxy (Proxy (..))
+import Data.Text (Text)
+import Data.UUID.V4 qualified as UUID
+import Database.Postgres.Temp qualified as Temp
+import Hasql.Decoders qualified as D
+import Hasql.Pool qualified as Pool
+import Hasql.Session qualified as Session
+import Hasql.Statement (Statement (..))
+import Hasql.Transaction qualified as Transaction
+import Test.Hindsight.Examples (UserCreated)
+import Hindsight.Projection (ProjectionId (..))
+import Hindsight.Projection.Matching (ProjectionHandlers (..))
+import Hindsight.Store.PostgreSQL
+import Hindsight.Store.PostgreSQL (getPool)
+import Hindsight.Store.PostgreSQL.Core.Schema qualified as SQLStore
+import Test.Hindsight.Store.Common (makeUserEvent)
+import Test.Tasty
+import Test.Tasty.HUnit
+
+tests :: TestTree
+tests = testGroup "Sync Projection State Tests"
+  [ testCase "Sync projections track state in database" testStateTracking
+  , testCase "Sync projections catch up on startup" testCatchUp
+  , testCase "Multiple sync projections track state independently" testMultipleProjections
+  , testCase "Failed projections are marked as inactive" testFailedProjections
+  , testCase "Store creation fails if catch-up fails" testStartupFailure
+  , testCase "Projections resume from last processed position" testResumeFromPosition
+  ]
+
+-- | Test that sync projections properly track their state
+testStateTracking :: IO ()
+testStateTracking = withTempDb $ \connStr -> do
+  streamId <- StreamId <$> UUID.nextRandom
+  
+  -- Create projection that tracks events
+  let projectionHandlers =
+        ( Proxy @UserCreated,
+          \EventWithMetadata {eventId = EventId eid} -> do
+            Transaction.sql $
+              "INSERT INTO test_projections (event_id) VALUES ('"
+                <> BS.pack (show eid)
+                <> "')"
+        )
+          :-> ProjectionEnd
+  
+  let registry = registerSyncProjection 
+        (ProjectionId "test-projection") 
+        projectionHandlers 
+        emptySyncProjectionRegistry
+  
+  -- Create store with projections
+  store <- newSQLStoreWithProjections connStr registry
+  
+  -- Create test table
+  _ <- Pool.use (getPool store) $ do
+    Session.sql "CREATE TABLE IF NOT EXISTS test_projections (event_id TEXT)"
+  
+  -- Insert some events
+  result1 <- insertEvents store Nothing $
+    Transaction (Map.singleton streamId (StreamWrite NoStream [makeUserEvent 1]))
+
+  _ <- insertEvents store Nothing $
+    Transaction (Map.singleton streamId (StreamWrite (cursorToExpectation result1) [makeUserEvent 2, makeUserEvent 3]))
+  
+  -- Check projection state in database
+  stateResult <- Pool.use (getPool store) $ Session.statement () getProjectionStateStmt
+  
+  case stateResult of
+    Left err -> assertFailure $ "Failed to query projection state: " ++ show err
+    Right states -> do
+      assertEqual "Should have one projection" 1 (length states)
+      case states of
+        (projId, mbCursor, isActive) : _ -> do
+          assertEqual "Projection ID should match" "test-projection" projId
+          case mbCursor of
+            Nothing -> assertFailure "Expected projection to have a cursor"
+            Just cursorJson -> case Aeson.fromJSON cursorJson :: Aeson.Result SQLCursor of
+              Aeson.Success (SQLCursor txNo seqNo) -> do
+                assertBool "Transaction number should be > 0" (txNo > 0)
+                -- With 2 events in the last transaction (indices 0, 1), the last seq_no is 1
+                assertEqual "Seq number should be 1 (last event in second transaction)" 1 seqNo
+              Aeson.Error err -> assertFailure $ "Failed to parse cursor: " ++ err
+          assertEqual "Projection should be active" True isActive
+        [] -> assertFailure "Expected at least one projection state"
+  
+  where
+    getProjectionStateStmt :: Statement () [(Text, Maybe Aeson.Value, Bool)]
+    getProjectionStateStmt = 
+      Statement
+        "SELECT id, head_position, is_active FROM projections ORDER BY id"
+        mempty
+        (D.rowList (row3 D.text (D.nullable D.jsonb) D.bool))
+        True
+    
+    row3 a b c = (,,) <$> D.column (D.nonNullable a) <*> D.column b <*> D.column (D.nonNullable c)
+
+-- | Test that sync projections catch up on startup
+testCatchUp :: IO ()
+testCatchUp = withTempDb $ \connStr -> do
+  streamId <- StreamId <$> UUID.nextRandom
+  
+  -- First, create a store without projections and insert events
+  store1 <- newSQLStore connStr
+  
+  -- Insert events without projections
+  _ <- insertEvents store1 Nothing $
+    Transaction (Map.singleton streamId (StreamWrite NoStream [makeUserEvent 1, makeUserEvent 2]))
+  
+  -- Create projection that counts calls
+  let projectionHandlers =
+        ( Proxy @UserCreated,
+          \EventWithMetadata {eventId = EventId eid} -> do
+            Transaction.sql $
+              "INSERT INTO test_projections (event_id) VALUES ('" 
+                <> BS.pack (show eid) 
+                <> "')"
+        )
+          :-> ProjectionEnd
+  
+  let registry = registerSyncProjection 
+        (ProjectionId "catch-up-projection") 
+        projectionHandlers 
+        emptySyncProjectionRegistry
+  
+  -- Create test table
+  _ <- Pool.use (getPool store1) $ do
+    Session.sql "CREATE TABLE IF NOT EXISTS test_projections (event_id TEXT)"
+  
+  -- Create new store with projections - should catch up
+  store2 <- newSQLStoreWithProjections connStr registry
+  
+  -- Check that projection was called for existing events by counting rows
+  countResult <- Pool.use (getPool store2) $ Session.statement () $
+    Statement
+      "SELECT COUNT(*) FROM test_projections"
+      mempty
+      (D.singleRow (D.column (D.nonNullable D.int8)))
+      True
+  
+  case countResult of
+    Left err -> assertFailure $ "Failed to count projections: " ++ show err
+    Right count -> assertEqual "Projection should have been called twice during catch-up" 2 count
+  
+  -- Check projection state
+  stateResult <- Pool.use (getPool store2) $ Session.statement () getProjectionStateStmt
+  
+  case stateResult of
+    Left err -> assertFailure $ "Failed to query projection state: " ++ show err
+    Right states -> do
+      assertEqual "Should have one projection" 1 (length states)
+      case states of
+        (_, mbCursor, isActive) : _ -> do
+          case mbCursor of
+            Nothing -> assertFailure "Expected projection to have a cursor"
+            Just cursorJson -> case Aeson.fromJSON cursorJson :: Aeson.Result SQLCursor of
+              Aeson.Success (SQLCursor txNo seqNo) -> do
+                assertBool "Transaction number should match inserted events" (txNo > 0)
+                assertEqual "Seq number should be 1 (for 2 events, 0-indexed)" 1 seqNo
+              Aeson.Error err -> assertFailure $ "Failed to parse cursor: " ++ err
+          assertEqual "Projection should be active" True isActive
+        [] -> assertFailure "Expected at least one projection state"
+  
+  where
+    getProjectionStateStmt :: Statement () [(Text, Maybe Aeson.Value, Bool)]
+    getProjectionStateStmt =
+      Statement
+        "SELECT id, head_position, is_active FROM projections WHERE id = 'catch-up-projection'"
+        mempty
+        (D.rowList (row3 D.text (D.nullable D.jsonb) D.bool))
+        True
+    
+    row3 a b c = (,,) <$> D.column (D.nonNullable a) <*> D.column b <*> D.column (D.nonNullable c)
+
+-- | Test multiple projections tracking state independently
+testMultipleProjections :: IO ()
+testMultipleProjections = withTempDb $ \connStr -> do
+  streamId <- StreamId <$> UUID.nextRandom
+  
+  -- Create two different projections for the same event type
+  let userProjection1 =
+        ( Proxy @UserCreated,
+          \_ -> Transaction.sql "INSERT INTO user_projections (id) VALUES (1)"
+        )
+          :-> ProjectionEnd
+  
+  let userProjection2 =
+        ( Proxy @UserCreated,
+          \_ -> Transaction.sql "INSERT INTO user_projections2 (id) VALUES (1)"
+        )
+          :-> ProjectionEnd
+  
+  let registry = 
+        registerSyncProjection (ProjectionId "user-proj-1") userProjection1 $
+        registerSyncProjection (ProjectionId "user-proj-2") userProjection2 $
+        emptySyncProjectionRegistry
+  
+  -- Create store
+  store <- newSQLStoreWithProjections connStr registry
+  
+  -- Create tables
+  _ <- Pool.use (getPool store) $ do
+    Session.sql "CREATE TABLE IF NOT EXISTS user_projections (id INT)"
+    Session.sql "CREATE TABLE IF NOT EXISTS user_projections2 (id INT)"
+  
+  -- Insert events
+  _ <- insertEvents store Nothing $
+    Transaction (Map.singleton streamId (StreamWrite NoStream
+      [makeUserEvent 1, makeUserEvent 2, makeUserEvent 3]))
+  
+  -- Check both projections have state
+  stateResult <- Pool.use (getPool store) $ Session.statement () getAllProjectionStatesStmt
+  
+  case stateResult of
+    Left err -> assertFailure $ "Failed to query projection states: " ++ show err
+    Right states -> do
+      assertEqual "Should have two projections" 2 (length states)
+      forM_ states $ \(_, mbCursor, isActive) -> do
+        case mbCursor of
+          Nothing -> assertFailure "Expected projection to have a cursor"
+          Just cursorJson -> case Aeson.fromJSON cursorJson :: Aeson.Result SQLCursor of
+            Aeson.Success (SQLCursor txNo seqNo) -> do
+              assertBool "Transaction number should be > 0" (txNo > 0)
+              assertEqual "Seq number should be 2" 2 seqNo
+            Aeson.Error err -> assertFailure $ "Failed to parse cursor: " ++ err
+        assertEqual "Projection should be active" True isActive
+  
+  where
+    getAllProjectionStatesStmt :: Statement () [(Text, Maybe Aeson.Value, Bool)]
+    getAllProjectionStatesStmt =
+      Statement
+        "SELECT id, head_position, is_active FROM projections ORDER BY id"
+        mempty
+        (D.rowList (row3 D.text (D.nullable D.jsonb) D.bool))
+        True
+    
+    row3 a b c = (,,) <$> D.column (D.nonNullable a) <*> D.column b <*> D.column (D.nonNullable c)
+
+-- | Test that failed projections are marked as inactive
+testFailedProjections :: IO ()
+testFailedProjections = withTempDb $ \connStr -> do
+  streamId <- StreamId <$> UUID.nextRandom
+  
+  -- Create a projection that always fails
+  let failingProjection =
+        ( Proxy @UserCreated,
+          \_ -> do
+            Transaction.condemn
+            error "Projection failure!"
+        )
+          :-> ProjectionEnd
+  
+  let registry = registerSyncProjection 
+        (ProjectionId "failing-projection") 
+        failingProjection 
+        emptySyncProjectionRegistry
+  
+  -- Try to create store and insert - should fail
+  tryResult <- try $ do
+    store <- newSQLStoreWithProjections connStr registry
+    insertEvents store Nothing $
+      Transaction (Map.singleton streamId (StreamWrite NoStream [makeUserEvent 1]))
+  
+  case tryResult of
+    Right _ -> assertFailure "Should have failed due to failing projection"
+    Left (_ :: SomeException) -> assertBool "Got expected exception" True
+  
+  -- Note: In the current implementation, sync projections that fail
+  -- cause the entire transaction to roll back, so the projection state
+  -- won't be updated to show failure. This test documents current behavior.
+
+-- | Test that store creation fails if catch-up fails
+testStartupFailure :: IO ()
+testStartupFailure = withTempDb $ \connStr -> do
+  streamId <- StreamId <$> UUID.nextRandom
+  
+  -- First, insert events without projections
+  store1 <- newSQLStore connStr
+  _ <- insertEvents store1 Nothing $
+    Transaction (Map.singleton streamId (StreamWrite NoStream [makeUserEvent 1]))
+  
+  -- Create a projection that always fails
+  let failingProjection =
+        ( Proxy @UserCreated,
+          \_ -> do
+            Transaction.condemn
+            error "Always fails!"
+        )
+          :-> ProjectionEnd
+  
+  let registry = registerSyncProjection 
+        (ProjectionId "always-failing") 
+        failingProjection 
+        emptySyncProjectionRegistry
+  
+  -- Try to create store - should fail during catch-up
+  tryResult <- try $ newSQLStoreWithProjections connStr registry
+  
+  case tryResult of
+    Right _ -> assertFailure "Store creation should fail when catch-up fails"
+    Left (_ :: SomeException) -> assertBool "Should get startup error" True
+
+-- | Test that projections resume from their last processed position
+testResumeFromPosition :: IO ()
+testResumeFromPosition = withTempDb $ \connStr -> do
+  streamId <- StreamId <$> UUID.nextRandom
+  
+  -- Create projection that tracks events in a table
+  let trackingProjection =
+        ( Proxy @UserCreated,
+          \EventWithMetadata {eventId = EventId eid} -> do
+            Transaction.sql $
+              "INSERT INTO tracked_events (event_id) VALUES ('" 
+                <> BS.pack (show eid) 
+                <> "')"
+        )
+          :-> ProjectionEnd
+  
+  let registry = registerSyncProjection 
+        (ProjectionId "resume-projection") 
+        trackingProjection 
+        emptySyncProjectionRegistry
+  
+  -- Create tables
+  store <- newSQLStore connStr
+  _ <- Pool.use (getPool store) $ do
+    Session.sql "CREATE TABLE IF NOT EXISTS tracked_events (event_id TEXT)"
+  
+  -- Create store and insert some events
+  store1 <- newSQLStoreWithProjections connStr registry
+  result1 <- insertEvents store1 Nothing $
+    Transaction (Map.singleton streamId (StreamWrite NoStream [makeUserEvent 1, makeUserEvent 2]))
+  
+  -- Check the events that were processed
+  countResult1 <- Pool.use (getPool store1) $ Session.statement () $
+    Statement
+      "SELECT COUNT(*) FROM tracked_events"
+      mempty
+      (D.singleRow (D.column (D.nonNullable D.int8)))
+      True
+  
+  case countResult1 of
+    Left err -> assertFailure $ "Failed to count events: " ++ show err
+    Right count -> assertEqual "Should have processed 2 events" 2 count
+  
+  -- Clear the table to simulate tracking from scratch
+  _ <- Pool.use (getPool store1) $ Session.sql "DELETE FROM tracked_events"
+  
+  -- Create new store instance - should not reprocess old events during catch-up
+  store2 <- newSQLStoreWithProjections connStr registry
+  
+  countResult2 <- Pool.use (getPool store2) $ Session.statement () $
+    Statement
+      "SELECT COUNT(*) FROM tracked_events"
+      mempty
+      (D.singleRow (D.column (D.nonNullable D.int8)))
+      True
+  
+  case countResult2 of
+    Left err -> assertFailure $ "Failed to count events: " ++ show err
+    Right count -> assertEqual "Should not reprocess events on restart" 0 count
+  
+  -- Insert new events
+  _ <- insertEvents store2 Nothing $
+    Transaction (Map.singleton streamId (StreamWrite (cursorToExpectation result1) [makeUserEvent 3]))
+  
+  countResult3 <- Pool.use (getPool store2) $ Session.statement () $
+    Statement
+      "SELECT COUNT(*) FROM tracked_events"
+      mempty
+      (D.singleRow (D.column (D.nonNullable D.int8)))
+      True
+  
+  case countResult3 of
+    Left err -> assertFailure $ "Failed to count events: " ++ show err
+    Right count -> assertEqual "Should process only new event" 1 count
+
+-- Helper functions
+
+withTempDb :: (BS.ByteString -> IO a) -> IO a
+withTempDb action = do
+  let config =
+        Temp.defaultConfig
+          <> mempty
+            { Temp.postgresConfigFile =
+                [ ("log_min_messages", "FATAL"),
+                  ("log_min_error_statement", "FATAL"),
+                  ("client_min_messages", "ERROR")
+                ]
+            }
+  
+  result <- Temp.withConfig config $ \db -> do
+    let connStr = Temp.toConnectionString db
+    
+    -- Initialize schema
+    store <- newSQLStore connStr
+    _ <- Pool.use (getPool store) SQLStore.createSchema
+    
+    -- The schema file now includes projections table, but let's ensure it exists
+    -- This is only needed if the schema file hasn't been updated yet
+    _ <- Pool.use (getPool store) $ Session.sql $ BS.pack $ unlines
+      [ "CREATE TABLE IF NOT EXISTS projections ("
+      , "    id TEXT PRIMARY KEY,"
+      , "    last_processed_transaction_no BIGINT NOT NULL DEFAULT 0,"
+      , "    last_processed_seq_no INT NOT NULL DEFAULT 0,"
+      , "    last_updated TIMESTAMPTZ NOT NULL DEFAULT NOW(),"
+      , "    is_active BOOLEAN NOT NULL DEFAULT true,"
+      , "    error_message TEXT,"
+      , "    error_timestamp TIMESTAMPTZ,"
+      , "    CONSTRAINT projections_cursor"
+      , "        FOREIGN KEY (last_processed_transaction_no)"
+      , "        REFERENCES event_transactions (transaction_no)"
+      , "        DEFERRABLE INITIALLY DEFERRED"
+      , ");"
+      , ""
+      , "CREATE INDEX IF NOT EXISTS idx_projections_active"
+      , "    ON projections (is_active)"
+      , "    WHERE is_active = true;"
+      ]
+    
+    -- Run the action
+    action connStr
+  
+  case result of
+    Left err -> error $ "Failed to start PostgreSQL: " ++ show err
+    Right val -> pure val
+
+cursorToExpectation :: InsertionResult backend -> ExpectedVersion backend
+cursorToExpectation (SuccessfulInsertion cursor) = ExactVersion cursor
+cursorToExpectation _ = NoStream

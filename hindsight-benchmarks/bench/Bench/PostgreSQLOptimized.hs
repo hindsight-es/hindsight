@@ -40,7 +40,7 @@ optimizedPostgreSQLBenchmarks = do
                 let event = makeBenchEvent 1 mediumEventSize
                 result <-
                   insertEvents backend Nothing $
-                    Map.singleton streamId (StreamEventBatch Any [event])
+                    Transaction $ Map.singleton streamId (StreamWrite Any [event])
                 case result of
                   SuccessfulInsertion _ -> pure ()
                   FailedInsertion err -> error $ "PostgreSQL insertion failed: " <> show err,
@@ -49,7 +49,7 @@ optimizedPostgreSQLBenchmarks = do
                 let events = makeBenchEventBatch 10 mediumEventSize
                 result <-
                   insertEvents backend Nothing $
-                    Map.singleton streamId (StreamEventBatch Any events)
+                    Transaction $ Map.singleton streamId (StreamWrite Any events)
                 case result of
                   SuccessfulInsertion _ -> pure ()
                   FailedInsertion err -> error $ "PostgreSQL batch insertion failed: " <> show err,
@@ -58,7 +58,7 @@ optimizedPostgreSQLBenchmarks = do
                 let events = makeBenchEventBatch 100 mediumEventSize
                 result <-
                   insertEvents backend Nothing $
-                    Map.singleton streamId (StreamEventBatch Any events)
+                    Transaction $ Map.singleton streamId (StreamWrite Any events)
                 case result of
                   SuccessfulInsertion _ -> pure ()
                   FailedInsertion err -> error $ "PostgreSQL batch insertion failed: " <> show err

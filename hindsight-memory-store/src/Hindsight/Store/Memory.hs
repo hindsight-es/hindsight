@@ -86,8 +86,9 @@ data MemoryStore
 instance EventStore MemoryStore where
   type StoreConstraints MemoryStore m = (MonadUnliftIO m)
 
-  insertEvents handle corrId batches = liftIO $ do
+  insertEvents handle corrId transaction = liftIO $ do
     -- First perform the basic insertion
+    let batches = transaction.transactionWrites
     now <- getCurrentTime
     eventIds <- forM [1 .. totalEvents] $ \_ -> EventId <$> UUID.nextRandom
 
@@ -99,7 +100,7 @@ instance EventStore MemoryStore where
         Left mismatch -> pure $ FailedInsertion mismatch
         Right () -> do
           -- Perform insertion
-          let (newState, finalCursor) = insertAllEvents state corrId now eventIds batches
+          let (newState, finalCursor, streamCursors) = insertAllEvents state corrId now eventIds batches
           writeTVar handle.stateVar newState
 
           -- Notify listeners
@@ -108,8 +109,12 @@ instance EventStore MemoryStore where
               writeTVar var (getSequenceNo finalCursor)
           writeTVar state.globalNotification (getSequenceNo finalCursor)
 
-          pure $ SuccessfulInsertion finalCursor
+          pure $ SuccessfulInsertion
+            { finalCursor = finalCursor
+            , streamCursors = streamCursors
+            }
     where
+      batches = transaction.transactionWrites
       totalEvents = sum $ map (length . (.events)) $ Map.elems batches
 
   subscribe handle matcher selector = subscribeToEvents handle.stateVar matcher selector

@@ -42,7 +42,7 @@ memoryBenchmarks =
               let event = makeBenchEvent 1 mediumEventSize
               result <-
                 insertEvents backend Nothing $
-                  Map.singleton streamId (StreamEventBatch Any [event])
+                  Transaction $ Map.singleton streamId (StreamWrite Any [event])
               case result of
                 SuccessfulInsertion _ -> pure ()
                 FailedInsertion err -> error $ "Memory insertion failed: " <> show err,
@@ -54,7 +54,7 @@ memoryBenchmarks =
               let events = makeBenchEventBatch 10 mediumEventSize
               result <-
                 insertEvents backend Nothing $
-                  Map.singleton streamId (StreamEventBatch Any events)
+                  Transaction $ Map.singleton streamId (StreamWrite Any events)
               case result of
                 SuccessfulInsertion _ -> pure ()
                 FailedInsertion err -> error $ "Memory batch insertion failed: " <> show err
@@ -72,7 +72,7 @@ filesystemBenchmarks =
               let event = makeBenchEvent 1 mediumEventSize
               result <-
                 insertEvents backend Nothing $
-                  Map.singleton streamId (StreamEventBatch Any [event])
+                  Transaction $ Map.singleton streamId (StreamWrite Any [event])
               case result of
                 SuccessfulInsertion _ -> pure ()
                 FailedInsertion err -> error $ "Filesystem insertion failed: " <> show err,
@@ -84,7 +84,7 @@ filesystemBenchmarks =
               let events = makeBenchEventBatch 10 mediumEventSize
               result <-
                 insertEvents backend Nothing $
-                  Map.singleton streamId (StreamEventBatch Any events)
+                  Transaction $ Map.singleton streamId (StreamWrite Any events)
               case result of
                 SuccessfulInsertion _ -> pure ()
                 FailedInsertion err -> error $ "Filesystem batch insertion failed: " <> show err
@@ -102,7 +102,7 @@ postgresqlBenchmarks =
               let event = makeBenchEvent 1 mediumEventSize
               result <-
                 insertEvents backend Nothing $
-                  Map.singleton streamId (StreamEventBatch Any [event])
+                  Transaction $ Map.singleton streamId (StreamWrite Any [event])
               case result of
                 SuccessfulInsertion _ -> pure ()
                 FailedInsertion err -> error $ "PostgreSQL insertion failed: " <> show err,
@@ -115,7 +115,7 @@ postgresqlBenchmarks =
                   let event = makeBenchEvent 1 mediumEventSize
                   result <-
                     insertEvents backend Nothing $
-                      Map.singleton streamId (StreamEventBatch Any [event])
+                      Transaction $ Map.singleton streamId (StreamWrite Any [event])
                   case result of
                     SuccessfulInsertion _ -> pure ()
                     FailedInsertion err -> error $ "PostgreSQL insertion failed: " <> show err,
@@ -127,7 +127,7 @@ postgresqlBenchmarks =
                   let events = makeBenchEventBatch 10 mediumEventSize
                   result <-
                     insertEvents backend Nothing $
-                      Map.singleton streamId (StreamEventBatch Any events)
+                      Transaction $ Map.singleton streamId (StreamWrite Any events)
                   case result of
                     SuccessfulInsertion _ -> pure ()
                     FailedInsertion err -> error $ "PostgreSQL batch insertion failed: " <> show err

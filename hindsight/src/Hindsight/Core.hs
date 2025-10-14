@@ -25,8 +25,109 @@ This module provides the core type-level machinery for Hindsight's event system.
 It enables compile-time event versioning, automatic serialization, and safe
 event evolution over time.
 
+= Overview
+
+Hindsight uses type-level programming to provide compile-time guarantees about
+event versioning and upgrades. Events are identified by type-level strings
+('Symbol's) and can have multiple payload versions that evolve over time.
+
+= Quick Start
+
+To define an event:
+
+@
+type instance MaxVersion \"user_created\" = 0
+type instance Versions \"user_created\" = FirstVersion UserCreated
+
+instance Event \"user_created\"
+instance UpgradableToLatest \"user_created\" 0 where
+  upgradeToLatest = id
+@
+
+Then use 'mkEvent' to create event values:
+
+@
+event = mkEvent \"user_created\" (UserCreated userId name)
+@
+
+= Advanced Usage
+
+For multi-version events with migrations, see the tutorial documentation
+and examples in the hindsight-tutorials package.
 -}
-module Hindsight.Core where
+module Hindsight.Core
+  ( -- * Event Definition
+    -- | Core types and constraints for defining events.
+    Event,
+    IsEvent,
+    SomeLatestEvent (..),
+    mkEvent,
+
+    -- ** Event Names
+    getEventName,
+
+    -- * Event Versioning
+    -- | Type families for specifying event versions.
+    --
+    -- Use 'MaxVersion' to declare the latest version number, and 'Versions'
+    -- to specify the payload types for each version.
+    MaxVersion,
+    Versions,
+    CurrentPayloadType,
+
+    -- ** Version Vector Construction
+    -- | Operators and helpers for building version type vectors.
+    --
+    -- For single-version events, use 'FirstVersion'. For multi-version events,
+    -- combine types with '(:>>)' and '(:>|)'.
+    EventVersions (..),
+    FirstVersion,
+    (:>|),
+    (:>>),
+
+    -- * Upgrade System
+    -- | Types and classes for upgrading old event versions to the latest.
+    UpgradableToLatest (..),
+    FinalVersionType,
+    PayloadVersion,
+    PayloadAtVersion,
+
+    -- * Serialization Constraints
+    -- | Type constraints for JSON serialization.
+    Serializable,
+
+    -- * Advanced Type-Level Utilities
+    -- | These are primarily for internal use or advanced scenarios.
+    --
+    -- Most users won't need to reference these directly.
+
+    -- ** Peano Numbers
+    PeanoNat (..),
+    ReifiablePeanoNat (..),
+    ToPeanoNat,
+    FromPeanoNat,
+
+    -- ** Version Constraints
+    Dict (..),
+    VersionConstraints (..),
+    ValidPayloadForVersion (..),
+    HasEvidenceList,
+    HasFullEvidenceList,
+    getPayloadEvidence,
+
+    -- ** Type-Level Utilities
+    VersionPayloadRequirements,
+    ValidateVersionBound,
+    AssertVersionInRange,
+    PeanoEqual,
+
+    -- * Parsing Utilities
+    -- | Internal parsing functions - typically used by store implementations.
+    parseMap,
+    parseMapFromProxy,
+    getMaxVersion,
+  )
+where
 
 import Data.Aeson (FromJSON (parseJSON), ToJSON, Value)
 import Data.Aeson.Types qualified as Aeson
@@ -140,13 +241,6 @@ type family Versions (event :: Symbol) :: EventVersions PeanoZero (PeanoSucc (To
 
 -- | Core type class for versioned events using Symbol directly
 class (KnownSymbol event) => Event (event :: Symbol)
-
--- | Simplified vector helpers for common cases
-type V1 t = FirstVersion t
-type V2 t0 t1 = t0 :>| t1
-type V3 t0 t1 t2 = t0 :>> t1 :>| t2
-type V4 t0 t1 t2 t3 = t0 :>> t1 :>> t2 :>| t3
-type V5 t0 t1 t2 t3 t4 = t0 :>> t1 :>> t2 :>> t3 :>| t4
 
 -- | Type constraint for events using Symbol directly
 type IsEvent (event :: Symbol) =
@@ -284,7 +378,6 @@ data SomeLatestEvent = forall event. (IsEvent event, Typeable event) => SomeLate
 -- >>> SomeLatestEvent (Proxy @UserRegistered) (UserInfo "U001" "Alice")
 mkEvent :: forall (event :: Symbol) -> IsEvent event => CurrentPayloadType event -> SomeLatestEvent
 mkEvent event payload = SomeLatestEvent (Proxy @event) payload
-
 
 -- | Parse map for Symbol-based events
 parseMap :: forall event. (IsEvent event) => Map Int (Value -> Aeson.Parser (CurrentPayloadType event))

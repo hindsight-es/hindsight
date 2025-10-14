@@ -16,7 +16,7 @@ import Database.Postgres.Temp qualified as Temp
 import Hasql.Pool qualified as Pool
 import Hasql.Session qualified as Session
 import Hasql.Transaction.Sessions qualified as Sessions
-import Hindsight.Store (ExpectedVersion (..), InsertionResult (..), StreamEventBatch (..), StreamId (..), insertEvents)
+import Hindsight.Store (ExpectedVersion (..), InsertionResult (..), StreamWrite (..), StreamId (..), insertEvents)
 import Hindsight.Store.PostgreSQL (SQLStore, SQLStoreHandle (..), newSQLStore)
 import Hindsight.Store.PostgreSQL.Core.Schema qualified as SQLStore
 
@@ -47,7 +47,7 @@ concurrentInsertionBenchmark numConcurrent = do
   -- Create concurrent insertions that might conflict
   let createInsertion i = do
         streamId <- StreamId <$> UUID.nextRandom
-        let events = Map.singleton streamId (StreamEventBatch Any [makeBenchEvent i 100])
+        let events = Map.singleton streamId (StreamWrite Any [makeBenchEvent i 100])
         result <- insertEvents backend Nothing events
         case result of
           FailedInsertion err -> throwIO $ BenchmarkError $ "Insertion failed: " <> show err
@@ -68,7 +68,7 @@ highContentionBenchmark numConcurrent = do
   sharedStreamId <- StreamId <$> UUID.nextRandom
 
   let createInsertion i = do
-        let events = Map.singleton sharedStreamId (StreamEventBatch Any [makeBenchEvent i 100])
+        let events = Map.singleton sharedStreamId (StreamWrite Any [makeBenchEvent i 100])
         result <- insertEvents backend Nothing events
         case result of
           FailedInsertion err -> throwIO $ BenchmarkError $ "High contention insertion failed: " <> show err
@@ -91,7 +91,7 @@ mixedContentionBenchmark numConcurrent = do
   let createInsertion i = do
         -- Pick a stream (some contention but not maximum)
         let streamId = sharedStreams !! (i `mod` length sharedStreams)
-        let events = Map.singleton streamId (StreamEventBatch Any [makeBenchEvent i 100])
+        let events = Map.singleton streamId (StreamWrite Any [makeBenchEvent i 100])
         result <- insertEvents backend Nothing events
         case result of
           FailedInsertion err -> throwIO $ BenchmarkError $ "Mixed contention insertion failed: " <> show err

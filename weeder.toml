@@ -15,13 +15,15 @@ roots = [
   "^Core\\..*",           # Benchmark core utilities (metrics, etc)
   "^Scenarios\\..*",      # Benchmark scenarios
   "^Bench\\..*",          # Legacy benchmark modules
+  "^Analysis\\..*",       # Benchmark CSV analysis utilities
+
+  # Internal modules used by backend implementations (cross-package usage)
+  # These are exported from hindsight package but used by store backends
+  "^Hindsight\\.Store\\.Internal\\..*",
 ]
 
 type-class-roots = true
 
 
 unused-types = true
-
-# Template Haskell modules - functions are used at compile-time but weeder can't detect this
-root-modules = ["Hindsight.TH"]
 

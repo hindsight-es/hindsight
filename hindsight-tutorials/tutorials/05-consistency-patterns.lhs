@@ -83,21 +83,65 @@ demoAny = do
 
   -- First insert - Any always succeeds
   result1 <- insertEvents store Nothing $
-    Map.singleton streamId (StreamEventBatch Any [increment "C1" 1])
+    singleEvent streamId Any (increment "C1" 1)
 
   putStrLn $ "  First insert: " <> case result1 of
-    SuccessfulInsertion _ -> "✓ Success"
+    SuccessfulInsertion{} -> "✓ Success"
     FailedInsertion err -> "✗ Failed: " <> show err
 
   -- Second insert - Any always succeeds (no version check)
   result2 <- insertEvents store Nothing $
-    Map.singleton streamId (StreamEventBatch Any [increment "C1" 2])
+    singleEvent streamId Any (increment "C1" 2)
 
   putStrLn $ "  Second insert: " <> case result2 of
-    SuccessfulInsertion _ -> "✓ Success (no conflict check)"
+    SuccessfulInsertion{} -> "✓ Success (no conflict check)"
     FailedInsertion err -> "✗ Failed: " <> show err
 
   putStrLn "  → Use 'Any' when you don't care about conflicts\n"
+\end{code}
+
+Helper Functions
+----------------
+
+For common patterns, Hindsight provides convenience helpers that wrap `singleEvent`:
+
+\begin{code}
+demoHelpers :: IO ()
+demoHelpers = do
+  putStrLn "=== Helper Functions ==="
+
+  store <- newMemoryStore
+  streamId <- StreamId <$> UUID.nextRandom
+
+  -- appendToOrCreateStream: Wrapper for 'Any' expectation
+  -- Creates stream if needed, appends if it exists
+  result1 <- insertEvents store Nothing $
+    appendToOrCreateStream streamId (increment "C1b" 1)
+
+  putStrLn $ "  appendToOrCreateStream: " <> case result1 of
+    SuccessfulInsertion{} -> "✓ Success (create or append)"
+    FailedInsertion err -> "✗ Failed: " <> show err
+
+  -- appendAfterAny: Wrapper for 'StreamExists' expectation
+  -- Stream MUST exist, but any version is OK
+  result2 <- insertEvents store Nothing $
+    appendAfterAny streamId (increment "C1b" 2)
+
+  putStrLn $ "  appendAfterAny: " <> case result2 of
+    SuccessfulInsertion{} -> "✓ Success (stream exists, append OK)"
+    FailedInsertion err -> "✗ Failed: " <> show err
+
+  -- Try appendAfterAny on non-existent stream
+  newStreamId <- StreamId <$> UUID.nextRandom
+  result3 <- insertEvents store Nothing $
+    appendAfterAny newStreamId (increment "C1b" 3)
+
+  putStrLn $ "  appendAfterAny (no stream): " <> case result3 of
+    SuccessfulInsertion{} -> "✓ Success"
+    FailedInsertion (ConsistencyError _) -> "✗ Failed (stream doesn't exist) ← Expected!"
+    FailedInsertion err -> "✗ Failed: " <> show err
+
+  putStrLn "  → Use helpers for clearer intent\n"
 \end{code}
 
 Pattern 2: NoStream (Must Be New)
@@ -115,18 +159,18 @@ demoNoStream = do
 
   -- First insert - succeeds (stream doesn't exist)
   result1 <- insertEvents store Nothing $
-    Map.singleton streamId (StreamEventBatch NoStream [increment "C2" 1])
+    singleEvent streamId NoStream (increment "C2" 1)
 
   putStrLn $ "  First insert: " <> case result1 of
-    SuccessfulInsertion _ -> "✓ Success (stream created)"
+    SuccessfulInsertion{} -> "✓ Success (stream created)"
     FailedInsertion err -> "✗ Failed: " <> show err
 
   -- Second insert - FAILS (stream now exists!)
   result2 <- insertEvents store Nothing $
-    Map.singleton streamId (StreamEventBatch NoStream [increment "C2" 2])
+    singleEvent streamId NoStream (increment "C2" 2)
 
   putStrLn $ "  Second insert: " <> case result2 of
-    SuccessfulInsertion _ -> "✓ Success"
+    SuccessfulInsertion{} -> "✓ Success"
     FailedInsertion (ConsistencyError _) -> "✗ Failed (stream already exists) ← Expected!"
     FailedInsertion err -> "✗ Failed: " <> show err
 
@@ -148,26 +192,26 @@ demoExactVersion = do
 
   -- Create the stream (version will be 0 after this)
   result1 <- insertEvents store Nothing $
-    Map.singleton streamId (StreamEventBatch NoStream [increment "C3" 1])
+    singleEvent streamId NoStream (increment "C3" 1)
 
   case result1 of
-    SuccessfulInsertion cursor -> do
+    SuccessfulInsertion{finalCursor = cursor} -> do
       putStrLn $ "  Created stream, cursor: " <> show cursor
 
       -- Append expecting the cursor we just got
       result2 <- insertEvents store Nothing $
-        Map.singleton streamId (StreamEventBatch (ExactVersion cursor) [increment "C3" 2])
+        singleEvent streamId (ExactVersion cursor) (increment "C3" 2)
 
       case result2 of
-        SuccessfulInsertion cursor2 -> do
+        SuccessfulInsertion{finalCursor = cursor2} -> do
           putStrLn $ "  Append at cursor: ✓ Success"
 
           -- Try to append at old cursor again - FAILS (stream moved forward)
           result3 <- insertEvents store Nothing $
-            Map.singleton streamId (StreamEventBatch (ExactVersion cursor) [increment "C3" 3])
+            singleEvent streamId (ExactVersion cursor) (increment "C3" 3)
 
           putStrLn $ "  Append at old cursor: " <> case result3 of
-            SuccessfulInsertion _ -> "✓ Success"
+            SuccessfulInsertion{} -> "✓ Success"
             FailedInsertion (ConsistencyError _) -> "✗ Failed (wrong version) ← Expected!"
             FailedInsertion err -> "✗ Failed: " <> show err
 
@@ -197,7 +241,7 @@ readModifyWrite = do
 
   -- 3. Try to append, expecting the version we read
   result <- insertEvents store Nothing $
-    Map.singleton streamId (StreamEventBatch (ExactVersion currentVersion) [newEvent])
+    Map.singleton streamId (StreamWrite (ExactVersion currentVersion) [newEvent])
 
   case result of
     SuccessfulInsertion _ ->
@@ -222,6 +266,7 @@ main = do
   putStrLn ""
 
   demoAny
+  demoHelpers
   demoNoStream
   demoExactVersion
 

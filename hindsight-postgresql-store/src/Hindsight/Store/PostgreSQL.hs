@@ -125,17 +125,17 @@ instance EventStore SQLStore where
   type StoreConstraints SQLStore m = MonadUnliftIO m
 
   -- | Insert events using the sync projection infrastructure.
-  -- 
+  --
   -- This function automatically uses the sync projection registry from the handle,
   -- ensuring any registered sync projections are executed during insertion.
   insertEvents ::
     (Traversable t, MonadUnliftIO m) =>
     BackendHandle SQLStore ->
     Maybe CorrelationId ->
-    Map StreamId (StreamEventBatch t SomeLatestEvent SQLStore) ->
+    Transaction t SQLStore ->
     m (InsertionResult SQLStore)
-  insertEvents handle corrId batches =
-    insertEventsWithSyncProjections handle handle.syncProjectionRegistry corrId batches
+  insertEvents handle corrId transaction =
+    insertEventsWithSyncProjections handle handle.syncProjectionRegistry corrId transaction
 
   subscribe handle matcher selector = Subscription.subscribe handle matcher selector
 
@@ -156,9 +156,9 @@ insertEventsWithSyncProjections ::
   SQLStoreHandle ->
   SyncProjectionRegistry ->
   Maybe CorrelationId ->
-  Map StreamId (StreamEventBatch t SomeLatestEvent SQLStore) ->
+  Transaction t SQLStore ->
   m (InsertionResult SQLStore)
-insertEventsWithSyncProjections handle syncRegistry corrId batches = liftIO $ do
+insertEventsWithSyncProjections handle syncRegistry corrId (Transaction batches) = liftIO $ do
   -- Create transaction that will insert events and run sync projections
   tx <- Insertion.insertEventsWithSyncProjections syncRegistry corrId batches
 
@@ -188,8 +188,10 @@ insertEventsWithSyncProjections handle syncRegistry corrId batches = liftIO $ do
       pure $ FailedInsertion err
     -- Handle success
     Right (Right insertedEvents) ->
-      let cursor = Insertion.finalCursor insertedEvents
-       in pure $ SuccessfulInsertion cursor
+      pure $ SuccessfulInsertion
+        { finalCursor = Insertion.finalCursor insertedEvents
+        , streamCursors = Insertion.streamCursors insertedEvents
+        }
 
 -- | Shutdown the SQL store gracefully
 --

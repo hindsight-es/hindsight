@@ -42,10 +42,9 @@ import Data.UUID.V4 qualified as UUID
 import Hasql.Decoders qualified as D
 import Hasql.Encoders qualified as E
 import Hasql.Statement (Statement (..))
-import Hasql.Transaction (Transaction)
-import Hasql.Transaction qualified as Transaction
+import Hasql.Transaction qualified as HasqlTransaction
 import Hindsight.Core (SomeLatestEvent (..), getMaxVersion, getEventName)
-import Hindsight.Store (CorrelationId (..), EventId (..), EventEnvelope(..), StreamEventBatch (..), StreamId (..), StreamVersion (..))
+import Hindsight.Store (CorrelationId (..), EventId (..), EventEnvelope(..), StreamWrite (..), StreamId (..), StreamVersion (..))
 import Hindsight.Store.PostgreSQL.Core.Types (SQLCursor (..), SQLStore, SyncProjectionRegistry (..))
 import Hindsight.Store.PostgreSQL.Projections.Sync (executeSyncProjectionForEvent)
 import Hindsight.Store.PostgreSQL.Projections.State (updateSyncProjectionState)
@@ -55,6 +54,7 @@ import Hindsight.Store.PostgreSQL.Projections.State (updateSyncProjectionState)
 -- | Result of event insertion
 data InsertedEvents = InsertedEvents
   { finalCursor :: SQLCursor,
+    streamCursors :: Map StreamId SQLCursor,  -- ^ Per-stream final cursors
     insertedStreamIds :: [StreamId],
     eventIds :: [UUID],
     createdAt :: UTCTime,
@@ -131,22 +131,22 @@ getCurrentStreamVersionStmt = Statement sql encoder decoder True
 -- * Helper functions
 
 -- | Calculate stream versions for events based on current stream state
-calculateStreamVersions :: 
-  Map StreamId (StreamEventBatch t SomeLatestEvent SQLStore) -> 
-  Transaction (Map StreamId StreamVersion)
+calculateStreamVersions ::
+  Map StreamId (StreamWrite t SomeLatestEvent SQLStore) ->
+  HasqlTransaction.Transaction (Map StreamId StreamVersion)
 calculateStreamVersions eventBatches = do
   -- Get current stream versions for all streams
   currentVersions <- mapM getCurrentStreamVersion (Map.keys eventBatches)
   pure $ Map.fromList $ zip (Map.keys eventBatches) currentVersions
   where
-    getCurrentStreamVersion :: StreamId -> Transaction StreamVersion
+    getCurrentStreamVersion :: StreamId -> HasqlTransaction.Transaction StreamVersion
     getCurrentStreamVersion (StreamId streamUUID) = do
-      result <- Transaction.statement streamUUID getCurrentStreamVersionStmt
+      result <- HasqlTransaction.statement streamUUID getCurrentStreamVersionStmt
       pure $ maybe (StreamVersion 0) id result
 
 -- | Calculate next stream versions for each stream
 nextStreamVersions :: Foldable t =>
-  Map StreamId (StreamEventBatch t SomeLatestEvent SQLStore) -> 
+  Map StreamId (StreamWrite t SomeLatestEvent SQLStore) -> 
   Map StreamId StreamVersion -> 
   Map StreamId [StreamVersion]
 nextStreamVersions eventBatches currentVersions =
@@ -165,8 +165,8 @@ insertEventsWithSyncProjections ::
   (Traversable t) =>
   SyncProjectionRegistry ->
   Maybe CorrelationId ->
-  Map StreamId (StreamEventBatch t SomeLatestEvent SQLStore) ->
-  IO (Transaction InsertedEvents)
+  Map StreamId (StreamWrite t SomeLatestEvent SQLStore) ->
+  IO (HasqlTransaction.Transaction InsertedEvents)
 insertEventsWithSyncProjections syncRegistry correlationId eventBatches = do
   -- Generate metadata once
   eventIds <- replicateM totalEventCount UUID.nextRandom
@@ -175,10 +175,10 @@ insertEventsWithSyncProjections syncRegistry correlationId eventBatches = do
   pure $ do
     -- Get transaction number first (single round-trip)
     -- MVCC handles transaction visibility automatically  
-    txNo <- Transaction.statement () getTransactionNumber
+    txNo <- HasqlTransaction.statement () getTransactionNumber
     
     -- Insert transaction number into event_transactions table
-    Transaction.statement txNo insertTransactionNumber
+    HasqlTransaction.statement txNo insertTransactionNumber
 
     -- Calculate current stream versions and determine next versions
     currentVersions <- calculateStreamVersions eventBatches
@@ -186,9 +186,14 @@ insertEventsWithSyncProjections syncRegistry correlationId eventBatches = do
 
     -- Process all events in a single traversal, generating EventWithMetadata for each
     -- Sync projections receive identical metadata to what's persisted
-    processEventsWithUnifiedMetadata syncRegistry correlationId eventIds createdAt streamVersionMap txNo eventBatches
+    streamHeadMetadata <- processEventsWithUnifiedMetadata syncRegistry correlationId eventIds createdAt streamVersionMap txNo eventBatches
 
-    -- Return final cursor and updated streams  
+    -- Compute per-stream cursors from stream head metadata
+    let perStreamCursors = Map.mapWithKey
+          (\streamId (_lastEventId, lastSeqNo) -> SQLCursor txNo lastSeqNo)
+          streamHeadMetadata
+
+    -- Return final cursor and updated streams
     pure
       InsertedEvents
         { finalCursor =
@@ -196,6 +201,7 @@ insertEventsWithSyncProjections syncRegistry correlationId eventBatches = do
               { transactionNo = txNo,
                 sequenceNo = fromIntegral totalEventCount - 1
               },
+          streamCursors = perStreamCursors,
           insertedStreamIds = Map.keys eventBatches,
           eventIds = eventIds,
           createdAt = createdAt,
@@ -205,6 +211,7 @@ insertEventsWithSyncProjections syncRegistry correlationId eventBatches = do
     totalEventCount = sum $ map (length . (.events)) $ Map.elems eventBatches
 
     -- Process all events in unified manner: database insertion AND sync projections
+    -- Returns the stream head metadata mapping (streamId -> (lastEventId, lastSeqNo))
     processEventsWithUnifiedMetadata ::
       SyncProjectionRegistry ->
       Maybe CorrelationId ->
@@ -212,8 +219,8 @@ insertEventsWithSyncProjections syncRegistry correlationId eventBatches = do
       UTCTime ->
       Map StreamId [StreamVersion] ->
       Int64 ->
-      Map StreamId (StreamEventBatch t SomeLatestEvent SQLStore) ->
-      Transaction ()
+      Map StreamId (StreamWrite t SomeLatestEvent SQLStore) ->
+      HasqlTransaction.Transaction (Map StreamId (UUID, Int32))
     processEventsWithUnifiedMetadata registry corrId allEventIds createdAtTime streamVersionMap txNo batches = do
       let streamList = Map.toList batches
       -- Process each stream, distributing event IDs and tracking sequence numbers
@@ -228,7 +235,9 @@ insertEventsWithSyncProjections syncRegistry correlationId eventBatches = do
 
       -- Update stream heads with correct per-stream values
       updateStreamHeadsFromVersionMap streamVersionMap streamHeadMetadata txNo
-      pure ()
+
+      -- Return stream head metadata for per-stream cursor computation
+      pure streamHeadMetadata
       where
         processStream (seqNoOffset, remainingIds, headMetadata) (streamId, batch) = do
           let events = Foldable.toList batch.events
@@ -287,7 +296,7 @@ insertEventsWithSyncProjections syncRegistry correlationId eventBatches = do
               EventId eventId = envelope.eventId
               name = getEventName proxy
               ver = getMaxVersion proxy
-          Transaction.statement
+          HasqlTransaction.statement
             (txNo, seqNo, EventId eventId, envelope.streamId, (.toUUID) <$> envelope.correlationId, 
              envelope.createdAt, name, fromIntegral ver, toJSON payload, streamVer)
             insertEventStatement
@@ -301,6 +310,6 @@ insertEventsWithSyncProjections syncRegistry correlationId eventBatches = do
                 case Map.lookup streamId headMetadata of
                   Nothing -> pure ()  -- Stream has no events, skip
                   Just (lastEventId, lastSeqNo) ->
-                    Transaction.statement
+                    HasqlTransaction.statement
                       (streamId, txNo, lastSeqNo, EventId lastEventId, finalVersion)
                       updateStreamHeadStatement

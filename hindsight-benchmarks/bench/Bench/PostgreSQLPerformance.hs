@@ -416,7 +416,7 @@ timedInsertTransactions store numTx eventsPerTx = do
                         ]
         
         batches = Map.fromList
-          [ (stream, StreamEventBatch Any streamEvents)
+          [ (stream, StreamWrite Any streamEvents)
           | stream <- streams
           , let streamEvents = [ SomeLatestEvent (Proxy @PerfTestEvent) payload | (payload, s) <- zip eventPayloads (cycle streams), s == stream ]
           , not (null streamEvents)
@@ -451,7 +451,7 @@ timedInsertTransactionsWithTracking store latencyTracker numTx eventsPerTx = do
                         ]
         
         batches = Map.fromList
-          [ (stream, StreamEventBatch Any streamEvents)
+          [ (stream, StreamWrite Any streamEvents)
           | stream <- streams
           , let streamEvents = [ SomeLatestEvent (Proxy @PerfTestEvent) payload | (payload, s) <- zip eventPayloads (cycle streams), s == stream ]
           , not (null streamEvents)

@@ -92,10 +92,10 @@ example = do
 
   -- Insert events into the stream
   result <- insertEvents store Nothing $
-    Map.singleton streamId (StreamEventBatch Any [event1, event2])
+    multiEvent streamId Any [event1, event2]
 
   case result of
-    SuccessfulInsertion _cursor -> do
+    SuccessfulInsertion{} -> do
       putStrLn "✓ Events inserted successfully"
       readEventsBack store
 

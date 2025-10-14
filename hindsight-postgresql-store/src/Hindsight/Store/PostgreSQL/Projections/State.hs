@@ -26,8 +26,7 @@ import Data.Time (UTCTime)
 import Data.Vector qualified as Vector
 import Hasql.Statement (Statement)
 import Hasql.TH
-import Hasql.Transaction (Transaction)
-import Hasql.Transaction qualified as Transaction
+import Hasql.Transaction qualified as HasqlTransaction
 import Hindsight.Projection (ProjectionId (..))
 import Hindsight.Store.PostgreSQL.Core.Types (SQLCursor (..))
 
@@ -45,9 +44,9 @@ data SyncProjectionState = SyncProjectionState
 
 
 -- | Update sync projection state after successful processing
-updateSyncProjectionState :: ProjectionId -> SQLCursor -> Transaction ()
+updateSyncProjectionState :: ProjectionId -> SQLCursor -> HasqlTransaction.Transaction ()
 updateSyncProjectionState (ProjectionId projId) cursor = do
-  Transaction.statement
+  HasqlTransaction.statement
     (projId, Aeson.toJSON cursor)
     updateStateStmt
   where
@@ -65,9 +64,9 @@ updateSyncProjectionState (ProjectionId projId) cursor = do
 
 
 -- | Register a sync projection in the database if it doesn't exist
-registerSyncProjectionInDb :: ProjectionId -> Transaction ()
+registerSyncProjectionInDb :: ProjectionId -> HasqlTransaction.Transaction ()
 registerSyncProjectionInDb (ProjectionId projId) = do
-  Transaction.statement
+  HasqlTransaction.statement
     projId
     registerStmt
   where
@@ -82,9 +81,9 @@ registerSyncProjectionInDb (ProjectionId projId) = do
       |]
 
 -- | Get all active sync projections from the database
-getActiveProjections :: Transaction [SyncProjectionState]
+getActiveProjections :: HasqlTransaction.Transaction [SyncProjectionState]
 getActiveProjections = do
-  Transaction.statement () getActiveStmt
+  HasqlTransaction.statement () getActiveStmt
   where
     getActiveStmt :: Statement () [SyncProjectionState]
     getActiveStmt =

@@ -96,7 +96,7 @@ insertTaskGeneric store taskId taskName = do
   let event = createTask taskId taskName
 
   insertEvents store Nothing $
-    Map.singleton streamId (StreamEventBatch Any [event])
+    singleEvent streamId Any event
 
 -- This also works with ANY backend!
 countTasksGeneric :: forall backend. (EventStore backend, StoreConstraints backend IO)

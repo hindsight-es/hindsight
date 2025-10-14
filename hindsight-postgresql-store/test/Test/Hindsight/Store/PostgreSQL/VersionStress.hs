@@ -31,21 +31,21 @@ testHighContentionVersionChecks store = do
   -- Initialize stream
   void $
     insertEvents store Nothing $
-      Map.singleton streamId (StreamEventBatch NoStream [makeUserEvent 0])
+      Transaction (Map.singleton streamId (StreamWrite NoStream [makeUserEvent 0]))
 
   -- Spawn 50 concurrent writers with Any expectation
   start <- newEmptyMVar
   results <- forM [1 .. 50] $ \i -> async $ do
     readMVar start -- Wait for signal (doesn't consume)
     insertEvents store Nothing $
-      Map.singleton streamId (StreamEventBatch Any [makeUserEvent i])
+      Transaction (Map.singleton streamId (StreamWrite Any [makeUserEvent i]))
 
   -- Start all writers simultaneously with single broadcast
   putMVar start ()
 
   -- Verify all complete without errors
   outcomes <- mapM wait results
-  let successes = [r | r@(SuccessfulInsertion _) <- outcomes]
+  let successes = [r | r@(SuccessfulInsertion{}) <- outcomes]
   length successes @?= 50 -- All should succeed with Any expectation
 
 -- | Test version expectation performance under load
@@ -57,7 +57,7 @@ testVersionExpectationPerformance store = do
   -- Initialize all streams
   void $
     insertEvents store Nothing $
-      Map.fromList [(s, StreamEventBatch NoStream [makeUserEvent 0]) | s <- streams]
+      Transaction (Map.fromList [(s, StreamWrite NoStream [makeUserEvent 0]) | s <- streams])
 
   -- Measure time for concurrent writes with different expectations
   startTime <- getCurrentTime
@@ -73,7 +73,7 @@ testVersionExpectationPerformance store = do
                 _ -> Any
 
           insertEvents store Nothing $
-            Map.singleton stream (StreamEventBatch expectation [makeUserEvent i])
+            Transaction (Map.singleton stream (StreamWrite expectation [makeUserEvent i]))
       )
       (zip [1 .. 100] (cycle streams))
 
@@ -84,7 +84,7 @@ testVersionExpectationPerformance store = do
   assertBool ("Performance test took too long: " ++ show duration) (duration < 5)
 
   -- Check success/failure ratio
-  let successes = length [r | r@(SuccessfulInsertion _) <- results]
+  let successes = length [r | r@(SuccessfulInsertion{}) <- results]
       failures = length [r | r@(FailedInsertion _) <- results]
 
   assertBool "Should have some successes" (successes > 0)
@@ -99,32 +99,32 @@ testCascadingVersionFailures store = do
   -- Initialize first stream
   result1 <-
     insertEvents store Nothing $
-      Map.singleton streamA (StreamEventBatch NoStream [makeUserEvent 1])
+      Transaction (Map.singleton streamA (StreamWrite NoStream [makeUserEvent 1]))
 
   cursorA <- case result1 of
-    SuccessfulInsertion c -> pure c
+    SuccessfulInsertion{finalCursor = c} -> pure c
     _ -> assertFailure "Failed to initialize stream A"
 
   -- Create chain where each depends on previous
   _ <-
     insertEvents store Nothing $
-      Map.singleton streamB (StreamEventBatch NoStream [makeUserEvent 2])
+      Transaction (Map.singleton streamB (StreamWrite NoStream [makeUserEvent 2]))
 
   _ <-
     insertEvents store Nothing $
-      Map.singleton streamC (StreamEventBatch NoStream [makeUserEvent 3])
+      Transaction (Map.singleton streamC (StreamWrite NoStream [makeUserEvent 3]))
 
   -- Now update A, which should invalidate dependent operations
   result4 <-
     insertEvents store Nothing $
-      Map.singleton streamA (StreamEventBatch (ExactVersion cursorA) [makeUserEvent 11])
+      Transaction (Map.singleton streamA (StreamWrite (ExactVersion cursorA) [makeUserEvent 11]))
 
   case result4 of
-    SuccessfulInsertion _ -> do
+    SuccessfulInsertion{} -> do
       -- Try to use old cursor - should fail
       result5 <-
         insertEvents store Nothing $
-          Map.singleton streamA (StreamEventBatch (ExactVersion cursorA) [makeUserEvent 111])
+          Transaction (Map.singleton streamA (StreamWrite (ExactVersion cursorA) [makeUserEvent 111]))
 
       case result5 of
         FailedInsertion (ConsistencyError _) -> pure ()
@@ -142,26 +142,26 @@ testMultiStreamVersionAtomicity store = do
 
   void $
     insertEvents store Nothing $
-      Map.fromList [(s, StreamEventBatch NoStream [makeUserEvent i]) | (i, s) <- zip [1 ..] initialized]
+      Transaction (Map.fromList [(s, StreamWrite NoStream [makeUserEvent i]) | (i, s) <- zip [1 ..] initialized])
 
   -- Try batch operation with mixed expectations that should fail
   result1 <-
     insertEvents store Nothing $
-      Map.fromList $
-        [(s, StreamEventBatch StreamExists [makeUserEvent 100]) | s <- initialized]
-          ++ [(s, StreamEventBatch StreamExists [makeUserEvent 200]) | s <- uninitialized] -- These will fail
+      Transaction (Map.fromList $
+        [(s, StreamWrite StreamExists [makeUserEvent 100]) | s <- initialized]
+          ++ [(s, StreamWrite StreamExists [makeUserEvent 200]) | s <- uninitialized]) -- These will fail
   case result1 of
     FailedInsertion (ConsistencyError _) -> do
       -- Verify no partial writes occurred
       -- Try writing to all streams with correct expectations
       result2 <-
         insertEvents store Nothing $
-          Map.fromList $
-            [(s, StreamEventBatch StreamExists [makeUserEvent 100]) | s <- initialized]
-              ++ [(s, StreamEventBatch NoStream [makeUserEvent 200]) | s <- uninitialized]
+          Transaction (Map.fromList $
+            [(s, StreamWrite StreamExists [makeUserEvent 100]) | s <- initialized]
+              ++ [(s, StreamWrite NoStream [makeUserEvent 200]) | s <- uninitialized])
 
       case result2 of
-        SuccessfulInsertion _ -> pure ()
+        SuccessfulInsertion{} -> pure ()
         _ -> assertFailure "Batch with correct expectations should succeed"
     _ -> assertFailure "Mixed batch should fail atomically"
 
@@ -173,10 +173,10 @@ testRapidVersionAdvancement store = do
   -- Initialize stream
   result1 <-
     insertEvents store Nothing $
-      Map.singleton streamId (StreamEventBatch NoStream [makeUserEvent 0])
+      Transaction (Map.singleton streamId (StreamWrite NoStream [makeUserEvent 0]))
 
   initialCursor <- case result1 of
-    SuccessfulInsertion c -> pure c
+    SuccessfulInsertion{finalCursor = c} -> pure c
     _ -> assertFailure "Failed to initialize stream"
 
   -- Rapidly advance version 100 times
@@ -185,9 +185,9 @@ testRapidVersionAdvancement store = do
       ( \cursor i -> do
           result <-
             insertEvents store Nothing $
-              Map.singleton streamId (StreamEventBatch (ExactVersion cursor) [makeUserEvent i])
+              Transaction (Map.singleton streamId (StreamWrite (ExactVersion cursor) [makeUserEvent i]))
           case result of
-            SuccessfulInsertion newCursor -> pure newCursor
+            SuccessfulInsertion{finalCursor = newCursor} -> pure newCursor
             _ -> assertFailure $ "Failed at iteration " ++ show i
       )
       initialCursor
@@ -196,7 +196,7 @@ testRapidVersionAdvancement store = do
   -- Verify old cursors are invalid
   result2 <-
     insertEvents store Nothing $
-      Map.singleton streamId (StreamEventBatch (ExactVersion initialCursor) [makeUserEvent 999])
+      Transaction (Map.singleton streamId (StreamWrite (ExactVersion initialCursor) [makeUserEvent 999]))
 
   case result2 of
     FailedInsertion (ConsistencyError _) -> pure ()

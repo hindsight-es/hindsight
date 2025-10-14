@@ -52,6 +52,7 @@ executable tutorial-03
     default-language: GHC2021
     main-is:          tutorials/03-postgresql-projections.lhs
     hs-source-dirs:   .
+    ghc-options:      -threaded
     build-depends:
         base,
         aeson,
@@ -119,6 +120,7 @@ executable tutorial-07
     default-language: GHC2021
     main-is:          tutorials/07-advanced-postgresql.lhs
     hs-source-dirs:   .
+    ghc-options:      -threaded
     build-depends:
         base,
         aeson,
@@ -139,6 +141,7 @@ executable tutorial-08
     default-language: GHC2021
     main-is:          tutorials/08-multi-stream-consistency.lhs
     hs-source-dirs:   .
+    ghc-options:      -threaded
     build-depends:
         base,
         aeson,

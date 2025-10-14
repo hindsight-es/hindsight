@@ -20,35 +20,47 @@ Maintainer  : maintainer@example.com
 Stability   : experimental
 
 This module provides a filesystem-based implementation of the event store,
-persisting events as JSON files on disk. Suitable for single-node deployments
-where durability is needed without a database dependency.
+persisting events as JSON files on disk. It's suitable for single-node
+deployments where durability is needed without requiring a database.
 
 = Storage Format
 
-Events are stored in an append-only log file with accompanying index files
-for efficient stream queries. All writes are atomic using file system primitives.
+Events are stored in an append-only JSON log file (@events.log@). Each line
+contains a complete transaction with its events. All writes are atomic using
+file system primitives and file locking.
+
+__Note on Indexing__: Currently there are no separate index files on disk.
+Stream indices are maintained purely in-memory and rebuilt on startup by
+replaying the event log. This approach keeps the implementation simple but
+means startup time grows linearly with the total number of events. Future
+versions may add persistent index files (e.g., B-tree indices) to improve
+startup performance for large event logs.
+
+= Architecture
+
+The filesystem store is implemented as a persistence layer over the memory
+store infrastructure. Events are written to disk and then loaded into the
+same in-memory data structures used by 'MemoryStore'. This design maximizes
+code sharing but means the filesystem store inherits the memory store's
+characteristics: all indices (and some recent event metadata) must fit in
+memory.
 
 = Key Features
 
-* Durable storage with automatic recovery
-* Atomic writes using file locking
-* Efficient stream indexing
-* Multi-process subscription support via fsnotify
-* No external database required
-
-= Multi-Process Support
-
-Multiple processes can safely access the same filesystem store:
-
-* Writes are serialized using file locks to prevent corruption
-* Subscriptions use fsnotify to detect changes written by other processes
-* Event reloading is automatic and incremental
-* Cross-platform support (macOS FSEvents, Linux inotify, Windows)
+The store provides durable, ACID-compliant event storage with multi-process
+support. Writes are serialized using file locks to prevent corruption.
+Subscriptions use fsnotify to detect changes written by other processes,
+enabling multiple readers and writers to safely share the same event log.
+Event reloading is automatic and incremental. Cross-platform file watching
+is supported via fsnotify (macOS FSEvents, Linux inotify, Windows).
 
 = Limitations
 
-* Performance limited by disk I/O
-* Not suitable for distributed systems across multiple nodes
+Performance is limited by disk I/O characteristics. Memory usage is comparable
+to 'MemoryStore' for the working set - all indices and recent metadata must
+fit in RAM. Startup time grows linearly with total event count due to log
+replay. The store is not suitable for distributed systems spanning multiple
+nodes; use the PostgreSQL backend for distributed scenarios.
 -}
 module Hindsight.Store.Filesystem
   ( -- * Store Types
@@ -73,7 +85,7 @@ module Hindsight.Store.Filesystem
   )
 where
 
-import Control.Concurrent (forkIO, killThread, threadDelay)
+import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (Async, async, cancel)
 import Control.Concurrent.STM
   ( TChan,
@@ -93,6 +105,8 @@ import Control.Monad (forever, forM_, void, when)
 import Control.Monad.IO.Class (liftIO)
 import UnliftIO (MonadUnliftIO)
 import Data.Aeson (FromJSON, ToJSON (..), decode, encode)
+import Data.ByteString qualified as BS  -- Strict ByteString for file operations
+import Data.ByteString.Char8 qualified as BS8
 import Data.ByteString.Lazy qualified as BL
 import Data.ByteString.Lazy.Char8 qualified as BL8
 import Data.Map.Strict (Map)
@@ -111,9 +125,10 @@ import Hindsight.Store
     EventMatcher,
     EventSelector (..),
     EventStore (..),
-    InsertionResult (FailedInsertion, SuccessfulInsertion),
-    StreamEventBatch (events),
+    InsertionResult (FailedInsertion, SuccessfulInsertion, finalCursor, streamCursors),
+    StreamWrite (events),
     SubscriptionHandle (..),
+    Transaction (..),
   )
 import Hindsight.Store.Memory.Internal
   ( StoreCursor (..),
@@ -128,8 +143,7 @@ import System.Directory (canonicalizePath, createDirectoryIfMissing, doesFileExi
 import System.FileLock qualified as FL
 import System.FilePath (takeDirectory, (</>))
 import System.FSNotify (Event (..), eventPath, watchDir, withManager)
-import System.IO (Handle, SeekMode (..), hClose, hFlush, hPutChar, hSeek)
-import System.Posix.IO (OpenFileFlags (..), OpenMode (..), defaultFileFlags, fdToHandle, openFd)
+-- No System.IO imports needed - using lazy ByteString operations instead
 import System.Timeout (timeout)
 
 -- | Configuration for filesystem store
@@ -162,9 +176,11 @@ newtype FilesystemCursor = FilesystemCursor
 
 -- | Notifier for cross-process event notifications
 -- Watches the event log file and broadcasts changes to subscribers
+-- The central reload thread updates the in-memory state when files change
 data Notifier = Notifier
-  { notifierChannel :: TChan (),
-    notifierThread :: Async ()
+  { notifierChannel :: TChan (),  -- Internal: file watcher -> reload thread communication
+    notifierThread :: Async (),
+    reloadThread :: Async ()  -- Central reload thread (one per store)
   }
 
 -- | Store type marker
@@ -187,7 +203,6 @@ instance Exception StoreException
 data FilesystemStoreHandle = FilesystemStoreHandle
   { config :: FilesystemStoreConfig,
     stateVar :: TVar (StoreState FilesystemStore),
-    writeCounter :: TVar Int,
     notifier :: Notifier
   }
 
@@ -223,19 +238,14 @@ ensureDirectories path = do
   let dir = takeDirectory path
   createDirectoryIfMissing True dir
 
--- | Helper to open file without implicit locking
-openFileWithoutLocking :: FilePath -> IO Handle
-openFileWithoutLocking path = do
-  fd <- openFd path WriteOnly defaultFileFlags {creat = Just 0o644}
-  fdToHandle fd
-
--- | Safely perform operations with global store lock
-withStoreLock :: FilesystemStoreHandle -> IO a -> IO a
-withStoreLock handle action = do
-  let paths = getPaths handle.config.storePath
+-- | Safely perform operations with global store lock (direct config version)
+-- Used by central reload thread which doesn't have access to handle
+withStoreLockDirect :: FilesystemStoreConfig -> IO a -> IO a
+withStoreLockDirect config action = do
+  let paths = getPaths config.storePath
   -- Try to acquire lock with timeout
   result <-
-    timeout handle.config.lockTimeout $
+    timeout config.lockTimeout $
       bracket
         (FL.lockFile paths.storeLockPath FL.Exclusive)
         FL.unlockFile
@@ -244,32 +254,19 @@ withStoreLock handle action = do
     Nothing -> throwIO $ LockTimeout paths.storeLockPath
     Just value -> pure value
 
--- | Write a log entry with proper locking and syncing
+-- | Safely perform operations with global store lock
+withStoreLock :: FilesystemStoreHandle -> IO a -> IO a
+withStoreLock handle = withStoreLockDirect handle.config
+
+-- | Write a log entry with proper locking
+-- Uses strict ByteString for immediate file handle release
 writeLogEntry :: FilesystemStoreHandle -> EventLogEntry -> IO ()
 writeLogEntry handle entry =
   withStoreLock handle $ do
     let paths = getPaths handle.config.storePath
-    bracket
-      (openFileWithoutLocking paths.eventLogPath)
-      hClose
-      $ \eventHandle -> do
-        -- Write entry followed by newline
-        hSeek eventHandle SeekFromEnd 0
-        BL.hPutStr eventHandle (encode entry)
-        hPutChar eventHandle '\n'
-        hFlush eventHandle
-
-        -- Check if sync needed based on counter
-        shouldSync <- atomically $ do
-          count <- readTVar handle.writeCounter
-          let newCount = count + 1
-          writeTVar handle.writeCounter $
-            if newCount >= handle.config.syncInterval
-              then 0
-              else newCount
-          pure $ newCount >= handle.config.syncInterval
-
-        when shouldSync $ hFlush eventHandle
+        jsonLine = BL.toStrict (encode entry) <> "\n"  -- Convert to strict + newline
+    -- Use strict appendFile to ensure immediate file closure
+    BS.appendFile paths.eventLogPath jsonLine
 
 -- | Initialize a new store
 newFilesystemStore :: FilesystemStoreConfig -> IO FilesystemStoreHandle
@@ -278,12 +275,9 @@ newFilesystemStore config = do
 
   -- Ensure directories exist
   ensureDirectories config.storePath
-
-  -- Initialize event log if it doesn't exist
-  bracket
-    (openFileWithoutLocking paths.eventLogPath)
-    hClose
-    $ \_ -> pure ()
+  -- Create event log if it doesn't exist (like 'touch')
+  exists <- doesFileExist paths.eventLogPath
+  when (not exists) $ BS.writeFile paths.eventLogPath ""
 
   -- Initialize memory store components
   globalVar <- newTVarIO (-1)
@@ -298,10 +292,9 @@ newFilesystemStore config = do
           streamNotifications = Map.empty,
           globalNotification = globalVar
         }
-  writeCounter <- newTVarIO 0
 
-  -- Start the file watcher notifier
-  notifier <- startNotifier paths.eventLogPath
+  -- Start the file watcher notifier with central reload thread
+  notifier <- startNotifier paths.eventLogPath stateVar config
 
   pure FilesystemStoreHandle {..}
 
@@ -349,15 +342,28 @@ openFilesystemStore config = do
 
 -- | Start the file watcher notifier thread
 -- Watches the event log for modifications and broadcasts to subscribers
-startNotifier :: FilePath -> IO Notifier
-startNotifier eventLogPath = do
+-- Also starts the central reload thread that updates in-memory state
+startNotifier :: FilePath -> TVar (StoreState FilesystemStore) -> FilesystemStoreConfig -> IO Notifier
+startNotifier eventLogPath stateVar config = do
   chan <- newBroadcastTChanIO
-  thread <- async $ notifierLoop eventLogPath chan
-  pure $ Notifier chan thread
 
--- | Stop the notifier thread
+  -- File watcher thread - broadcasts when file changes
+  notifyThread <- async $ notifierLoop eventLogPath chan
+
+  -- Central reload thread - responds to broadcasts by reloading events
+  -- This replaces per-subscription reload threads, reducing lock contention
+  reloadChan <- atomically $ dupTChan chan
+  reloadThread <- async $ forever $ do
+    atomically $ readTChan reloadChan
+    reloadEventsFromDiskCentral stateVar config
+
+  pure $ Notifier chan notifyThread reloadThread
+
+-- | Stop the notifier threads
 shutdownNotifier :: Notifier -> IO ()
-shutdownNotifier = cancel . notifierThread
+shutdownNotifier notifier = do
+  cancel notifier.notifierThread  -- Stop file watcher
+  cancel notifier.reloadThread     -- Stop reload thread
 
 -- | Main loop for the notifier
 -- Uses fsnotify to watch for file modifications
@@ -377,15 +383,23 @@ notifierLoop eventLogPath chan = do
     -- Keep thread alive
     forever $ threadDelay maxBound
 
--- | Reload new events from disk into memory
--- This is called when the file watcher detects changes
-reloadEventsFromDisk :: FilesystemStoreHandle -> IO ()
-reloadEventsFromDisk handle = do
-  entries <- readLogEntries handle
+-- | Reload new events from disk into the in-memory store state
+-- Called by the notifier's reload thread when file changes are detected
+-- Uses locking to coordinate with writes and avoid "resource busy" errors
+-- Uses STRICT ByteString to ensure file handle is closed immediately
+reloadEventsFromDiskCentral :: TVar (StoreState FilesystemStore) -> FilesystemStoreConfig -> IO ()
+reloadEventsFromDiskCentral stateVar config = do
+  -- Acquire lock to coordinate with writes and avoid concurrent file access issues
+  -- Use strict ByteString to ensure file is closed immediately (no lazy handle leak)
+  entries <- withStoreLockDirect config $ do
+    let paths = getPaths config.storePath
+    contents <- BS.readFile paths.eventLogPath
+    pure $ mapMaybe decode $ map BL.fromStrict $ BS8.split '\n' contents
+
   let completedEvents = Map.elems $ processLogEntries entries
 
   atomically $ do
-    state <- readTVar handle.stateVar
+    state <- readTVar stateVar
     let currentMaxSeq = state.nextSequence - 1
         newEvents = [e | es <- completedEvents, e <- es, e.seqNo > currentMaxSeq]
         newMaxSeq = maximum $ currentMaxSeq : [e.seqNo | e <- newEvents]
@@ -393,12 +407,14 @@ reloadEventsFromDisk handle = do
     when (not $ null newEvents) $ do
       -- Update state with new events
       let newState = foldr updateState state newEvents
-      writeTVar handle.stateVar newState {nextSequence = newMaxSeq + 1}
+      writeTVar stateVar newState {nextSequence = newMaxSeq + 1}
 
       -- Update global notification
       writeTVar newState.globalNotification newMaxSeq
 
--- | Custom subscription for filesystem that reloads events from disk
+-- | Subscribe to events from the filesystem store
+-- The notifier's reload thread keeps the in-memory state updated,
+-- so subscriptions just read from the shared state variable
 subscribeFilesystem ::
   forall m ts.
   (MonadUnliftIO m) =>
@@ -406,27 +422,10 @@ subscribeFilesystem ::
   EventMatcher ts FilesystemStore m ->
   EventSelector FilesystemStore ->
   m (SubscriptionHandle FilesystemStore)
-subscribeFilesystem handle matcher selector = do
-  -- Get a personal channel from the notifier's broadcast
-  tickChannel <- liftIO $ atomically $ dupTChan (notifierChannel handle.notifier)
-
-  -- Fork a background thread that reloads events when notified
-  reloadThread <- liftIO $ forkIO $ forever $ do
-    -- Wait for file change notification
-    atomically $ readTChan tickChannel
-    -- Reload events from disk into memory
-    reloadEventsFromDisk handle
-
-  -- Use the common subscription logic (now it will see reloaded events)
-  subscriptionHandle <- subscribeToEvents handle.stateVar matcher selector
-
-  -- Return a handle that cancels both the reload thread and subscription
-  pure $
-    SubscriptionHandle
-      { cancel = do
-          killThread reloadThread
-          subscriptionHandle.cancel
-      }
+subscribeFilesystem handle matcher selector =
+  -- Subscribe directly to in-memory state
+  -- The notifier's reload thread updates stateVar when files change
+  subscribeToEvents handle.stateVar matcher selector
 
 -- | Cleanup store resources
 cleanupFilesystemStore :: FilesystemStoreHandle -> IO ()
@@ -440,7 +439,7 @@ cleanupFilesystemStore handle = do
 instance EventStore FilesystemStore where
   type StoreConstraints FilesystemStore m = (MonadUnliftIO m)
 
-  insertEvents handle corrId batches = liftIO $ do
+  insertEvents handle corrId (Transaction batches) = liftIO $ do
     txId <- UUID.nextRandom
     now <- getCurrentTime
 
@@ -451,18 +450,18 @@ instance EventStore FilesystemStore where
         Left err -> pure $ Left err
         Right () -> do
           let eventIds = replicate (sum $ map (length . (.events)) $ Map.elems batches) (EventId txId)
-              (newState, finalCursor) = insertAllEvents state corrId now eventIds batches
+              (newState, finalCursor, streamCursors) = insertAllEvents state corrId now eventIds batches
               newEvents =
                 [ event
                   | event <- Map.elems newState.events,
                     not $ Map.member event.seqNo state.events
                 ]
           writeTVar handle.stateVar newState
-          pure $ Right (newState, finalCursor, newEvents)
+          pure $ Right (newState, finalCursor, streamCursors, newEvents)
 
     case result of
       Left err -> pure $ FailedInsertion err
-      Right (newState, finalCursor, newEvents) -> do
+      Right (newState, finalCursor, streamCursors, newEvents) -> do
         -- Write begin entry
         writeLogEntry
           handle
@@ -480,7 +479,10 @@ instance EventStore FilesystemStore where
 
           writeTVar newState.globalNotification (getSequenceNo finalCursor)
 
-        pure $ SuccessfulInsertion finalCursor
+        pure $ SuccessfulInsertion
+          { finalCursor = finalCursor
+          , streamCursors = streamCursors
+          }
 
   subscribe = subscribeFilesystem
 

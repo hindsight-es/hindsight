@@ -32,7 +32,9 @@ data TestConfig = TestConfig
     -- | Number of test cases to generate for golden tests
     goldenTestCaseCount :: forall a. (Num a) => a,
     -- | Seed for reproducible random generation
-    goldenTestSeed :: forall a. (Num a) => a
+    goldenTestSeed :: forall a. (Num a) => a,
+    -- | Size parameter for QuickCheck's generation (affects complexity of generated values)
+    goldenTestSizeParam :: forall a. (Num a) => a
   }
 
 type TestPayloadRequirements event idx payload = (VersionPayloadRequirements event idx payload, Arbitrary payload)
@@ -53,7 +55,8 @@ defaultTestConfig =
             version = show $ reifyPeanoNat @ver
          in "test/golden/events" </> T.unpack name </> (version <> ".json"),
       goldenTestCaseCount = 10,
-      goldenTestSeed = 42
+      goldenTestSeed = 42,
+      goldenTestSizeParam = 30
     }
 
 generateTest ::
@@ -126,7 +129,7 @@ generateGoldenContent ::
 generateGoldenContent config = do
   let gen = vectorOf (goldenTestCaseCount config) (arbitrary @a)
       qcGen = mkQCGen (goldenTestSeed config)
-      samples = unGen gen qcGen 30 -- 30 is the size parameter
+      samples = unGen gen qcGen (goldenTestSizeParam config)
   pure $ encodePretty samples
 
 
@@ -165,8 +168,13 @@ createGoldenTests config =
     name = getEventName (Proxy @event)
     eventName = T.unpack name
 
+-- | Convert a Peano-encoded type-level natural to a String
 showPeanoNat :: forall n. (ReifiablePeanoNat n) => String
 showPeanoNat = show $ reifyPeanoNat @n
 
+-- | Convert a type-level event name to a String
+--
+-- Helper function parallel to 'showPeanoNat' for converting type-level
+-- event names to strings for file paths and display.
 eventToString :: forall event. (KnownSymbol event) => String
 eventToString = T.unpack $ getEventName (Proxy @event)

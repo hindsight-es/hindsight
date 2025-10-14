@@ -31,8 +31,7 @@ import Hasql.Encoders qualified as E
 import Hasql.Encoders qualified as Encoders
 import Hasql.Statement qualified as Statement
 import Hasql.TH (maybeStatement, singletonStatement)
-import Hasql.Transaction (Transaction)
-import Hasql.Transaction qualified as Transaction
+import Hasql.Transaction qualified as HasqlTransaction
 import Hindsight.Core (SomeLatestEvent)
 import Hindsight.Store
 import Hindsight.Store.PostgreSQL.Core.Types
@@ -89,14 +88,14 @@ lockStreamStatement = Statement.Statement sql encoder decoder True
 --
 -- Acquires an advisory lock on the stream before checking to ensure
 -- consistency with concurrent writers.
-checkStreamVersion :: UUID -> ExpectedVersion SQLStore -> Transaction (Maybe (VersionMismatch SQLStore))
+checkStreamVersion :: UUID -> ExpectedVersion SQLStore -> HasqlTransaction.Transaction (Maybe (VersionMismatch SQLStore))
 checkStreamVersion streamId expectation = do
   -- Acquire advisory lock to prevent concurrent modifications
-  Transaction.statement streamId lockStreamStatement
+  HasqlTransaction.statement streamId lockStreamStatement
 
   case expectation of
     NoStream -> do
-      exists <- Transaction.statement streamId streamExistsStatement
+      exists <- HasqlTransaction.statement streamId streamExistsStatement
       if exists
         then
           pure $
@@ -108,7 +107,7 @@ checkStreamVersion streamId expectation = do
                 }
         else pure Nothing
     StreamExists -> do
-      exists <- Transaction.statement streamId streamExistsStatement
+      exists <- HasqlTransaction.statement streamId streamExistsStatement
       if not exists
         then
           pure $
@@ -120,7 +119,7 @@ checkStreamVersion streamId expectation = do
                 }
         else pure Nothing
     ExactVersion expectedCursor -> do
-      mbVersion <- Transaction.statement streamId getCurrentVersionStatement
+      mbVersion <- HasqlTransaction.statement streamId getCurrentVersionStatement
       case mbVersion of
         Nothing ->
           pure $
@@ -142,7 +141,7 @@ checkStreamVersion streamId expectation = do
                       actualVersion = Just actualVersion
                     }
     ExactStreamVersion expectedStreamVersion -> do
-      mbStreamVersion <- Transaction.statement streamId getCurrentStreamVersionStatement
+      mbStreamVersion <- HasqlTransaction.statement streamId getCurrentStreamVersionStatement
       case mbStreamVersion of
         Nothing ->
           pure $
@@ -157,7 +156,7 @@ checkStreamVersion streamId expectation = do
             then pure Nothing
             else do
               -- Get the actual cursor for the stream
-              mbCursor <- Transaction.statement streamId getStreamCursorStatement
+              mbCursor <- HasqlTransaction.statement streamId getStreamCursorStatement
               pure $
                 Just $
                   VersionMismatch
@@ -172,7 +171,7 @@ checkStreamVersion streamId expectation = do
 -- Acquires row-level locks on affected streams and checks that each
 -- stream's current version matches the expected version. Returns
 -- 'Nothing' if all checks pass, or details of any mismatches.
-checkVersions :: forall t. Map StreamId (StreamEventBatch t SomeLatestEvent SQLStore) -> Transaction (Maybe (ConsistencyErrorInfo SQLStore))
+checkVersions :: forall t. Map StreamId (StreamWrite t SomeLatestEvent SQLStore) -> HasqlTransaction.Transaction (Maybe (ConsistencyErrorInfo SQLStore))
 checkVersions batches = do
   let streamBatches = Map.toList batches
   mismatches <- validateAllBatches [] streamBatches
@@ -183,8 +182,8 @@ checkVersions batches = do
   where
     validateAllBatches ::
       [VersionMismatch SQLStore] ->
-      [(StreamId, StreamEventBatch t SomeLatestEvent SQLStore)] ->
-      Transaction [VersionMismatch SQLStore]
+      [(StreamId, StreamWrite t SomeLatestEvent SQLStore)] ->
+      HasqlTransaction.Transaction [VersionMismatch SQLStore]
     validateAllBatches acc [] = pure acc
     validateAllBatches acc ((streamId, batch) : rest) = do
       mbMismatch <- checkStreamVersion streamId.toUUID batch.expectedVersion

@@ -163,13 +163,13 @@ demoPostgreSQLProjection = do
                  ]
 
     insertionResult <- insertEvents store Nothing $
-      Map.singleton streamId (StreamEventBatch Any events)
+      Transaction $ Map.singleton streamId (StreamWrite Any events)
 
     case insertionResult of
       FailedInsertion err -> do
         putStrLn $ "✗ Insert failed: " <> show err
 
-      SuccessfulInsertion cursor -> do
+      SuccessfulInsertion{finalCursor = cursor} -> do
         putStrLn "✓ Inserted events into MemoryStore"
 
         -- Start projection in background thread

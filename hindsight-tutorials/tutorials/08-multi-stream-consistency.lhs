@@ -269,11 +269,11 @@ demoEmailUniqueness = do
       let aliceStream = StreamId aliceId
 
       result1 <- insertEvents store Nothing $
-        Map.singleton aliceStream
-          (StreamEventBatch NoStream [registerUser aliceId "alice@example.com" "Alice"])
+        Transaction $ Map.singleton aliceStream
+          (StreamWrite NoStream [registerUser aliceId "alice@example.com" "Alice"])
 
       case result1 of
-        SuccessfulInsertion _ ->
+        SuccessfulInsertion{} ->
           putStrLn "  ✓ Alice registered successfully"
         FailedInsertion err ->
           putStrLn $ "  ✗ Alice registration failed: " <> show err
@@ -283,11 +283,11 @@ demoEmailUniqueness = do
       let bobStream = StreamId bobId
 
       result2 <- insertEvents store Nothing $
-        Map.singleton bobStream
-          (StreamEventBatch NoStream [registerUser bobId "alice@example.com" "Bob"])
+        Transaction $ Map.singleton bobStream
+          (StreamWrite NoStream [registerUser bobId "alice@example.com" "Bob"])
 
       case result2 of
-        SuccessfulInsertion _ ->
+        SuccessfulInsertion{} ->
           putStrLn "  ✗ Bob registered (SHOULD HAVE FAILED!)"
         FailedInsertion (BackendError _) ->
           putStrLn "  ✓ Bob registration rejected (email conflict) ← Expected!"
@@ -296,11 +296,11 @@ demoEmailUniqueness = do
 
       -- Try Bob with different email - should succeed
       result3 <- insertEvents store Nothing $
-        Map.singleton bobStream
-          (StreamEventBatch NoStream [registerUser bobId "bob@example.com" "Bob"])
+        Transaction $ Map.singleton bobStream
+          (StreamWrite NoStream [registerUser bobId "bob@example.com" "Bob"])
 
       case result3 of
-        SuccessfulInsertion _ ->
+        SuccessfulInsertion{} ->
           putStrLn "  ✓ Bob registered with different email"
         FailedInsertion err ->
           putStrLn $ "  ✗ Bob registration failed: " <> show err
@@ -424,11 +424,12 @@ demoMultiStreamEnrollment = do
       let courseStream = StreamId courseId
 
       result1 <- insertEvents store Nothing $
-        Map.singleton courseStream
-          (StreamEventBatch NoStream [createCourse courseId "Haskell 101" 2])
+        Transaction $ Map.singleton courseStream
+          (StreamWrite NoStream [createCourse courseId "Haskell 101" 2])
 
       case result1 of
-        SuccessfulInsertion courseCursor -> do
+        SuccessfulInsertion{streamCursors = cursors1} -> do
+          let courseCursor = cursors1 Map.! courseStream
           putStrLn "  ✓ Course created (capacity: 2)"
 
           -- Enroll first student
@@ -436,13 +437,14 @@ demoMultiStreamEnrollment = do
           let student1Stream = StreamId student1Id
 
           result2 <- insertEvents store Nothing $
-            Map.fromList
-              [ (courseStream, StreamEventBatch (ExactVersion courseCursor) [enrollStudent courseId student1Id]),
-                (student1Stream, StreamEventBatch NoStream [registerUser student1Id "s1@example.com" "Student 1"])
+            Transaction $ Map.fromList
+              [ (courseStream, StreamWrite (ExactVersion courseCursor) [enrollStudent courseId student1Id]),
+                (student1Stream, StreamWrite NoStream [registerUser student1Id "s1@example.com" "Student 1"])
               ]
 
           case result2 of
-            SuccessfulInsertion cursor2 -> do
+            SuccessfulInsertion{streamCursors = cursors2} -> do
+              let courseCursor2 = cursors2 Map.! courseStream
               putStrLn "  ✓ Student 1 enrolled (1/2 capacity)"
 
               -- Enroll second student
@@ -450,13 +452,14 @@ demoMultiStreamEnrollment = do
               let student2Stream = StreamId student2Id
 
               result3 <- insertEvents store Nothing $
-                Map.fromList
-                  [ (courseStream, StreamEventBatch (ExactVersion cursor2) [enrollStudent courseId student2Id]),
-                    (student2Stream, StreamEventBatch NoStream [registerUser student2Id "s2@example.com" "Student 2"])
+                Transaction $ Map.fromList
+                  [ (courseStream, StreamWrite (ExactVersion courseCursor2) [enrollStudent courseId student2Id]),
+                    (student2Stream, StreamWrite NoStream [registerUser student2Id "s2@example.com" "Student 2"])
                   ]
 
               case result3 of
-                SuccessfulInsertion cursor3 -> do
+                SuccessfulInsertion{streamCursors = cursors3} -> do
+                  let courseCursor3 = cursors3 Map.! courseStream
                   putStrLn "  ✓ Student 2 enrolled (2/2 capacity - FULL)"
 
                   -- Try to enroll third student
@@ -465,13 +468,13 @@ demoMultiStreamEnrollment = do
                   let student3Stream = StreamId student3Id
 
                   result4 <- insertEvents store Nothing $
-                    Map.fromList
-                      [ (courseStream, StreamEventBatch (ExactVersion cursor3) [enrollStudent courseId student3Id]),
-                        (student3Stream, StreamEventBatch NoStream [registerUser student3Id "s3@example.com" "Student 3"])
+                    Transaction $ Map.fromList
+                      [ (courseStream, StreamWrite (ExactVersion courseCursor3) [enrollStudent courseId student3Id]),
+                        (student3Stream, StreamWrite NoStream [registerUser student3Id "s3@example.com" "Student 3"])
                       ]
 
                   case result4 of
-                    SuccessfulInsertion _ ->
+                    SuccessfulInsertion{} ->
                       putStrLn "  ✗ Student 3 enrolled (SHOULD HAVE BEEN REJECTED)"
                     FailedInsertion err ->
                       putStrLn $ "  ✓ Student 3 rejected by CHECK constraint: " <> show err
@@ -495,8 +498,8 @@ demoMultiStreamEnrollment = do
 -- Multi-stream atomic insert with version expectations
 result <- insertEvents store Nothing $
   Map.fromList
-    [ (courseStream, StreamEventBatch (ExactVersion lastCourseCursor) [enrollment])
-    , (studentStream, StreamEventBatch NoStream [studentData])
+    [ (courseStream, StreamWrite (ExactVersion lastCourseCursor) [enrollment])
+    , (studentStream, StreamWrite NoStream [studentData])
     ]
 
 -- If capacity exceeded, synchronous projection fails → entire transaction rolls back

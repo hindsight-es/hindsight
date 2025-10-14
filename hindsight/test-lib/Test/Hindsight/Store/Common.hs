@@ -62,3 +62,69 @@ makeTombstone =
     TombstonePayload
       { marker = "end_of_test"
       }
+
+-- | Counter increment event for testing subscription stop behavior
+type CounterInc = "counter_inc"
+
+data CounterIncPayload = CounterIncPayload
+  deriving (Show, Eq, Generic, FromJSON, ToJSON)
+
+instance Arbitrary CounterIncPayload where
+  arbitrary = pure CounterIncPayload
+
+type instance MaxVersion CounterInc = 0
+type instance Versions CounterInc = FirstVersion CounterIncPayload
+instance Event CounterInc
+instance UpgradableToLatest CounterInc 0 where
+  upgradeToLatest = id
+
+-- | Counter stop event for testing subscription stop behavior
+type CounterStop = "counter_stop"
+
+data CounterStopPayload = CounterStopPayload
+  deriving (Show, Eq, Generic, FromJSON, ToJSON)
+
+instance Arbitrary CounterStopPayload where
+  arbitrary = pure CounterStopPayload
+
+type instance MaxVersion CounterStop = 0
+type instance Versions CounterStop = FirstVersion CounterStopPayload
+instance Event CounterStop
+instance UpgradableToLatest CounterStop 0 where
+  upgradeToLatest = id
+
+-- | Helper to create a counter increment event
+makeCounterInc :: SomeLatestEvent
+makeCounterInc =
+  SomeLatestEvent
+    (Proxy @CounterInc)
+    CounterIncPayload
+
+-- | Helper to create a counter stop event
+makeCounterStop :: SomeLatestEvent
+makeCounterStop =
+  SomeLatestEvent
+    (Proxy @CounterStop)
+    CounterStopPayload
+
+-- | Counter fail event for testing exception handling
+type CounterFail = "counter_fail"
+
+data CounterFailPayload = CounterFailPayload
+  deriving (Show, Eq, Generic, FromJSON, ToJSON)
+
+instance Arbitrary CounterFailPayload where
+  arbitrary = pure CounterFailPayload
+
+type instance MaxVersion CounterFail = 0
+type instance Versions CounterFail = FirstVersion CounterFailPayload
+instance Event CounterFail
+instance UpgradableToLatest CounterFail 0 where
+  upgradeToLatest = id
+
+-- | Helper to create a counter fail event
+makeCounterFail :: SomeLatestEvent
+makeCounterFail =
+  SomeLatestEvent
+    (Proxy @CounterFail)
+    CounterFailPayload

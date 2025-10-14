@@ -11,6 +11,16 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
 
+{-|
+Module      : Test.Hindsight.Examples
+Description : Example event definitions and test utilities
+Copyright   : (c) 2024
+License     : BSD3
+Maintainer  : maintainer@example.com
+
+Example event definitions used in test suites and store backend tests.
+Includes utilities like 'DeterministicText' for reproducible testing.
+-}
 module Test.Hindsight.Examples where
 
 import Data.Aeson
@@ -70,7 +80,11 @@ data UserInformation2 = UserInformation2
   deriving stock (Show, Eq, Generic)
   deriving anyclass (FromJSON, ToJSON)
 
--- Define a newtype wrapper for deterministic Text generation
+-- | Newtype wrapper for deterministic Text generation in property tests.
+--
+-- TODO: Move this to a dedicated testing utilities module (e.g., Test.Hindsight.Util.Arbitrary)
+-- once the test-lib structure is finalized. This is a general-purpose testing utility
+-- that shouldn't be tied to the Examples module.
 newtype DeterministicText = DeterministicText Text
   deriving (Show, Eq)
 
@@ -140,6 +154,6 @@ tree =
         { goldenPathFor = \(_ :: Proxy event) (_ :: Proxy ver) ->
             "golden" </> "events" </> eventToString @event </> showPeanoNat @ver <> ".json",
           goldenTestCaseCount = 10,
-          -- Use a fixed seed for reproducible golden tests
-          goldenTestSeed = 12345
+          goldenTestSeed = 12345,
+          goldenTestSizeParam = 30  -- QuickCheck size parameter
         }

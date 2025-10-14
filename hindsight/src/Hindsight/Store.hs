@@ -16,19 +16,146 @@ License     : BSD3
 Maintainer  : maintainer@example.com
 Stability   : experimental
 
-Defines the core event store interface implemented by storage backends.
-Provides types for events, streams, cursors, and version expectations.
--}
-module Hindsight.Store where
+This module defines the core event store interface and types used across
+all storage backends.
 
-import Control.Exception (SomeException)
+= Overview
+
+An event store is a append-only log of events organized into streams.
+Each stream represents the lifecycle of a single aggregate or entity.
+
+= Basic Usage
+
+@
+import Hindsight.Store
+import Hindsight.Store.Memory (newMemoryStore)
+
+-- Create a store
+store <- newMemoryStore
+
+-- Insert events
+let batch = StreamWrite
+      { expectedVersion = NoStream
+      , events = [mkEvent \"user_created\" payload]
+      }
+result <- insertEvents store Nothing (Map.singleton streamId batch)
+
+-- Subscribe to events
+handle <- subscribe store matcher selector
+@
+
+= Key Concepts
+
+* __Streams__: Ordered sequences of events for a single entity
+* __Cursors__: Opaque positions in the global event log
+* __Subscriptions__: Real-time notifications of new events
+* __Version Expectations__: Optimistic concurrency control for writes
+-}
+module Hindsight.Store
+  ( -- * Core Identifiers
+    -- | Unique identifiers for streams, events, and correlations.
+    StreamId (..),
+    EventId (..),
+    CorrelationId (..),
+    StreamVersion (..),
+
+    -- * Event Store Interface
+    -- | The main type class implemented by all storage backends.
+    --
+    -- The 'EventStore' class includes the 'StoreConstraints' type family,
+    -- which defines additional constraints required by each backend.
+    EventStore (..),
+
+    -- ** Backend Types
+    -- | Backend-specific handle and cursor types.
+    --
+    -- Each backend defines its own 'Cursor' and 'BackendHandle' via type families.
+    BackendHandle,
+    Cursor,
+
+    -- * Event Operations
+    -- | Types for inserting and querying events.
+
+    -- ** Insertion
+    StreamWrite (..),
+    Transaction (..),
+    InsertionResult (..),
+
+    -- ** Transaction Helpers
+    -- | Helper functions for constructing transactions.
+    --
+    -- The 'singleEvent' and 'multiEvent' functions are the primary API,
+    -- requiring explicit version expectations. Convenience helpers like
+    -- 'appendAfterAny' are provided for common patterns.
+    singleEvent,
+    multiEvent,
+    appendAfterAny,
+    appendToOrCreateStream,
+    fromWrites,
+
+    -- ** Version Control
+    -- | Optimistic concurrency control for preventing conflicts.
+    --
+    -- When inserting events, you can specify version expectations to ensure
+    -- the stream hasn't changed since you read it. This implements optimistic
+    -- locking without holding database locks during business logic execution.
+    --
+    -- See: <https://en.wikipedia.org/wiki/Optimistic_concurrency_control>
+    ExpectedVersion (..),
+
+    -- ** Errors
+    EventStoreError (..),
+    ErrorInfo (..),
+    ConsistencyErrorInfo (..),
+    VersionMismatch (..),
+    HandlerException (..),
+
+    -- * Event Subscriptions
+    -- | Real-time streaming of events as they're inserted.
+
+    -- ** Subscription Configuration
+    EventSelector (..),
+    StreamSelector (..),
+    StartupPosition (..),
+
+    -- ** Subscription Control
+    SubscriptionHandle (..),
+    SubscriptionResult (..),
+
+    -- * Event Handling
+    -- | Processing events in subscriptions.
+
+    -- ** Event Envelopes
+    -- | Events with full metadata from the store.
+    EventEnvelope (..),
+
+    -- ** Event Matchers
+    -- | Type-safe pattern matching on event types.
+    --
+    -- Build matchers using 'match' and the '(:?)' operator:
+    --
+    -- @
+    -- matcher = match \"user_created\" handleUserCreated
+    --        :? match \"user_updated\" handleUserUpdated
+    --        :? MatchEnd
+    -- @
+    EventHandler,
+    EventMatcher (..),
+    match,
+  )
+where
+
+import Control.Exception (Exception, SomeException, displayException)
 import Data.Aeson (FromJSON, ToJSON)
 import Data.Int (Int64)
 import Data.Kind (Constraint, Type)
 import Data.Map.Strict (Map)
+import Data.Map.Strict qualified as Map
 import Data.Proxy (Proxy (..))
 import Data.Text (Text)
+import qualified Data.Text as T
 import Data.Time (UTCTime)
+import Data.Typeable (Typeable)
 import Data.UUID (UUID)
 import GHC.Generics (Generic)
 import GHC.TypeLits (Symbol)
@@ -87,9 +214,43 @@ deriving instance (Show (Cursor backend)) => Show (ConsistencyErrorInfo backend)
 
 deriving instance (Show (Cursor backend)) => Show (EventStoreError backend)
 
+-- | Exception thrown when an event handler fails during subscription processing.
+--
+-- This exception wraps the original exception with rich event context to aid debugging.
+-- When a handler throws an exception, the subscription will die immediately (fail-fast),
+-- and this enriched exception will be available via the Async handle.
+--
+-- The handler exception represents a bug in event processing code. Higher-level code
+-- (such as projection managers) can implement retry logic if desired.
+data HandlerException = HandlerException
+  { originalException :: SomeException       -- ^ The actual exception that was thrown
+  , failedEventPosition :: Text              -- ^ Cursor position where it failed (serialized)
+  , failedEventId :: EventId                 -- ^ Unique identifier of the failed event
+  , failedEventName :: Text                  -- ^ The name of the event that failed
+  , failedEventStreamId :: StreamId          -- ^ Which stream the event came from
+  , failedEventStreamVersion :: StreamVersion -- ^ Local version within the stream
+  , failedEventCorrelationId :: Maybe CorrelationId -- ^ Correlation ID if present
+  , failedEventCreatedAt :: UTCTime          -- ^ When the event was stored
+  }
+  deriving (Typeable)
+
+instance Show HandlerException where
+  show e =
+    "Handler exception at position " <> T.unpack e.failedEventPosition
+    <> " for event '" <> T.unpack e.failedEventName <> "'"
+    <> " (eventId: " <> show e.failedEventId <> ")"
+    <> " in stream " <> show e.failedEventStreamId
+    <> " (stream version: " <> show e.failedEventStreamVersion <> ")"
+    <> ": " <> displayException e.originalException
+
+instance Exception HandlerException
+
 -- | Result of an event insertion operation.
 data InsertionResult backend
-  = SuccessfulInsertion (Cursor backend)      -- ^ Success with position of last inserted event
+  = SuccessfulInsertion
+      { finalCursor :: Cursor backend              -- ^ Global position of last inserted event
+      , streamCursors :: Map StreamId (Cursor backend)  -- ^ Per-stream final cursors
+      }
   | FailedInsertion (EventStoreError backend)  -- ^ Failure with error details
 
 -- | Control flow for event subscriptions.
@@ -143,11 +304,11 @@ type EventHandler event m backend = EventEnvelope event backend -> m Subscriptio
 
 -- | Type-safe event matcher for handling different event types in subscriptions.
 --
--- Constructed using the '(:?)' operator to build a chain of handlers:
+-- Constructed using the 'match' helper with '(:?)' to build a chain of handlers:
 --
 -- @
--- matcher = (Proxy @"user_created", handleUserCreated)
---        :? (Proxy @"user_updated", handleUserUpdated) 
+-- matcher = match \"user_created\" handleUserCreated
+--        :? match \"user_updated\" handleUserUpdated
 --        :? MatchEnd
 -- @
 data EventMatcher (ts :: [Symbol]) backend m where
@@ -172,7 +333,8 @@ match event = \handler -> (Proxy @event, handler)
 -- For example, PostgreSQL uses a compound cursor of (transaction_no, seq_no),
 -- while a simple implementation might use a single sequence number.
 --
--- The type family is injective: knowing the cursor type determines the backend.
+-- The type family is injective: knowing the cursor type determines the backend
+-- which helps with type inference.
 type family Cursor backend = result | result -> backend
 
 -- | Handle to interact with a specific storage backend.
@@ -180,13 +342,26 @@ type family Cursor backend = result | result -> backend
 -- Contains backend-specific configuration like connection pools,
 -- file handles, or in-memory storage references.
 --
--- The type family is injective: knowing the handle type determines the backend.
+-- The type family is injective: knowing the handle type determines the backend,
+-- which helps with type inference.
 type family BackendHandle backend = result | result -> backend
 
 -- | Version expectation for optimistic concurrency control.
 --
 -- Used to prevent concurrent modifications by specifying what version
 -- a stream should be at before inserting new events.
+--
+-- This implements optimistic locking: instead of holding locks during
+-- a read-modify-write cycle, we check at write time that the stream
+-- hasn't changed since we read it.
+--
+-- See: <https://en.wikipedia.org/wiki/Optimistic_concurrency_control>
+--
+-- Common patterns:
+--
+-- * 'NoStream' - Creating a new aggregate (ensure stream doesn't exist)
+-- * 'ExactStreamVersion' - Normal update (check we have latest version)
+-- * 'Any' - Append-only scenarios (no conflict prevention)
 data ExpectedVersion backend
   = NoStream                           -- ^ Stream must not exist (for creating new streams)
   | StreamExists                       -- ^ Stream must exist (any version)
@@ -196,14 +371,182 @@ data ExpectedVersion backend
 
 deriving instance (Show (Cursor backend)) => Show (ExpectedVersion backend)
 
--- | Batch of events to insert into a single stream.
+deriving instance (Eq (Cursor backend)) => Eq (ExpectedVersion backend)
+
+-- | Write operation for inserting events into a single stream.
 --
 -- Groups events with their version expectation for atomic insertion.
 -- The event type 'e' can be 'SomeLatestEvent' for raw events or enriched with metadata.
-data StreamEventBatch t e backend = StreamEventBatch
+data StreamWrite t e backend = StreamWrite
   { expectedVersion :: ExpectedVersion backend,  -- ^ Version check before insertion
     events :: t e                                -- ^ Events to insert (in order)
   }
+
+deriving instance (Show (ExpectedVersion backend), Show (t e)) => Show (StreamWrite t e backend)
+
+deriving instance (Eq (ExpectedVersion backend), Eq (t e)) => Eq (StreamWrite t e backend)
+
+-- | A multi-stream transactional write operation.
+--
+-- Represents a set of writes to be inserted atomically across multiple streams.
+-- All version checks must pass for the entire transaction to succeed.
+--
+-- = Ordering Guarantees
+--
+-- * Events within a single stream are __totally ordered__ - they appear in the
+--   global event log in the order specified.
+--
+-- * Events across different streams within the same transaction have __no ordering
+--   guarantee__ relative to each other. They are inserted atomically but may
+--   appear in any interleaving in the global log.
+--
+-- = Composition
+--
+-- Transactions form a 'Monoid', allowing easy composition:
+--
+-- @
+-- transaction1 <> transaction2 <> transaction3
+-- @
+--
+-- When combining transactions:
+--
+-- * Events for the same stream are __concatenated__ (events from tx1, then tx2)
+-- * Version expectations are __left-biased__ (tx1's expectation wins)
+--
+-- = Example
+--
+-- @
+-- -- Simple single-event write
+-- let tx = singleEvent streamId NoStream event
+-- result <- insertEvents store Nothing tx
+--
+-- -- Multi-stream with composition
+-- let tx = singleEvent userStreamId NoStream userCreated
+--       <> appendAfterAny auditLogId auditEntry
+-- result <- insertEvents store Nothing tx
+-- @
+newtype Transaction t backend = Transaction
+  { transactionWrites :: Map StreamId (StreamWrite t SomeLatestEvent backend)
+  }
+
+deriving instance (Show (Cursor backend), Show (t SomeLatestEvent)) => Show (Transaction t backend)
+
+deriving instance (Eq (Cursor backend), Eq (t SomeLatestEvent)) => Eq (Transaction t backend)
+
+instance (Semigroup (t SomeLatestEvent)) => Semigroup (Transaction t backend) where
+  Transaction m1 <> Transaction m2 =
+    Transaction (Map.unionWith combineWrites m1 m2)
+    where
+      -- Left-biased for expectedVersion (first write wins)
+      -- Concatenate events using Semigroup (e.g., list append)
+      combineWrites (StreamWrite expectedVer events1) (StreamWrite _ignored events2) =
+        StreamWrite expectedVer (events1 <> events2)
+
+instance (Semigroup (t SomeLatestEvent)) => Monoid (Transaction t backend) where
+  mempty = Transaction Map.empty
+
+-- | Create a transaction with a single event to a single stream.
+--
+-- This is the primary API - it forces explicit choice of version expectation.
+--
+-- @
+-- -- Creating a new aggregate
+-- singleEvent accountId NoStream accountCreated
+--
+-- -- Updating with optimistic locking
+-- singleEvent accountId (ExactStreamVersion v) balanceUpdated
+--
+-- -- Append-only log
+-- singleEvent logId Any logEntry
+-- @
+singleEvent ::
+  StreamId ->
+  ExpectedVersion backend ->
+  SomeLatestEvent ->
+  Transaction [] backend
+singleEvent streamId expectedVer event =
+  Transaction $ Map.singleton streamId (StreamWrite expectedVer [event])
+
+-- | Create a transaction with multiple events to a single stream.
+--
+-- @
+-- multiEvent streamId NoStream [event1, event2, event3]
+-- @
+multiEvent ::
+  StreamId ->
+  ExpectedVersion backend ->
+  t SomeLatestEvent ->
+  Transaction t backend
+multiEvent streamId expectedVer events =
+  Transaction $ Map.singleton streamId (StreamWrite expectedVer events)
+
+-- | Append an event to an existing stream without version checking.
+--
+-- Uses 'StreamExists' for the version expectation - the stream must already
+-- exist, but any version is acceptable. Suitable for append-only scenarios
+-- where multiple processes may be writing concurrently.
+--
+-- = Use Cases
+--
+-- * __Audit logs__ where the log stream is pre-created
+-- * __Event logs__ with concurrent writers
+-- * __Not suitable__ for aggregates with business invariants
+--
+-- @
+-- -- Audit log entry (stream must exist)
+-- appendAfterAny auditLogId auditEntry
+--
+-- -- Multiple concurrent writers OK
+-- tx1 = appendAfterAny logId event1
+-- tx2 = appendAfterAny logId event2  -- No conflict
+-- @
+appendAfterAny ::
+  StreamId ->
+  SomeLatestEvent ->
+  Transaction [] backend
+appendAfterAny streamId event =
+  singleEvent streamId StreamExists event
+
+-- | Append an event, creating the stream if it doesn't exist.
+--
+-- Uses 'Any' for the version expectation - no version checking at all.
+-- This is the most permissive option.
+--
+-- __Warning__: This provides no concurrency control. Suitable for testing
+-- or truly append-only scenarios, but dangerous for aggregates with invariants.
+--
+-- = Use Cases
+--
+-- * __Testing__ where you don't care about stream state
+-- * __Idempotent appends__ where duplicates are handled elsewhere
+-- * __Not suitable__ for production aggregates
+--
+-- @
+-- -- Test code
+-- appendToOrCreateStream testStreamId testEvent
+--
+-- -- For production, prefer explicit version expectations
+-- singleEvent streamId NoStream event  -- Better: explicit create
+-- @
+appendToOrCreateStream ::
+  StreamId ->
+  SomeLatestEvent ->
+  Transaction [] backend
+appendToOrCreateStream streamId event =
+  singleEvent streamId Any event
+
+-- | Create a transaction from a list of stream writes.
+--
+-- @
+-- fromWrites
+--   [ (stream1, StreamWrite NoStream [e1])
+--   , (stream2, StreamWrite NoStream [e2])
+--   ]
+-- @
+fromWrites ::
+  [(StreamId, StreamWrite t SomeLatestEvent backend)] ->
+  Transaction t backend
+fromWrites = Transaction . Map.fromList
 
 -- | Core interface for event store backends.
 --
@@ -223,7 +566,7 @@ class EventStore (backend :: Type) where
     (Traversable t, StoreConstraints backend m) =>
     BackendHandle backend ->
     Maybe CorrelationId ->
-    Map StreamId (StreamEventBatch t SomeLatestEvent backend) ->
+    Transaction t backend ->
     m (InsertionResult backend)
 
   -- | Subscribe to events matching the given criteria.

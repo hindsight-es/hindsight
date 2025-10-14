@@ -41,7 +41,7 @@ module Hindsight.Store.Memory.Internal
   )
 where
 
-import Control.Concurrent (forkIO)
+import Control.Concurrent.Async (async, cancel)
 import Control.Concurrent.STM
   ( TVar,
     atomically,
@@ -50,7 +50,7 @@ import Control.Concurrent.STM
     retry,
     writeTVar,
   )
-import Control.Monad (void, when)
+import Control.Monad (when)
 import Control.Monad.IO.Class (MonadIO (..))
 import UnliftIO (MonadUnliftIO, withRunInIO)
 import Data.Aeson (FromJSON (..), ToJSON (..), Value (..))
@@ -202,7 +202,7 @@ makeStoredEvents ::
   UTCTime ->
   [EventId] ->
   StreamId ->
-  StreamEventBatch t SomeLatestEvent backend ->
+  StreamWrite t SomeLatestEvent backend ->
   ([StoredEvent], [Integer])
 makeStoredEvents state mbCorrId now eventIds streamId batch =
   let baseSeq = state.nextSequence
@@ -232,7 +232,7 @@ checkAllVersions ::
   forall t backend.
   (Eq (Cursor backend)) =>
   StoreState backend ->
-  Map StreamId (StreamEventBatch t SomeLatestEvent backend) ->
+  Map StreamId (StreamWrite t SomeLatestEvent backend) ->
   Either (EventStoreError backend) ()
 checkAllVersions state batches = do
   case sequence_
@@ -243,6 +243,7 @@ checkAllVersions state batches = do
     Right () -> Right ()
 
 -- | Insert all events into state
+-- Returns: (new state, final global cursor, per-stream cursors)
 insertAllEvents ::
   forall backend t.
   (StoreCursor backend, Foldable t) =>
@@ -250,8 +251,8 @@ insertAllEvents ::
   Maybe CorrelationId ->
   UTCTime ->
   [EventId] ->
-  Map StreamId (StreamEventBatch t SomeLatestEvent backend) ->
-  (StoreState backend, Cursor backend)
+  Map StreamId (StreamWrite t SomeLatestEvent backend) ->
+  (StoreState backend, Cursor backend, Map StreamId (Cursor backend))
 insertAllEvents state mbCorrId now eventIds batches =
   let -- Calculate batch sizes and starting sequence numbers for each batch
       batchSizes = map (length . (.events)) $ Map.elems batches
@@ -271,12 +272,13 @@ insertAllEvents state mbCorrId now eventIds batches =
             ]
 
       -- Update state with new events and metadata
+      newStreamVersions = foldl' updateStreamVersions state.streamVersions allEvents
       finalState =
         state
           { nextSequence = state.nextSequence + fromIntegral (length allEvents),
             events = Map.union state.events (Map.fromList $ zip seqNos allEvents),
             streamEvents = foldr updateStreamEvents state.streamEvents allEvents,
-            streamVersions = foldl' updateStreamVersions state.streamVersions allEvents,
+            streamVersions = newStreamVersions,
             streamLocalVersions = foldl' updateStreamLocalVersions state.streamLocalVersions allEvents
           }
 
@@ -284,7 +286,11 @@ insertAllEvents state mbCorrId now eventIds batches =
       finalCursor = case seqNos of
         [] -> makeCursor  (state.nextSequence - 1)  -- No events inserted
         _ -> makeCursor  $ last seqNos  -- Last inserted event
-   in (finalState, finalCursor)
+
+      -- Extract per-stream cursors for streams that were written to
+      perStreamCursors = Map.restrictKeys newStreamVersions (Map.keysSet batches)
+
+   in (finalState, finalCursor, perStreamCursors)
   where
     -- Helper function to update stream events mapping
     updateStreamEvents e =
@@ -380,11 +386,10 @@ subscribeToEvents stateVar matcher selector = do
               Continue ->
                 loop maxSeq
 
-  -- Start subscription in a forked thread using MonadUnliftIO
-  -- TODO: Implement proper cancellation using async library
+  -- Start subscription in an async thread for proper cancellation
   withRunInIO $ \runInIO -> do
-    void $ forkIO $ runInIO $ loop startSeq
+    workerThread <- async $ runInIO $ loop startSeq
     pure $
       SubscriptionHandle
-        { cancel = pure () -- No-op for now
+        { cancel = cancel workerThread
         }

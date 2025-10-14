@@ -58,11 +58,11 @@ testSyncProjections store = do
   -- Insert event with sync projection (now using the generic insertEvents)
   result <-
     insertEvents storeWithProjections Nothing $
-      Map.singleton streamId (StreamEventBatch NoStream [makeUserEvent 1])
+      Transaction (Map.singleton streamId (StreamWrite NoStream [makeUserEvent 1]))
 
   case result of
     FailedInsertion err -> assertFailure $ "Failed to insert: " ++ show err
-    SuccessfulInsertion _ -> do
+    SuccessfulInsertion{} -> do
       -- Check that projection was executed by querying the database
       countResult <-
         Pool.use (getPool storeWithProjections) $

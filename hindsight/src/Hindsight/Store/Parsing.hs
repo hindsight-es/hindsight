@@ -15,52 +15,26 @@ Stability   : experimental
 This module provides core event parsing utilities used by all event store backends
 to convert stored events into properly typed event envelopes. These utilities handle
 version-aware parsing and envelope creation.
+
+These utilities are shared across Memory, Filesystem, and PostgreSQL backends
+for consistent event parsing and envelope construction.
+
 -}
 module Hindsight.Store.Parsing
   ( -- * Event Processing Utilities
     parseEventPayload,
     parseStoredEventToEnvelope,
     createEventEnvelope,
-    
-        
-    -- * Common Types
-    ProjectionResult (..),
-    ProjectionError (..),
   )
 where
 
-import Control.Exception (SomeException)
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Types (parseEither)
 import Data.Map qualified as Map
 import Data.Proxy (Proxy (..))
-import Data.Text (Text)
 import Data.Time (UTCTime)
-import Hindsight.Core (IsEvent, parseMapFromProxy, CurrentPayloadType)
-import Hindsight.Store (EventEnvelope (..), EventId, StreamId, CorrelationId, Cursor, StreamVersion)
-
--- | Result of projection execution
-data ProjectionResult
-  = ProjectionSuccess
-  | ProjectionSkipped  -- Handler didn't match the event
-  | ProjectionError ProjectionError
-  deriving (Show, Eq)
-
--- | Types of projection errors
-data ProjectionError
-  = ParseError Text
-  | HandlerError SomeException
-  | BackendError Text
-  deriving (Show)
-
--- | Manual Eq instance for ProjectionError
--- 
--- SomeException doesn't have an Eq instance, so we compare based on the string representation
-instance Eq ProjectionError where
-  (ParseError t1) == (ParseError t2) = t1 == t2
-  (HandlerError e1) == (HandlerError e2) = show e1 == show e2
-  (BackendError t1) == (BackendError t2) = t1 == t2
-  _ == _ = False
+import Hindsight.Core (CurrentPayloadType, IsEvent, parseMapFromProxy)
+import Hindsight.Store (CorrelationId, Cursor, EventEnvelope (..), EventId, StreamId, StreamVersion)
 
 
 -- | Parse event payload from JSON using the event's parse map with proper version handling

@@ -539,13 +539,13 @@ executeTransactionPlan store plan mProgressManager = do
   let streamsWithEvents = zip (cycle plan.targetStreams) events
       groupedEvents = Map.fromListWith (++)
         [(streamId, [event]) | (streamId, event) <- streamsWithEvents]
-      eventBatches = Map.map (\es -> StreamEventBatch NoStream es) groupedEvents
+      eventBatches = Map.map (\es -> StreamWrite NoStream es) groupedEvents
 
   when (plan.expectedSlowness > 5) $
     threadDelay (plan.expectedSlowness * 50_000)
 
   let tryInsert n = do
-        result <- insertEvents store Nothing eventBatches
+        result <- insertEvents store Nothing (Transaction eventBatches)
         case result of
           FailedInsertion err -> if (n>(0 :: Int))
             then tryInsert (n-(1 :: Int))
@@ -555,7 +555,7 @@ executeTransactionPlan store plan mProgressManager = do
                 Nothing -> pure ()
               pure $ Left $ "Transaction " ++ show plan.planId ++ " failed: " ++ show err
 
-          SuccessfulInsertion cursor -> do
+          SuccessfulInsertion{finalCursor = cursor} -> do
             case mProgressManager of
               Just pm -> reportTransactionCompleted pm True
               Nothing -> pure ()
@@ -656,8 +656,8 @@ testComprehensiveConsistencyWithConfig config = do
           }
 
     void $ insertEvents store Nothing $
-      Map.singleton completionStream $ StreamEventBatch NoStream
-        [SomeLatestEvent (Proxy @CompletionEvent) completionPayload]
+      Transaction (Map.singleton completionStream $ StreamWrite NoStream
+        [SomeLatestEvent (Proxy @CompletionEvent) completionPayload])
 
     reportPhaseChangeIO progressManager "Waiting Complete" "Waiting for all subscriptions to receive completion event"
 

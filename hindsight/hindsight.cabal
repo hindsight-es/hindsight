@@ -22,13 +22,8 @@ library
     import:           warnings, opts
     exposed-modules:  Hindsight,
                       Hindsight.Core,
-                      Hindsight.TH,
                       Hindsight.Store,
                       Hindsight.Store.Parsing
-
-
-    other-modules:
-                      Hindsight.Store.Internal.Common
     -- other-modules:
     -- other-extensions:
     build-depends:    base,
@@ -89,14 +84,19 @@ library store-testing
     visibility:       public
     exposed-modules:  Test.Hindsight.Store.Common,
                       Test.Hindsight.Store.TestRunner,
+                      Test.Hindsight.Store.StressTests,
+                      Test.Hindsight.Store.PropertyTests,
+                      Test.Hindsight.Store.OrderingTests,
                       Test.Hindsight.Examples
     other-modules:    Test.Hindsight.Generate
     build-depends:    base,
                       aeson,
                       aeson-pretty,
+                      async,
                       bytestring,
                       containers,
                       filepath,
+                      hedgehog,
                       hindsight,
                       hindsight:event-testing,
                       QuickCheck,
@@ -105,9 +105,11 @@ library store-testing
                       stm,
                       tasty,
                       tasty-golden,
+                      tasty-hedgehog,
                       tasty-hunit,
                       tasty-quickcheck,
                       text,
+                      time,
                       unliftio,
                       uuid
     hs-source-dirs:   test-lib

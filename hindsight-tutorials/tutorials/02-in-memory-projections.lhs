@@ -150,7 +150,7 @@ demoUserCount = do
                ]
 
   void $ insertEvents store Nothing $
-    Map.singleton streamId (StreamEventBatch Any events)
+    multiEvent streamId Any events
 
   -- Wait for projection to update
   threadDelay 100000
@@ -225,7 +225,7 @@ demoUserDirectory = do
                ]
 
   void $ insertEvents store Nothing $
-    Map.singleton streamId (StreamEventBatch Any events)
+    multiEvent streamId Any events
 
   threadDelay 100000
 

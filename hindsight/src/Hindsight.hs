@@ -41,7 +41,7 @@ main = do
 
 = Storage Backends
 
-Storage backends are now in separate packages:
+Storage backends are in separate packages:
 
 * "Hindsight.Store.Memory" (package: hindsight-memory-store) - In-memory storage for testing and development
 * "Hindsight.Store.Filesystem" (package: hindsight-filesystem-store) - File-based persistence for durable event storage
@@ -51,17 +51,14 @@ Storage backends are now in separate packages:
 
 * "Hindsight.Core" - Event definitions, versioning, and type-level utilities
 * "Hindsight.Store" - Common event store interface and data types
-* "Hindsight.TH" - Template Haskell utilities for code generation
 
-For projection system, see the hindsight-postgresql-store package.
+For projection system, see the hindsight-postgresql-projections package.
 -}
 module Hindsight
   ( module Hindsight.Core,
     module Hindsight.Store,
-    module Hindsight.TH,
   )
 where
 
 import Hindsight.Core
 import Hindsight.Store
-import Hindsight.TH

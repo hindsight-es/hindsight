@@ -6,6 +6,9 @@ import Hindsight.Store.Filesystem
 import System.Posix.Temp
 import Test.Hindsight.Store.Filesystem (filesystemSpecificTests)
 import Test.Hindsight.Store.TestRunner
+import Test.Hindsight.Store.StressTests (stressTests)
+import Test.Hindsight.Store.PropertyTests (propertyTests)
+import Test.Hindsight.Store.OrderingTests (orderingTests)
 import Test.Tasty
 
 -- Filesystem store test runner
@@ -38,6 +41,9 @@ filesystemStoreTests =
     "Filesystem Store Tests"
     [ testGroup "Generic Tests" (genericEventStoreTests filesystemStoreRunner),
       testGroup "Multi-Instance Tests" (multiInstanceTests filesystemStoreRunner),
+      testGroup "Stress Tests" (stressTests filesystemStoreRunner),
+      propertyTests filesystemStoreRunner,
+      testGroup "Ordering Tests" (orderingTests filesystemStoreRunner),
       testGroup "Store-Specific Tests" filesystemSpecificTests
     ]
 

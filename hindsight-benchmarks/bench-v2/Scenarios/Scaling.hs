@@ -107,9 +107,9 @@ runTransactionScalingTest runner config backend = do
         streamId <- StreamId <$> UUID.nextRandom
         let events = makeBenchEventBatch (eventsPerTransaction config) (eventSizeBytes config)
         result <- insertEvents backend Nothing $
-          Map.singleton streamId (StreamEventBatch Any events)
+          Transaction $ Map.singleton streamId (StreamWrite Any events)
         case result of
-          SuccessfulInsertion _ -> pure ()
+          SuccessfulInsertion{} -> pure ()
           FailedInsertion err -> error $ "Transaction scaling test failed: " <> show err
         ) [1..numTransactions config]
   
@@ -149,9 +149,9 @@ runSubscriptionScalingTest runner config backend = do
         streamId <- StreamId <$> UUID.nextRandom
         let events = makeBenchEventBatch (eventsPerTransaction config) (eventSizeBytes config)
         result <- insertEvents backend Nothing $
-          Map.singleton streamId (StreamEventBatch Any events)
+          Transaction $ Map.singleton streamId (StreamWrite Any events)
         case result of
-          SuccessfulInsertion _ -> 
+          SuccessfulInsertion{} -> 
             -- Simulate subscription processing delay
             mapM_ (\_ -> return ()) [1..numSubscriptions config]
           FailedInsertion err -> error $ "Subscription scaling test failed: " <> show err

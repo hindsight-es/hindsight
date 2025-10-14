@@ -22,9 +22,6 @@ module Hindsight.Projection.Matching
     ProjectionHandlers (..),
     SomeProjectionHandler (..),
 
-    -- * Handler Construction
-    match,
-
     -- * Handler Matching
     -- | Two different matching strategies for different use cases:
     --
@@ -57,16 +54,6 @@ data ProjectionHandlers (ts :: [Symbol]) backend where
   ProjectionEnd :: ProjectionHandlers '[] backend
 
 infixr 5 :->
-
--- | Helper to construct projection handler pairs for 'ProjectionHandlers'.
---
--- Uses RequiredTypeArguments for better error messages when the type is omitted.
---
--- @
--- handlers = match UserRegistered handleUser :-> ProjectionEnd
--- @
-match :: forall event -> forall a. a -> (Proxy event, a)
-match event = \handler -> (Proxy @event, handler)
 
 -- | Extract handlers that match a specific event type (compile-time matching)
 --

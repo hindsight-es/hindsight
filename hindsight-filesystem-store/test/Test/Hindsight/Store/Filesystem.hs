@@ -45,12 +45,14 @@ readLogFile path = do
   pure $ catMaybes $ map decode $ filter (not . BL8.null) $ BL8.split '\n' contents
 
 -- | Test group for filesystem specific tests
+-- Note: testSequentialVersioning was a duplicate of generic testConcurrentWrites
+-- and has been removed. testMultiStreamConcurrency remains as it tests a specific
+-- success case not explicitly covered by generic tests.
 filesystemSpecificTests :: [TestTree]
 filesystemSpecificTests =
   [ testLogFileStructure,
     testStoreReload,
     testLogFileCorruption,
-    testSequentialVersioning,
     testMultiStreamConcurrency
   ]
 
@@ -70,11 +72,11 @@ testLogFileStructure = testCase "Log File Structure" $ do
 
     result <-
       insertEvents store Nothing $
-        Map.singleton streamId (StreamEventBatch NoStream events)
+        Transaction (Map.singleton streamId (StreamWrite NoStream events))
 
     case result of
       FailedInsertion err -> assertFailure $ "Failed to insert events: " ++ show err
-      SuccessfulInsertion _ -> do
+      SuccessfulInsertion{} -> do
         -- Read and verify log structure
         entries <- readLogFile paths.eventLogPath
 
@@ -97,18 +99,18 @@ testStoreReload = testCase "Store Reload" $ do
     -- Write events to store
     result1 <-
       insertEvents store Nothing $
-        Map.singleton streamId (StreamEventBatch NoStream events)
+        Transaction (Map.singleton streamId (StreamWrite NoStream events))
 
     case result1 of
       FailedInsertion err -> assertFailure $ "Failed to insert events: " ++ show err
-      SuccessfulInsertion _ -> do
+      SuccessfulInsertion{} -> do
         -- Create new store instance pointing to same directory
         store2 <- openFilesystemStore (getStoreConfig store)
 
         -- Try to write with NoStream - should fail if state was properly reloaded
         result2 <-
           insertEvents store2 Nothing $
-            Map.singleton streamId (StreamEventBatch NoStream [makeUserEvent 4])
+            Transaction (Map.singleton streamId (StreamWrite NoStream [makeUserEvent 4]))
 
         case result2 of
           FailedInsertion (ConsistencyError _) -> pure () -- Expected
@@ -126,7 +128,7 @@ testLogFileCorruption = testCase "Log File Corruption" $ do
 
     void $
       insertEvents store Nothing $
-        Map.singleton streamId (StreamEventBatch NoStream events)
+        Transaction (Map.singleton streamId (StreamWrite NoStream events))
 
     -- Corrupt the log file by appending invalid JSON
     BL.appendFile paths.eventLogPath "invalid json\n"
@@ -138,61 +140,14 @@ testLogFileCorruption = testCase "Log File Corruption" $ do
     streamId2 <- StreamId <$> UUID.nextRandom
     result <-
       insertEvents store2 Nothing $
-        Map.singleton streamId2 (StreamEventBatch NoStream [makeUserEvent 4])
+        Transaction (Map.singleton streamId2 (StreamWrite NoStream [makeUserEvent 4]))
 
     case result of
       FailedInsertion err -> assertFailure $ "Failed to write after corruption: " ++ show err
-      SuccessfulInsertion _ -> pure ()
-
--- | Test parallel non-concurrent writes and check that only one succeeds
-testSequentialVersioning :: TestTree
-testSequentialVersioning = testCase "Sequential stream consistency" $ withTempStore $ \store -> do
-  streamId <- StreamId <$> UUID.nextRandom
-  _ <- newIORef @Int 0
-
-  -- Initialize stream
-  result1 <-
-    insertEvents store Nothing $
-      Map.singleton streamId (StreamEventBatch NoStream [makeUserEvent 1])
-
-  case result1 of
-    FailedInsertion err -> assertFailure $ "Initial write failed: " ++ show err
-    SuccessfulInsertion cursor -> do
-      -- Perform multiple concurrent writes with same expected version
-      let numWriters = 10
-          writeOperation =
-            insertEvents store Nothing $
-              Map.singleton streamId (StreamEventBatch (ExactVersion cursor) [makeUserEvent 2])
-
-      results <-
-        pooledMapConcurrently
-          (const writeOperation)
-          [1 .. numWriters]
-
-      -- Count successful writes
-      let countSuccesses = length . filter isSuccess
-          isSuccess = \case
-            SuccessfulInsertion _ -> True
-            _ -> False
-
-      let successCount = countSuccesses results
-
-      -- Exactly one write should succeed
-      assertBool
-        ("Expected exactly one successful write, got " ++ show successCount)
-        (successCount == 1)
-
-      -- All other writes should fail with consistency errors
-      let failureCount = length . filter isConsistencyFailure $ results
-          isConsistencyFailure = \case
-            FailedInsertion (ConsistencyError _) -> True
-            _ -> False
-
-      assertBool
-        ("Expected all other writes to fail with consistency errors")
-        (failureCount == numWriters - 1)
+      SuccessfulInsertion{} -> pure ()
 
 -- | Run concurrent stream updates in parallel and check that all succeed
+-- This tests the success case for concurrent writes to independent streams
 testMultiStreamConcurrency :: TestTree
 testMultiStreamConcurrency = testCase "Multi-stream Concurrency" $ withTempStore $ \store -> do
   let numStreams = 5
@@ -200,27 +155,27 @@ testMultiStreamConcurrency = testCase "Multi-stream Concurrency" $ withTempStore
 
   -- Initialize all streams
   let initWrites =
-        Map.fromList $
+        Transaction (Map.fromList $
           zip streamIds $
             map
-              (\i -> StreamEventBatch NoStream [makeUserEvent i])
-              [1 ..]
+              (\i -> StreamWrite NoStream [makeUserEvent i])
+              [1 ..])
 
   result1 <- insertEvents store Nothing initWrites
   case result1 of
     FailedInsertion err -> assertFailure $ "Initial writes failed: " ++ show err
-    SuccessfulInsertion _ -> do
+    SuccessfulInsertion{} -> do
       -- Perform concurrent writes to different streams
       let writeToStream sid =
             insertEvents store Nothing $
-              Map.singleton sid (StreamEventBatch StreamExists [makeUserEvent 100])
+              Transaction (Map.singleton sid (StreamWrite StreamExists [makeUserEvent 100]))
 
       results <- pooledMapConcurrently writeToStream streamIds
 
       -- All writes should succeed since they're to different streams
       let successCount = length . filter isSuccess $ results
           isSuccess = \case
-            SuccessfulInsertion _ -> True
+            SuccessfulInsertion{} -> True
             _ -> False
 
       assertBool

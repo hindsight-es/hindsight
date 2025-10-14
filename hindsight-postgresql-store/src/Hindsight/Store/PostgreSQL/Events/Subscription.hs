@@ -53,7 +53,9 @@ import Control.Concurrent.STM
     readTChan,
     writeTChan,
   )
-import Control.Exception (finally, throwIO, try, catch, Exception, SomeException, AsyncException)
+import Control.Exception (finally, try, Exception, SomeException, AsyncException)
+import UnliftIO.Exception (catch, throwIO)
+import qualified Data.Text as T
 import Control.Monad (forever, forM_)
 import Data.Aeson (Value)
 import Data.Aeson.Types qualified as Aeson
@@ -309,18 +311,25 @@ workerLoop pool tickChannel initialCursor matcher selector = do
   cursorRef <- newIORef initialCursor
   let batchSize = 1000 -- A configurable batch size would be better
 
-  forever $ do
-    cursor <- readIORef cursorRef
-    batch <- fetchEventBatch pool cursor batchSize selector
-    
-    if null batch
-      then do
-        -- No events available, wait for notification
-        liftIO $ atomically $ readTChan tickChannel
-      else do
-        -- Process the batch of events
-        newCursor <- processEventBatch matcher batch
-        writeIORef cursorRef newCursor
+  let loop = do
+        cursor <- readIORef cursorRef
+        batch <- fetchEventBatch pool cursor batchSize selector
+
+        if null batch
+          then do
+            -- No events available, wait for notification
+            liftIO $ atomically $ readTChan tickChannel
+            loop  -- Continue loop
+          else do
+            -- Process the batch of events
+            (newCursor, shouldContinue) <- processEventBatch matcher batch
+            writeIORef cursorRef newCursor
+            -- Only continue if handler didn't return Stop
+            if shouldContinue
+              then loop
+              else pure ()  -- Exit loop on Stop
+
+  loop
 
 -- | Worker loop with retry support for resilient error handling
 workerLoopWithRetry ::
@@ -336,18 +345,25 @@ workerLoopWithRetry pool tickChannel initialCursor matcher selector retryConfig 
   cursorRef <- newIORef initialCursor
   let batchSize = 1000 -- A configurable batch size would be better
 
-  forever $ do
-    cursor <- readIORef cursorRef
-    batch <- fetchEventBatchWithRetry pool cursor batchSize selector retryConfig
-    
-    if null batch
-      then do
-        -- No events available, wait for notification
-        liftIO $ atomically $ readTChan tickChannel
-      else do
-        -- Process the batch of events
-        newCursor <- processEventBatch matcher batch
-        writeIORef cursorRef newCursor
+  let loop = do
+        cursor <- readIORef cursorRef
+        batch <- fetchEventBatchWithRetry pool cursor batchSize selector retryConfig
+
+        if null batch
+          then do
+            -- No events available, wait for notification
+            liftIO $ atomically $ readTChan tickChannel
+            loop  -- Continue loop
+          else do
+            -- Process the batch of events
+            (newCursor, shouldContinue) <- processEventBatch matcher batch
+            writeIORef cursorRef newCursor
+            -- Only continue if handler didn't return Stop
+            if shouldContinue
+              then loop
+              else pure ()  -- Exit loop on Stop
+
+  loop
 
 -- | The raw event data structure fetched from the database.
 data EventData = EventData
@@ -482,47 +498,94 @@ singleStreamEncoder = contramap (\(c, _, _) -> c.transactionNo) (E.param (E.nonN
                    <> contramap (\(_, _, s) -> case s.streamId of SingleStream (StreamId sid) -> sid; _ -> error "impossible") (E.param (E.nonNullable E.uuid))
 
 -- | Processes a batch of events, calling the appropriate handlers.
+-- Returns (cursor, shouldContinue) where shouldContinue = False means handler returned Stop
+-- IMPORTANT: Events are processed in the order they appear in the batch to respect causality
 processEventBatch ::
+  forall m ts.
   (MonadUnliftIO m) =>
   EventMatcher ts SQLStore m ->
   [EventData] ->
-  m SQLCursor
+  m (SQLCursor, Bool)
 processEventBatch matcher batch = do
-  let go :: (MonadUnliftIO m) => EventMatcher ts' SQLStore m -> [EventData] -> m ()
-      go MatchEnd _ = pure ()
-      go _ [] = pure ()
-      go ((proxy, handler) :? rest) events = do
-        let (matching, nonMatching) = partition ((== getEventName proxy) . (.eventName)) events
+  stopRef <- newIORef False
+  lastCursorRef <- newIORef Nothing
 
-        forM_ matching $ \eventData -> do
-          case Map.lookup (fromIntegral eventData.eventVersion) (parseMapFromProxy proxy) of
-            Just parser ->
-              case Aeson.parseEither parser eventData.payload of
-                Right parsedPayload -> do
-                  let envelope =
-                        EventWithMetadata
-                          { position = SQLCursor eventData.transactionNo eventData.seqNo
-                          , eventId = EventId eventData.eventId
-                          , streamId = StreamId eventData.streamId
-                          , streamVersion = StreamVersion eventData.streamVersion
-                          , correlationId = CorrelationId <$> eventData.correlationId
-                          , createdAt = eventData.createdAt
-                          , payload = parsedPayload
-                          }
-                  _ <- handler envelope
-                  pure ()
-                Left err ->
-                  liftIO $ putStrLn $ "Failed to parse event payload: " <> show err
-            Nothing ->
-              liftIO $ putStrLn $ "Unknown event version for " <> show (eventData.eventName)
+  -- Try to match a single event against all matchers
+  let tryMatchers :: forall ts'. EventMatcher ts' SQLStore m -> EventData -> m ()
+      tryMatchers MatchEnd eventData = do
+        -- No matcher matched this event, just update cursor
+        let cursor = SQLCursor eventData.transactionNo eventData.seqNo
+        writeIORef lastCursorRef (Just cursor)
+      tryMatchers ((proxy, handler) :? rest) eventData = do
+        let cursor = SQLCursor eventData.transactionNo eventData.seqNo
+        if eventData.eventName == getEventName proxy
+          then do
+            -- This matcher matches the event
+            case Map.lookup (fromIntegral eventData.eventVersion) (parseMapFromProxy proxy) of
+              Just parser ->
+                case Aeson.parseEither parser eventData.payload of
+                  Right parsedPayload -> do
+                    let envelope =
+                          EventWithMetadata
+                            { position = cursor
+                            , eventId = EventId eventData.eventId
+                            , streamId = StreamId eventData.streamId
+                            , streamVersion = StreamVersion eventData.streamVersion
+                            , correlationId = CorrelationId <$> eventData.correlationId
+                            , createdAt = eventData.createdAt
+                            , payload = parsedPayload
+                            }
+                    -- Catch exceptions and enrich with event context
+                    result <- (handler envelope) `catch` \(e :: SomeException) ->
+                      throwIO $ Store.HandlerException
+                        { Store.originalException = e
+                        , Store.failedEventPosition = T.pack $ show cursor
+                        , Store.failedEventId = EventId eventData.eventId
+                        , Store.failedEventName = eventData.eventName
+                        , Store.failedEventStreamId = StreamId eventData.streamId
+                        , Store.failedEventStreamVersion = StreamVersion eventData.streamVersion
+                        , Store.failedEventCorrelationId = CorrelationId <$> eventData.correlationId
+                        , Store.failedEventCreatedAt = eventData.createdAt
+                        }
+                    -- Update last processed cursor
+                    writeIORef lastCursorRef (Just cursor)
+                    -- Check if handler wants to stop
+                    case result of
+                      Store.Stop -> writeIORef stopRef True
+                      Store.Continue -> pure ()
+                  Left err -> do
+                    liftIO $ putStrLn $ "Failed to parse event payload: " <> show err
+                    writeIORef lastCursorRef (Just cursor)
+              Nothing -> do
+                liftIO $ putStrLn $ "Unknown event version for " <> show (eventData.eventName)
+                writeIORef lastCursorRef (Just cursor)
+          else do
+            -- This matcher doesn't match, try next matcher
+            tryMatchers rest eventData
 
-        go rest nonMatching
+  -- Process all events in order, stopping if Stop is encountered
+  let processAllEvents [] = pure ()
+      processAllEvents (event : remaining) = do
+        shouldStop <- readIORef stopRef
+        if shouldStop
+          then pure ()
+          else do
+            tryMatchers matcher event
+            processAllEvents remaining
 
-  go matcher batch
+  processAllEvents batch
 
-  -- Return the cursor of the last event in the batch.
-  case listToMaybe (reverse batch) of
-    Just lastEvent -> pure $ SQLCursor lastEvent.transactionNo lastEvent.seqNo
-    Nothing -> error "processEventBatch called with an empty batch"
+  -- Return the cursor and stop flag
+  stopped <- readIORef stopRef
+  lastCursor <- readIORef lastCursorRef
+
+  -- Use last processed cursor, or fall back to last event in batch
+  let finalCursor = case lastCursor of
+        Just cursor -> cursor
+        Nothing -> case listToMaybe (reverse batch) of
+          Just lastEvent -> SQLCursor lastEvent.transactionNo lastEvent.seqNo
+          Nothing -> error "processEventBatch called with an empty batch"
+
+  pure (finalCursor, not stopped)
 
 
