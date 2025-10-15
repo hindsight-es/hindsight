@@ -265,7 +265,8 @@ subscribe handle matcher selector = do
 
     -- Return a handle that allows the user to cancel the subscription
     pure $ Store.SubscriptionHandle
-      { cancel = cancel workerThread
+      { cancel = cancel workerThread,
+        wait = wait workerThread
       }
 
 
@@ -293,7 +294,8 @@ subscribeWithRetryAndAsync handle matcher selector retryConfig = do
 
     -- Return both the handle and the async
     let subscriptionHandle = Store.SubscriptionHandle
-          { cancel = cancel workerThread
+          { cancel = cancel workerThread,
+            wait = wait workerThread
           }
     pure (subscriptionHandle, workerThread)
 

@@ -100,7 +100,7 @@ import Control.Concurrent.STM
     writeTChan,
     writeTVar,
   )
-import Control.Exception (Exception, bracket, throwIO, try)
+import Control.Exception (Exception, SomeException, bracket, displayException, throwIO, try)
 import Control.Monad (forever, forM_, void, when)
 import Control.Monad.IO.Class (liftIO)
 import UnliftIO (MonadUnliftIO)
@@ -111,8 +111,9 @@ import Data.ByteString.Lazy qualified as BL
 import Data.ByteString.Lazy.Char8 qualified as BL8
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (mapMaybe)
+import Data.Maybe (listToMaybe, mapMaybe)
 import Data.Time (UTCTime, getCurrentTime)
+import Data.Text (pack)
 import Data.UUID (UUID)
 import Data.UUID.V4 qualified as UUID
 -- (StoredEvent (..), StoreCursor (..), StoreState (..), updateState)
@@ -121,10 +122,12 @@ import GHC.Generics (Generic)
 import Hindsight.Store
   ( BackendHandle,
     Cursor,
+    ErrorInfo (..),
     EventId (EventId),
     EventMatcher,
     EventSelector (..),
     EventStore (..),
+    EventStoreError (BackendError),
     InsertionResult (FailedInsertion, SuccessfulInsertion),
     InsertionSuccess (..),
     StreamWrite (events),
@@ -466,42 +469,72 @@ instance EventStore FilesystemStore where
     txId <- UUID.nextRandom
     now <- getCurrentTime
 
-    -- Execute version check and state update atomically
-    result <- atomically $ do
-      state <- readTVar handle.stateVar
-      case checkAllVersions state batches of
+    -- All critical operations happen inside the file lock to prevent cross-instance races
+    result <- try $ withStoreLock handle $ do
+      -- Phase 1: Read ONLY max sequence number from disk (source of truth for cross-instance)
+      -- We just need the last transaction entry, which contains the highest seqNos
+      -- ASSUMPTION: Each log entry is exactly one line (Aeson's encode produces compact JSON
+      -- without newlines; any newlines in event data are escaped as \n per JSON spec)
+      diskMaxSeq <- do
+        let paths = getPaths handle.config.storePath
+        diskContents <- BS.readFile paths.eventLogPath
+        let lastLine = listToMaybe $ reverse $ filter (not . BS.null) $ BS8.split '\n' diskContents
+            lastEntry :: Maybe EventLogEntry
+            lastEntry = lastLine >>= decode . BL.fromStrict
+            lastSeqNos = maybe [] (\entry -> map seqNo entry.events) lastEntry
+        pure $ maximum $ (-1) : lastSeqNos
+
+      -- Phase 2: Check versions and generate sequence numbers based on DISK max
+      versionCheckResult <- atomically $ do
+        state <- readTVar handle.stateVar
+        case checkAllVersions state batches of
+          Left err -> pure $ Left err
+          Right () -> do
+            -- Use max(STM nextSeq, disk maxSeq + 1) to handle both fresh state and stale STM
+            let actualNextSeq = max state.nextSequence (diskMaxSeq + 1)
+                stateWithCorrectSeq = state { nextSequence = actualNextSeq }
+                eventIds = replicate (sum $ map (length . (.events)) $ Map.elems batches) (EventId txId)
+                (newState, finalCursor, streamCursors) = insertAllEvents stateWithCorrectSeq corrId now eventIds batches
+                newEvents =
+                  [ event
+                    | event <- Map.elems newState.events,
+                      not $ Map.member event.seqNo stateWithCorrectSeq.events
+                  ]
+            pure $ Right (newState, finalCursor, streamCursors, newEvents)
+
+      case versionCheckResult of
         Left err -> pure $ Left err
-        Right () -> do
-          let eventIds = replicate (sum $ map (length . (.events)) $ Map.elems batches) (EventId txId)
-              (newState, finalCursor, streamCursors) = insertAllEvents state corrId now eventIds batches
-              newEvents =
-                [ event
-                  | event <- Map.elems newState.events,
-                    not $ Map.member event.seqNo state.events
-                ]
-          writeTVar handle.stateVar newState
-          pure $ Right (newState, finalCursor, streamCursors, newEvents)
+        Right (newState, finalCursor, streamCursors, newEvents) -> do
+          -- Phase 2: Write to disk
+          let paths = getPaths handle.config.storePath
+              jsonLine = BL.toStrict (encode $ EventLogEntry txId newEvents now) <> "\n"
+          BS.appendFile paths.eventLogPath jsonLine
+
+          -- Phase 3: Update STM state (still inside lock!)
+          liftIO $ atomically $ do
+            writeTVar handle.stateVar newState
+
+            -- Update notifications
+            forM_ (Map.keys batches) $ \streamId ->
+              forM_ (Map.lookup streamId newState.streamNotifications) $ \var ->
+                writeTVar var (getSequenceNo finalCursor)
+
+            writeTVar newState.globalNotification (getSequenceNo finalCursor)
+
+          pure $ Right (finalCursor, streamCursors)
 
     case result of
-      Left err -> pure $ FailedInsertion err
-      Right (newState, finalCursor, streamCursors, newEvents) -> do
-        -- Write begin entry
-        writeLogEntry
-          handle
-          EventLogEntry
-            { transactionId = txId,
-              events = newEvents,
-              timestamp = now
-            }
-
-        -- Update notifications
-        atomically $ do
-          forM_ (Map.keys batches) $ \streamId ->
-            forM_ (Map.lookup streamId newState.streamNotifications) $ \var ->
-              writeTVar var (getSequenceNo finalCursor)
-
-          writeTVar newState.globalNotification (getSequenceNo finalCursor)
-
+      Left (e :: SomeException) ->
+        -- Lock timeout, disk write, or STM update failed
+        pure $ FailedInsertion $ BackendError $ ErrorInfo
+          { errorMessage = pack $ "Failed to persist events: " <> displayException e
+          , exception = Just e
+          }
+      Right (Left err) ->
+        -- Version check failed
+        pure $ FailedInsertion err
+      Right (Right (finalCursor, streamCursors)) ->
+        -- Success: both disk and STM updated atomically under lock
         pure $ SuccessfulInsertion $ InsertionSuccess
           { finalCursor = finalCursor
           , streamCursors = streamCursors

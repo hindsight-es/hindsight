@@ -41,7 +41,7 @@ module Hindsight.Store.Memory.Internal
   )
 where
 
-import Control.Concurrent.Async (async, cancel)
+import Control.Concurrent.Async (async, cancel, wait)
 import Control.Concurrent.STM
   ( TVar,
     atomically,
@@ -53,6 +53,8 @@ import Control.Concurrent.STM
 import Control.Monad (when)
 import Control.Monad.IO.Class (MonadIO (..))
 import UnliftIO (MonadUnliftIO, withRunInIO)
+import UnliftIO.Exception (SomeException, catch, throwIO)
+import Data.Text qualified as T
 import Data.Aeson (FromJSON (..), ToJSON (..), Value (..))
 import Data.Foldable (toList)
 import Data.List (sortOn, zip4)
@@ -143,7 +145,7 @@ getCurrentStreamVersion state streamId =
 -- | Process events through matcher chain
 processEvents ::
   forall ts m backend.
-  (MonadIO m, StoreCursor backend) =>
+  (MonadUnliftIO m, StoreCursor backend, Show (Cursor backend)) =>
   EventMatcher ts backend m ->
   [StoredEvent] ->
   m SubscriptionResult
@@ -160,7 +162,7 @@ processEvents (matcher :? rest) events = do
 -- | Process a single event through matchers
 processEventThroughMatchers ::
   forall m backend event ts.
-  (MonadIO m, IsEvent event, StoreCursor backend) =>
+  (MonadUnliftIO m, IsEvent event, StoreCursor backend, Show (Cursor backend)) =>
   (Proxy event, EventHandler event m backend) ->
   EventMatcher ts backend m ->
   StoredEvent ->
@@ -178,7 +180,17 @@ processEventThroughMatchers (proxy, handler) rest event = do
                 event.createdAt
                 event.payload
                 event.eventVersion of
-      Just envelope -> handler envelope
+      Just envelope -> (handler envelope) `catch` \(e :: SomeException) ->
+        throwIO $ HandlerException
+          { originalException = e
+          , failedEventPosition = T.pack $ show (makeCursor @backend event.seqNo)
+          , failedEventId = event.eventId
+          , failedEventName = event.eventName
+          , failedEventStreamId = event.streamId
+          , failedEventStreamVersion = event.streamVersion
+          , failedEventCorrelationId = event.correlationId
+          , failedEventCreatedAt = event.createdAt
+          }
       Nothing -> processEvents rest [event]
     else processEvents rest [event]
 
@@ -322,7 +334,7 @@ insertAllEvents state mbCorrId now eventIds batches =
 -- | Common implementation of event subscription
 subscribeToEvents ::
   forall m backend ts.
-  (MonadUnliftIO m, StoreCursor backend) =>
+  (MonadUnliftIO m, StoreCursor backend, Show (Cursor backend)) =>
   TVar (StoreState backend) -> -- State variable
   EventMatcher ts backend m -> -- Event matcher
   EventSelector backend -> -- Event selector
@@ -391,5 +403,6 @@ subscribeToEvents stateVar matcher selector = do
     workerThread <- async $ runInIO $ loop startSeq
     pure $
       SubscriptionHandle
-        { cancel = cancel workerThread
+        { cancel = cancel workerThread,
+          wait = wait workerThread
         }

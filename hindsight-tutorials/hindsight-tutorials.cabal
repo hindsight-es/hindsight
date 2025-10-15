@@ -26,7 +26,6 @@ executable tutorial-01
     build-depends:
         base,
         aeson,
-        containers,
         hindsight,
         hindsight-memory-store,
         text,
@@ -77,7 +76,6 @@ executable tutorial-04
     build-depends:
         base,
         aeson,
-        containers,
         hindsight,
         hindsight-memory-store,
         text,
@@ -91,7 +89,6 @@ executable tutorial-05
     build-depends:
         base,
         aeson,
-        containers,
         hindsight,
         hindsight-memory-store,
         text,
@@ -105,7 +102,6 @@ executable tutorial-06
     build-depends:
         base,
         aeson,
-        containers,
         directory,
         hindsight,
         hindsight-memory-store,

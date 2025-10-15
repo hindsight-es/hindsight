@@ -76,7 +76,6 @@ library store-testing
                       filepath,
                       hedgehog,
                       hindsight,
-                      hindsight:event-testing,
                       QuickCheck,
                       quickcheck-instances,
                       random,
@@ -104,27 +103,5 @@ test-suite hindsight-test
     main-is:          Main.hs
     build-depends:
         base,
-        aeson-pretty,
-        async,
-        bytestring,
-        aeson,
-        containers,
-        directory,
-        filepath,
-        hedgehog,
-        hindsight:event-testing,
         hindsight:store-testing,
-        QuickCheck,
-        random,
-        stm,
-        tasty,
-        tasty-golden,
-        tasty-quickcheck,
-        tasty-hedgehog,
-        time,
-        temporary,
-        text,
-        unix,
-        unliftio
-
-
+        tasty

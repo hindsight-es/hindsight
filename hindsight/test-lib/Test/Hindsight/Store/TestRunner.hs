@@ -7,6 +7,7 @@
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -45,7 +46,7 @@ import Test.Hindsight.Store.Common
 import Test.Tasty
 import Test.Tasty.HUnit
 import UnliftIO.Async (async, concurrently, wait)
-import UnliftIO.Exception (throwIO)
+import UnliftIO.Exception (SomeException, fromException, throwIO, tryAny)
 
 -- | Test runner for event store tests
 data EventStoreTestRunner backend = EventStoreTestRunner
@@ -379,7 +380,7 @@ testSubscriptionStopBehavior store = do
 -- Test sequence:
 --   1. Insert: [Inc, Inc, Fail, Inc, Inc]
 --   2. Handler: increments counter on Inc, throws exception on Fail
---   3. Expected: counter = 2, subscription dies, events after Fail not processed
+--   3. Expected: counter = 2, subscription dies with HandlerException containing event metadata
 testHandlerExceptionEnrichment :: forall backend. (EventStore backend, StoreConstraints backend IO, Show (Cursor backend)) => BackendHandle backend -> IO ()
 testHandlerExceptionEnrichment store = do
   streamId <- StreamId <$> UUID.nextRandom
@@ -396,17 +397,7 @@ testHandlerExceptionEnrichment store = do
       handleFail _envelope = do
         throwIO $ userError "Test exception from CounterFail handler"
 
-  -- Start subscription before inserting events
-  handle <-
-    subscribe
-      store
-      ( match CounterInc handleInc
-          :? match CounterFail handleFail
-          :? MatchEnd
-      )
-      EventSelector {streamId = AllStreams, startupPosition = FromBeginning}
-
-  -- Insert test sequence: 2 increments, then Fail (should kill subscription), then 2 more increments
+  -- Insert test sequence BEFORE starting subscription (to ensure events are ready)
   let testEvents =
         [ makeCounterInc,    -- counter = 1
           makeCounterInc,    -- counter = 2
@@ -419,18 +410,34 @@ testHandlerExceptionEnrichment store = do
 
   case result of
     FailedInsertion err -> do
-      handle.cancel
       assertFailure $ "Failed to insert events: " ++ show err
     SuccessfulInsertion _ -> do
-      -- Wait long enough for the exception to propagate and kill the subscription
-      -- If the subscription dies, it won't process events after Fail
-      threadDelay 200000 -- 200ms - generous grace period
+      -- Start subscription AFTER inserting events
+      handle <-
+        subscribe
+          store
+          ( match CounterInc handleInc
+              :? match CounterFail handleFail
+              :? MatchEnd
+          )
+          EventSelector {streamId = AllStreams, startupPosition = FromBeginning}
 
-      handle.cancel
+      -- Wait for subscription to complete or fail
+      waitResult <- tryAny handle.wait
 
       -- Verify counter stopped at 2 (subscription died on Fail event)
       finalCount <- readIORef counter
       finalCount @?= 2
+
+      -- Verify the exception is a HandlerException with proper metadata
+      case waitResult of
+        Left exc -> case fromException exc of
+          Just (HandlerException{..}) -> do
+            -- Verify exception enrichment
+            failedEventName @?= "counter_fail"
+            show originalException @?= "user error (Test exception from CounterFail handler)"
+          Nothing -> assertFailure $ "Expected HandlerException, got: " ++ show exc
+        Right () -> assertFailure "Expected subscription to fail with HandlerException"
 
 -- Consistency Test implementations --
 

@@ -269,7 +269,12 @@ data SubscriptionResult
 -- | Handle for managing a subscription lifecycle
 data SubscriptionHandle backend = SubscriptionHandle
   { -- | Cancel the subscription
-    cancel :: IO ()
+    cancel :: IO (),
+    -- | Wait for the subscription to complete or fail.
+    -- Re-throws any exception from the subscription thread.
+    -- This is useful for both testing (to observe handler exceptions)
+    -- and production (to monitor subscription health).
+    wait :: IO ()
   }
 
 -- | Event with full metadata as retrieved from the store.
