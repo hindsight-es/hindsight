@@ -27,8 +27,6 @@ common opts
 library
     import:           warnings, opts
     exposed-modules:  Hindsight.Projection,
-                      Hindsight.Projection.Common,
-                      Hindsight.Projection.Error,
                       Hindsight.Projection.Matching
     build-depends:    base,
                       aeson,

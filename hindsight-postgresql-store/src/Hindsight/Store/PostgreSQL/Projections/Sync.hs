@@ -62,12 +62,7 @@ import Hasql.TH
 import Hasql.Transaction qualified as HasqlTransaction
 import Hasql.Transaction.Sessions qualified as TransactionSession
 import Hindsight.Core (IsEvent)
-import Hindsight.Projection (ProjectionId (..))
-import Hindsight.Projection.Common 
-  ( ProjectionResult (..), 
-    ProjectionError (..),
-    parseStoredEventToEnvelope
-  )
+import Hindsight.Projection (ProjectionId (..), ProjectionResult (..), ProjectionError (..))
 import Hindsight.Store.PostgreSQL.Projections.State 
   ( updateSyncProjectionState,
     registerSyncProjectionInDb,
@@ -76,6 +71,7 @@ import Hindsight.Store.PostgreSQL.Projections.State
   )
 import Hindsight.Projection.Matching (ProjectionHandler, ProjectionHandlers (..), handlersForEventName, SomeProjectionHandler (..), extractMatchingHandlers)
 import Hindsight.Store (CorrelationId (..), EventEnvelope (..), EventId (..), StreamId (..), StreamVersion (..))
+import Hindsight.Store.Parsing (parseStoredEventToEnvelope)
 import Hindsight.Store.PostgreSQL.Core.Types (SQLCursor (..), SQLStore, SyncProjectionRegistry (..), SomeProjectionHandlers (..))
 
 

@@ -12,11 +12,28 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
-module Hindsight.Projection where
+module Hindsight.Projection
+  ( -- * Projection types
+    ProjectionId (..),
+    ProjectionState (..),
+    ProjectionStateError (..),
+
+    -- * Projection results and errors
+    ProjectionResult (..),
+    ProjectionError (..),
+
+    -- * Running projections
+    runProjection,
+    loadProjectionState,
+
+    -- * Waiting for events
+    waitForEvent,
+  )
+where
 
 import Control.Concurrent (forkIO, killThread)
 import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
-import Control.Exception (Exception, bracket, bracket_, throwIO)
+import Control.Exception (Exception, SomeException, bracket, bracket_, throwIO)
 import Control.Monad (forM_, when)
 import Control.Monad.IO.Class (liftIO)
 import Data.Aeson (FromJSON, ToJSON, (.:))
@@ -62,6 +79,33 @@ import UnliftIO.STM (TVar, atomically, writeTVar)
 newtype ProjectionId = ProjectionId
   {unProjectionId :: Text}
   deriving (Show, Eq, Ord)
+
+--------------------------------------------------------------------------------
+-- Projection results and errors
+--------------------------------------------------------------------------------
+
+-- | Result of projection execution
+data ProjectionResult
+  = ProjectionSuccess
+  | ProjectionSkipped  -- ^ Handler didn't match the event
+  | ProjectionError ProjectionError
+  deriving (Show, Eq)
+
+-- | Types of projection errors
+data ProjectionError
+  = ParseError Text
+  | HandlerError SomeException
+  | BackendError Text
+  deriving (Show)
+
+-- | Manual Eq instance for ProjectionError
+--
+-- SomeException doesn't have an Eq instance, so we compare based on the string representation
+instance Eq ProjectionError where
+  (ParseError t1) == (ParseError t2) = t1 == t2
+  (HandlerError e1) == (HandlerError e2) = show e1 == show e2
+  (BackendError t1) == (BackendError t2) = t1 == t2
+  _ == _ = False
 
 data ProjectionState backend = ProjectionState
   { projectionId :: ProjectionId,
