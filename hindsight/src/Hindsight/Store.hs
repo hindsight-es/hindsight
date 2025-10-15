@@ -186,8 +186,8 @@ newtype StreamVersion = StreamVersion Int64
 
 -- | General error information with optional exception details.
 data ErrorInfo = ErrorInfo
-  { errorMessage :: Text,
-    exception :: Maybe SomeException
+  { errorMessage :: Text            -- ^ Human-readable error message
+  , exception :: Maybe SomeException -- ^ Optional underlying exception
   }
   deriving (Show)
 
@@ -196,11 +196,9 @@ data ConsistencyErrorInfo backend = ConsistencyErrorInfo [VersionMismatch backen
 
 -- | Details of a version expectation failure.
 data VersionMismatch backend = VersionMismatch
-  { streamId :: StreamId,
-    -- | The version expectation that was not met
-    expectedVersion :: ExpectedVersion backend,
-    -- | The actual version found (Nothing if stream doesn't exist)
-    actualVersion :: Maybe (Cursor backend)
+  { streamId :: StreamId                      -- ^ Stream that failed the version check
+  , expectedVersion :: ExpectedVersion backend -- ^ The version expectation that was not met
+  , actualVersion :: Maybe (Cursor backend)    -- ^ The actual version found (Nothing if stream doesn't exist)
   }
 
 -- | Possible errors when interacting with the event store.
@@ -224,14 +222,14 @@ deriving instance (Show (Cursor backend)) => Show (EventStoreError backend)
 -- The handler exception represents a bug in event processing code. Higher-level code
 -- (such as projection managers) can implement retry logic if desired.
 data HandlerException = HandlerException
-  { originalException :: SomeException       -- ^ The actual exception that was thrown
-  , failedEventPosition :: Text              -- ^ Cursor position where it failed (serialized)
-  , failedEventId :: EventId                 -- ^ Unique identifier of the failed event
-  , failedEventName :: Text                  -- ^ The name of the event that failed
-  , failedEventStreamId :: StreamId          -- ^ Which stream the event came from
-  , failedEventStreamVersion :: StreamVersion -- ^ Local version within the stream
+  { originalException :: SomeException         -- ^ The actual exception that was thrown
+  , failedEventPosition :: Text                -- ^ Cursor position where it failed (serialized)
+  , failedEventId :: EventId                   -- ^ Unique identifier of the failed event
+  , failedEventName :: Text                    -- ^ The name of the event that failed
+  , failedEventStreamId :: StreamId            -- ^ Which stream the event came from
+  , failedEventStreamVersion :: StreamVersion  -- ^ Local version within the stream
   , failedEventCorrelationId :: Maybe CorrelationId -- ^ Correlation ID if present
-  , failedEventCreatedAt :: UTCTime          -- ^ When the event was stored
+  , failedEventCreatedAt :: UTCTime            -- ^ When the event was stored
   }
   deriving (Typeable)
 
@@ -251,8 +249,8 @@ instance Exception HandlerException
 -- Contains the global cursor position of the last event inserted
 -- and the per-stream cursor positions.
 data InsertionSuccess backend = InsertionSuccess
-  { finalCursor :: Cursor backend                      -- ^ Global position of last inserted event
-  , streamCursors :: Map StreamId (Cursor backend)     -- ^ Per-stream final cursors
+  { finalCursor :: Cursor backend                   -- ^ Global position of last inserted event
+  , streamCursors :: Map StreamId (Cursor backend)  -- ^ Per-stream final cursors
   }
 
 -- | Result of an event insertion operation.
@@ -266,34 +264,29 @@ data SubscriptionResult
   | Continue  -- ^ Continue processing subsequent events
   deriving (Eq, Show)
 
--- | Handle for managing a subscription lifecycle
+-- | Handle for managing a subscription lifecycle.
 data SubscriptionHandle backend = SubscriptionHandle
-  { -- | Cancel the subscription
-    cancel :: IO (),
-    -- | Wait for the subscription to complete or fail.
-    -- Re-throws any exception from the subscription thread.
-    -- This is useful for both testing (to observe handler exceptions)
-    -- and production (to monitor subscription health).
-    wait :: IO ()
+  { cancel :: IO ()  -- ^ Cancel the subscription
+  , wait :: IO ()    -- ^ Wait for the subscription to complete or fail. Re-throws any exception from the subscription thread. Useful for testing (to observe handler exceptions) and production (to monitor subscription health).
   }
 
 -- | Event with full metadata as retrieved from the store.
 data EventEnvelope event backend = EventWithMetadata
-  { position :: Cursor backend,              -- ^ Global position in the event store
-    eventId :: EventId,                      -- ^ Unique event identifier
-    streamId :: StreamId,                    -- ^ Stream this event belongs to
-    streamVersion :: StreamVersion,          -- ^ Local version within the stream (1, 2, 3, ...)
-    correlationId :: Maybe CorrelationId,    -- ^ Optional correlation ID
-    createdAt :: UTCTime,                    -- ^ Timestamp when event was stored
-    payload :: CurrentPayloadType event      -- ^ The actual event data
+  { position :: Cursor backend           -- ^ Global position in the event store
+  , eventId :: EventId                   -- ^ Unique event identifier
+  , streamId :: StreamId                 -- ^ Stream this event belongs to
+  , streamVersion :: StreamVersion       -- ^ Local version within the stream (1, 2, 3, ...)
+  , correlationId :: Maybe CorrelationId -- ^ Optional correlation ID
+  , createdAt :: UTCTime                 -- ^ Timestamp when event was stored
+  , payload :: CurrentPayloadType event  -- ^ The actual event data
   }
 
 deriving instance (Show (FinalVersionType (Versions event)), Show (Cursor backend)) => Show (EventEnvelope event backend)
 
 -- | Criteria for selecting events in a subscription.
 data EventSelector backend = EventSelector
-  { streamId :: StreamSelector,              -- ^ Which streams to subscribe to
-    startupPosition :: StartupPosition backend  -- ^ Where to start reading from
+  { streamId :: StreamSelector                -- ^ Which streams to subscribe to
+  , startupPosition :: StartupPosition backend -- ^ Where to start reading from
   }
 
 deriving instance (Show (StartupPosition backend)) => Show (EventSelector backend)
@@ -336,7 +329,11 @@ infixr 5 :?
 -- @
 -- matcher = match "user_created" handleUser :? MatchEnd
 -- @
-match :: forall event -> forall a. a -> (Proxy event, a)
+match ::
+  forall event ->  -- ^ Event name (type-level string)
+  forall a.
+  a ->             -- ^ Handler function
+  (Proxy event, a) -- ^ Handler pair for use with '(:?)'
 match event = \handler -> (Proxy @event, handler)
 
 
@@ -472,10 +469,10 @@ instance (Semigroup (t SomeLatestEvent)) => Monoid (Transaction t backend) where
 -- singleEvent logId Any logEntry
 -- @
 singleEvent ::
-  StreamId ->
-  ExpectedVersion backend ->
-  SomeLatestEvent ->
-  Transaction [] backend
+  StreamId ->                   -- ^ Target stream identifier
+  ExpectedVersion backend ->    -- ^ Version expectation for concurrency control
+  SomeLatestEvent ->            -- ^ Event to insert
+  Transaction [] backend        -- ^ Transaction with single event
 singleEvent streamId expectedVer event =
   Transaction $ Map.singleton streamId (StreamWrite expectedVer [event])
 
@@ -485,10 +482,10 @@ singleEvent streamId expectedVer event =
 -- multiEvent streamId NoStream [event1, event2, event3]
 -- @
 multiEvent ::
-  StreamId ->
-  ExpectedVersion backend ->
-  t SomeLatestEvent ->
-  Transaction t backend
+  StreamId ->                   -- ^ Target stream identifier
+  ExpectedVersion backend ->    -- ^ Version expectation for concurrency control
+  t SomeLatestEvent ->          -- ^ Collection of events to insert (typically a list)
+  Transaction t backend         -- ^ Transaction with multiple events
 multiEvent streamId expectedVer events =
   Transaction $ Map.singleton streamId (StreamWrite expectedVer events)
 
@@ -513,9 +510,9 @@ multiEvent streamId expectedVer events =
 -- tx2 = appendAfterAny logId event2  -- No conflict
 -- @
 appendAfterAny ::
-  StreamId ->
-  SomeLatestEvent ->
-  Transaction [] backend
+  StreamId ->            -- ^ Target stream identifier (must exist)
+  SomeLatestEvent ->     -- ^ Event to append
+  Transaction [] backend -- ^ Transaction with StreamExists expectation
 appendAfterAny streamId event =
   singleEvent streamId StreamExists event
 
@@ -541,9 +538,9 @@ appendAfterAny streamId event =
 -- singleEvent streamId NoStream event  -- Better: explicit create
 -- @
 appendToOrCreateStream ::
-  StreamId ->
-  SomeLatestEvent ->
-  Transaction [] backend
+  StreamId ->            -- ^ Target stream identifier (created if missing)
+  SomeLatestEvent ->     -- ^ Event to append
+  Transaction [] backend -- ^ Transaction with Any expectation (no version check)
 appendToOrCreateStream streamId event =
   singleEvent streamId Any event
 
@@ -556,8 +553,8 @@ appendToOrCreateStream streamId event =
 --   ]
 -- @
 fromWrites ::
-  [(StreamId, StreamWrite t SomeLatestEvent backend)] ->
-  Transaction t backend
+  [(StreamId, StreamWrite t SomeLatestEvent backend)] ->  -- ^ List of stream writes
+  Transaction t backend                                    -- ^ Combined transaction
 fromWrites = Transaction . Map.fromList
 
 -- | Core interface for event store backends.

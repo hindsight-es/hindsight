@@ -107,10 +107,11 @@ instance Eq ProjectionError where
   (BackendError t1) == (BackendError t2) = t1 == t2
   _ == _ = False
 
+-- | State of a running projection tracked in PostgreSQL.
 data ProjectionState backend = ProjectionState
-  { projectionId :: ProjectionId,
-    lastProcessed :: Cursor backend,
-    lastUpdated :: UTCTime
+  { projectionId :: ProjectionId    -- ^ Unique identifier for this projection
+  , lastProcessed :: Cursor backend -- ^ Last event cursor successfully processed
+  , lastUpdated :: UTCTime          -- ^ Timestamp of last state update
   }
 
 data ProjectionStateError = ProjectionStateError
@@ -123,6 +124,10 @@ instance Exception ProjectionStateError
 -- Main projection runner
 --------------------------------------------------------------------------------
 
+-- | Run a projection continuously, processing events and maintaining state in PostgreSQL.
+--
+-- The projection subscribes to events from the provided backend and executes handlers
+-- within PostgreSQL transactions. State is persisted after each successful event processing.
 runProjection ::
   forall backend m ts.
   ( EventStore backend,
@@ -132,12 +137,12 @@ runProjection ::
     StoreConstraints backend m,
     MonadUnliftIO m
   ) =>
-  ProjectionId ->
-  Pool ->
-  Maybe (TVar (Maybe (ProjectionState backend))) ->
-  BackendHandle backend ->
-  ProjectionHandlers ts backend ->
-  m ()
+  ProjectionId ->                                      -- ^ Unique identifier for this projection
+  Pool ->                                              -- ^ PostgreSQL connection pool for state management
+  Maybe (TVar (Maybe (ProjectionState backend))) ->   -- ^ Optional TVar for exposing state to other threads
+  BackendHandle backend ->                             -- ^ Event store backend to subscribe to
+  ProjectionHandlers ts backend ->                     -- ^ Handlers for processing events
+  m ()                                                  -- ^ Returns when subscription ends
 runProjection projId pool mbTVar store handlers = do
   -- Load projection state
   mbLastState <- loadProjectionState projId pool
@@ -161,12 +166,15 @@ runProjection projId pool mbTVar store handlers = do
 
   pure ()
 
--- Helper to load projection state
+-- | Load the current state of a projection from PostgreSQL.
+--
+-- Returns Nothing if the projection has never been run, or throws ProjectionStateError
+-- if there's a database or JSON parsing error.
 loadProjectionState ::
   (MonadUnliftIO m, MonadFail m, FromJSON (Cursor backend)) =>
-  ProjectionId ->
-  Pool ->
-  m (Maybe (ProjectionState backend))
+  ProjectionId ->                       -- ^ Projection identifier
+  Pool ->                               -- ^ PostgreSQL connection pool
+  m (Maybe (ProjectionState backend))   -- ^ Current state, or Nothing if never run
 loadProjectionState projId pool = do
   result <- liftIO $ Pool.use pool $ getProjectionState projId
   case result of
@@ -302,16 +310,21 @@ updateProjectionStatement =
 -- Waiting on events
 --------------------------------------------------------------------------------
 
+-- | Wait for a projection to process up to (or past) a specific cursor position.
+--
+-- This function uses PostgreSQL LISTEN/NOTIFY to efficiently wait for projection
+-- progress without polling. It returns once the projection has processed the target
+-- cursor or throws an error if the projection state cannot be read.
 waitForEvent ::
   forall backend m.
   ( Ord (Cursor backend),
     MonadUnliftIO m,
     FromJSON (Cursor backend)
   ) =>
-  ProjectionId ->
-  Cursor backend ->
-  Connection ->
-  m ()
+  ProjectionId ->      -- ^ Projection to monitor
+  Cursor backend ->    -- ^ Target cursor position to wait for
+  Connection ->        -- ^ PostgreSQL connection for LISTEN/NOTIFY
+  m ()                 -- ^ Returns when target cursor reached or throws on error
 waitForEvent projectionId@(ProjectionId projId) targetCursor conn = do
   let pgId = Notifications.toPgIdentifier projId
   liftIO $
@@ -352,9 +365,10 @@ waitForEvent projectionId@(ProjectionId projId) targetCursor conn = do
         killThread
         (\_ -> takeMVar completionVar)
 
+-- | Payload sent via PostgreSQL NOTIFY when projection state updates.
 data NotificationPayload backend = NotificationPayload
-  { headPosition :: Cursor backend,
-    lastUpdated :: UTCTime
+  { headPosition :: Cursor backend -- ^ Latest cursor position processed by projection
+  , lastUpdated :: UTCTime         -- ^ Timestamp of the state update
   }
   deriving (Generic)
 

@@ -46,10 +46,10 @@ import Hindsight.Store (CorrelationId, Cursor, EventEnvelope (..), EventId, Stre
 parseEventPayload ::
   forall event.
   (IsEvent event) =>
-  Proxy event ->
-  Aeson.Value ->
-  Integer ->              -- Event payload version (not StreamVersion!)
-  Maybe (CurrentPayloadType event)
+  Proxy event ->                         -- ^ Proxy for the event type
+  Aeson.Value ->                         -- ^ JSON payload from storage
+  Integer ->                             -- ^ Event payload version
+  Maybe (CurrentPayloadType event)       -- ^ Parsed and upgraded payload, or Nothing if parsing fails
 parseEventPayload proxy payloadJson eventPayloadVersion = do
   let parserMap = parseMapFromProxy proxy
   -- Use the actual stored event payload version to select the correct parser
@@ -66,14 +66,14 @@ parseEventPayload proxy payloadJson eventPayloadVersion = do
 -- both projection systems.
 createEventEnvelope ::
   forall event backend.
-  EventId ->
-  StreamId ->
-  Cursor backend ->
-  StreamVersion ->
-  Maybe CorrelationId ->
-  UTCTime ->
-  CurrentPayloadType event ->
-  EventEnvelope event backend
+  EventId ->                      -- ^ Unique event identifier
+  StreamId ->                     -- ^ Stream this event belongs to
+  Cursor backend ->               -- ^ Global position in event store
+  StreamVersion ->                -- ^ Local version within the stream
+  Maybe CorrelationId ->          -- ^ Optional correlation identifier
+  UTCTime ->                      -- ^ Event creation timestamp
+  CurrentPayloadType event ->     -- ^ Parsed event payload at latest version
+  EventEnvelope event backend     -- ^ Complete event envelope with metadata
 createEventEnvelope eventId streamId cursor streamVer corrId timestamp payload =
   EventWithMetadata
     { eventId = eventId,
@@ -95,16 +95,16 @@ createEventEnvelope eventId streamId cursor streamVer corrId timestamp payload =
 parseStoredEventToEnvelope ::
   forall event backend.
   (IsEvent event) =>
-  Proxy event ->
-  EventId ->
-  StreamId ->
-  Cursor backend ->
-  StreamVersion ->
-  Maybe CorrelationId ->
-  UTCTime ->
-  Aeson.Value ->      -- Raw JSON payload from storage
-  Integer ->          -- Event payload version (from eventVersion field)
-  Maybe (EventEnvelope event backend)
+  Proxy event ->                           -- ^ Proxy for the event type
+  EventId ->                               -- ^ Unique event identifier
+  StreamId ->                              -- ^ Stream this event belongs to
+  Cursor backend ->                        -- ^ Global position in event store
+  StreamVersion ->                         -- ^ Local version within the stream
+  Maybe CorrelationId ->                   -- ^ Optional correlation identifier
+  UTCTime ->                               -- ^ Event creation timestamp
+  Aeson.Value ->                           -- ^ Raw JSON payload from storage
+  Integer ->                               -- ^ Event payload version (from eventVersion field)
+  Maybe (EventEnvelope event backend)      -- ^ Parsed envelope, or Nothing if parsing fails
 parseStoredEventToEnvelope proxy eventId streamId cursor streamVer corrId timestamp payloadJson eventPayloadVersion = do
   -- Parse payload using the stored event payload version (with automatic upgrade)
   payload <- parseEventPayload proxy payloadJson eventPayloadVersion

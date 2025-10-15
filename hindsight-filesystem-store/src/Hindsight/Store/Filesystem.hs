@@ -165,28 +165,29 @@ data FilesystemStoreConfig = FilesystemStoreConfig
   deriving (Show, Eq, Generic)
   deriving anyclass (FromJSON, ToJSON)
 
--- | An entry in our event log represents a transaction state change
+-- | An entry in our event log represents a transaction state change.
 data EventLogEntry = EventLogEntry
-  { transactionId :: UUID,
-    events :: [StoredEvent],
-    timestamp :: UTCTime
+  { transactionId :: UUID         -- ^ Unique transaction identifier
+  , events :: [StoredEvent]       -- ^ Events written in this transaction
+  , timestamp :: UTCTime          -- ^ When the transaction was written
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass (FromJSON, ToJSON)
 
--- | Cursor for filesystem store
+-- | Cursor for filesystem store.
 newtype FilesystemCursor = FilesystemCursor
-  { getSequenceNo :: Integer
+  { getSequenceNo :: Integer  -- ^ Global sequence number for event ordering
   }
   deriving (Show, Eq, Ord, Generic)
   deriving anyclass (FromJSON, ToJSON)
 
--- | Notifier for cross-process event notifications
--- Watches the event log file and broadcasts changes to subscribers
--- The central reload thread updates the in-memory state when files change
+-- | Notifier for cross-process event notifications.
+--
+-- Watches the event log file and broadcasts changes to subscribers.
+-- The central reload thread updates the in-memory state when files change.
 data Notifier = Notifier
-  { notifierThread :: Async (),
-    reloadThread :: Async ()  -- Central reload thread (one per store)
+  { notifierThread :: Async ()  -- ^ File watcher thread using fsnotify
+  , reloadThread :: Async ()    -- ^ Central reload thread (one per store) that updates in-memory state
   }
 
 -- | Store type marker
@@ -205,27 +206,35 @@ data StoreException
 
 instance Exception StoreException
 
--- | Handle for filesystem store operations
+-- | Handle for filesystem store operations.
 data FilesystemStoreHandle = FilesystemStoreHandle
-  { config :: FilesystemStoreConfig,
-    stateVar :: TVar (StoreState FilesystemStore),
-    notifier :: Notifier
+  { config :: FilesystemStoreConfig            -- ^ Store configuration
+  , stateVar :: TVar (StoreState FilesystemStore)  -- ^ In-memory event store state
+  , notifier :: Notifier                       -- ^ File watcher and reload threads
   }
 
--- | File paths used by the store
+-- | File paths used by the store.
 data StorePaths = StorePaths
-  { eventLogPath :: FilePath,
-    storeLockPath :: FilePath
+  { eventLogPath :: FilePath   -- ^ Path to the append-only event log file
+  , storeLockPath :: FilePath  -- ^ Path to the lock file for write coordination
   }
 
-getPaths :: FilePath -> StorePaths
+-- | Compute file paths for store files within a base directory.
+getPaths ::
+  FilePath ->    -- ^ Base directory for the store
+  StorePaths     -- ^ Computed file paths
 getPaths base =
   StorePaths
     { eventLogPath = base </> "events.log",
       storeLockPath = base </> "store.lock"
     }
 
-mkDefaultConfig :: FilePath -> FilesystemStoreConfig
+-- | Create a default configuration for a filesystem store.
+--
+-- Defaults: sync every write, 5-second lock timeout.
+mkDefaultConfig ::
+  FilePath ->                   -- ^ Base directory for store files
+  FilesystemStoreConfig         -- ^ Configuration with defaults
 mkDefaultConfig path =
   FilesystemStoreConfig
     { storePath = path,
@@ -236,7 +245,9 @@ mkDefaultConfig path =
 -- | Get the configuration from a store handle.
 --
 -- Useful for accessing the store path during cleanup or debugging.
-getStoreConfig :: FilesystemStoreHandle -> FilesystemStoreConfig
+getStoreConfig ::
+  FilesystemStoreHandle ->      -- ^ Store handle
+  FilesystemStoreConfig         -- ^ Store configuration
 getStoreConfig = (.config)
 -- | Creates required directories
 ensureDirectories :: FilePath -> IO ()
@@ -264,8 +275,14 @@ withStoreLockDirect config action = do
 withStoreLock :: FilesystemStoreHandle -> IO a -> IO a
 withStoreLock handle = withStoreLockDirect handle.config
 
--- | Initialize a new store
-newFilesystemStore :: FilesystemStoreConfig -> IO FilesystemStoreHandle
+-- | Initialize a new filesystem store.
+--
+-- Creates the store directory and event log file if they don't exist,
+-- initializes in-memory state, and starts file watchers for cross-process
+-- event notifications.
+newFilesystemStore ::
+  FilesystemStoreConfig ->       -- ^ Store configuration
+  IO FilesystemStoreHandle       -- ^ Initialized store handle
 newFilesystemStore config = do
   let paths = getPaths config.storePath
 
@@ -333,7 +350,14 @@ readLogEntries handle =
     contents <- BL.readFile paths.eventLogPath
     decodeLogEntriesStrict paths.eventLogPath contents
 
-openFilesystemStore :: FilesystemStoreConfig -> IO FilesystemStoreHandle
+-- | Open an existing filesystem store and load all events into memory.
+--
+-- Creates a new store handle and replays the entire event log to rebuild
+-- in-memory indices. Use this for production deployments where you want to
+-- restore state from disk.
+openFilesystemStore ::
+  FilesystemStoreConfig ->       -- ^ Store configuration
+  IO FilesystemStoreHandle       -- ^ Store handle with loaded state
 openFilesystemStore config = do
   -- Note: newFilesystemStore already starts the notifier
   handle <- newFilesystemStore config
@@ -488,8 +512,13 @@ subscribeFilesystem handle matcher selector =
   -- The notifier's reload thread updates stateVar when files change
   subscribeToEvents handle.stateVar matcher selector
 
--- | Cleanup store resources
-cleanupFilesystemStore :: FilesystemStoreHandle -> IO ()
+-- | Cleanup store resources and shut down background threads.
+--
+-- Stops file watchers and removes the lock file. Call this before
+-- application shutdown to ensure clean termination.
+cleanupFilesystemStore ::
+  FilesystemStoreHandle ->  -- ^ Store handle to clean up
+  IO ()
 cleanupFilesystemStore handle = do
   let paths = getPaths handle.config.storePath
   -- Shutdown the notifier

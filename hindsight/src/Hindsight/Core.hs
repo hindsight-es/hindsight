@@ -158,8 +158,12 @@ data Dict (c :: Constraint) where
 -- Event Names
 -- -----------------------------------------------------------------------------
 
--- | Get the event name as Text from a Symbol
-getEventName :: forall (event :: Symbol). (KnownSymbol event) => Proxy event -> T.Text
+-- | Get the event name as Text from a Symbol.
+getEventName ::
+  forall (event :: Symbol).
+  (KnownSymbol event) =>
+  Proxy event ->  -- ^ Proxy for the event type
+  T.Text          -- ^ Event name as Text
 getEventName _ = T.pack $ symbolVal (Proxy @event)
 
 
@@ -376,11 +380,21 @@ data SomeLatestEvent = forall event. (IsEvent event, Typeable event) => SomeLate
 --
 -- This is equivalent to:
 -- >>> SomeLatestEvent (Proxy @UserRegistered) (UserInfo "U001" "Alice")
-mkEvent :: forall (event :: Symbol) -> IsEvent event => CurrentPayloadType event -> SomeLatestEvent
+mkEvent ::
+  forall (event :: Symbol) ->  -- ^ Event name (type-level string)
+  IsEvent event =>
+  CurrentPayloadType event ->  -- ^ Event payload at current version
+  SomeLatestEvent              -- ^ Wrapped event with type information
 mkEvent event payload = SomeLatestEvent (Proxy @event) payload
 
--- | Parse map for Symbol-based events
-parseMap :: forall event. (IsEvent event) => Map Int (Value -> Aeson.Parser (CurrentPayloadType event))
+-- | Parse map for Symbol-based events.
+--
+-- Creates a map from version numbers to parsers that can deserialize
+-- event payloads at any version and upgrade them to the latest version.
+parseMap ::
+  forall event.
+  (IsEvent event) =>
+  Map Int (Value -> Aeson.Parser (CurrentPayloadType event))  -- ^ Map from version to parser
 parseMap = Map.fromList $ go [] (getPayloadEvidence @event @ValidPayloadForVersion)
   where
     go :: forall ts. [(Int, Value -> Aeson.Parser (CurrentPayloadType event))] -> VersionConstraints ts (ValidPayloadForVersion event) -> [(Int, Value -> Aeson.Parser (CurrentPayloadType event))]
@@ -393,9 +407,21 @@ parseMap = Map.fromList $ go [] (getPayloadEvidence @event @ValidPayloadForVersi
           parser = \v -> upgradeToLatest @event @(FromPeanoNat ver) <$> parseJSON @payload v
        in go ((ver, parser) : acc) rest
 
-parseMapFromProxy :: forall event. (IsEvent event) => Proxy event -> Map Int (Value -> Aeson.Parser (CurrentPayloadType event))
+-- | Get the parse map from a proxy.
+--
+-- Convenience wrapper around 'parseMap' that accepts a proxy argument.
+parseMapFromProxy ::
+  forall event.
+  (IsEvent event) =>
+  Proxy event ->  -- ^ Proxy for the event type
+  Map Int (Value -> Aeson.Parser (CurrentPayloadType event))  -- ^ Map from version to parser
 parseMapFromProxy _ = parseMap @event
 
-getMaxVersion :: forall event. (IsEvent event) => Proxy event -> Integer
+-- | Get the maximum version number for an event.
+getMaxVersion ::
+  forall event.
+  (IsEvent event) =>
+  Proxy event ->  -- ^ Proxy for the event type
+  Integer         -- ^ Maximum version number
 getMaxVersion _ = reifyPeanoNat @(ToPeanoNat (MaxVersion event))
 

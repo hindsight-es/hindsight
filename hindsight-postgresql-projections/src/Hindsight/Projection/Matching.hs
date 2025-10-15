@@ -68,9 +68,9 @@ infixr 5 :->
 extractMatchingHandlers ::
   forall event ts backend.
   (IsEvent event) =>
-  ProjectionHandlers ts backend ->
-  Proxy event ->
-  [ProjectionHandler event backend]
+  ProjectionHandlers ts backend ->       -- ^ All available handlers
+  Proxy event ->                         -- ^ Event type to match
+  [ProjectionHandler event backend]      -- ^ Matching handlers with correct type
 extractMatchingHandlers handlers eventProxy = matchHandlers handlers
   where
     eventName = getEventName eventProxy
