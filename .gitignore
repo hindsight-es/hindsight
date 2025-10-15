@@ -32,5 +32,6 @@ cabal.project.local
 # Misc.
 .DS_Store
 .session-reports/
+.session-report/
 .tracking/
 **/result/

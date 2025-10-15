@@ -1,143 +1,215 @@
-# Plutarch: Type-Safe Event Sourcing System
+# Hindsight Core
 
-Plutarch is a robust, type-safe event sourcing system implemented in Haskell. It provides strong guarantees around consistency, versioning, and reliability for building event-driven applications.
+Core type-safe event sourcing library with compile-time versioning.
+
+## What's in This Package
+
+The `hindsight` package provides the foundation for type-safe event sourcing:
+
+- **Type-level event definitions** using DataKinds and type families
+- **Compile-time version tracking** for event schema evolution
+- **Abstract `EventStore` interface** implemented by storage backends
+- **Event subscriptions** for processing streams with pattern matching
+- **Serialization support** with automatic version handling
+
+This is the core library. You'll need a storage backend to actually persist events:
+
+- [`hindsight-memory-store`](../hindsight-memory-store/) - In-memory (testing)
+- [`hindsight-filesystem-store`](../hindsight-filesystem-store/) - File-based (single-node)
+- [`hindsight-postgresql-store`](../hindsight-postgresql-store/) - PostgreSQL (production)
+
+## The Versioning System
+
+Event sourcing's core challenge: **events are immutable, but schemas evolve**. When you change an event's structure, old events remain in the original format forever. Your code must handle all versions.
+
+Hindsight solves this by encoding versions in types.
+
+### Basic Event Definition
+
+```haskell
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE TypeFamilies #-}
+
+import Hindsight.Core
+
+-- Type-level event name
+type UserRegistered = "user_registered"
+
+-- Payload for version 0
+data UserInfo = UserInfo
+  { userId :: Text
+  , userName :: Text
+  } deriving (Generic, FromJSON, ToJSON)
+
+-- Version declaration
+type instance MaxVersion UserRegistered = 0
+type instance Versions UserRegistered = FirstVersion UserInfo
+
+instance Event UserRegistered
+instance UpgradableToLatest UserRegistered 0 where
+  upgradeToLatest = id  -- Latest version, no upgrade needed
+```
+
+### Schema Evolution
+
+When you need to add fields or change structure, add a new version:
+
+```haskell
+-- New version with additional field
+data UserInfoV1 = UserInfoV1
+  { userId :: Text
+  , userName :: Text
+  , email :: Text  -- new!
+  } deriving (Generic, FromJSON, ToJSON)
+
+-- Update version declarations
+type instance MaxVersion UserRegistered = 1
+type instance Versions UserRegistered =
+  FirstVersion UserInfo :> UserInfoV1
+
+-- Provide upgrade from v0 to v1
+instance UpgradableToLatest UserRegistered 0 where
+  upgradeToLatest (UserInfo uid name) =
+    UserInfoV1 uid name "unknown@example.com"
+
+instance UpgradableToLatest UserRegistered 1 where
+  upgradeToLatest = id
+```
+
+**Critical insight**: GHC enforces exhaustiveness. Forget an upgrade path? Compile error. Event handlers always receive the latest version—upcasting happens automatically during deserialization.
+
+### How It Works
+
+The type system encodes:
+
+1. **All versions ever created** via the `Versions` type family
+2. **Current maximum version** via `MaxVersion`
+3. **Upgrade paths** via `UpgradableToLatest` instances
+
+When Hindsight deserializes an event:
+1. JSON includes version number: `{"event_name": "user_registered", "version": 0, ...}`
+2. Deserialize to version 0 payload
+3. Call `upgradeToLatest @UserRegistered @0` to get current version
+4. Handler receives `UserInfoV1` regardless of stored version
+
+If you add version 2 but forget the v0→v2 upgrade instance, your code won't compile.
+
+## Event Store Interface
+
+All storage backends implement `EventStore`:
+
+```haskell
+class EventStore store where
+  -- Insert events into streams
+  insertEvents :: BackendHandle store
+               -> Maybe Duration  -- Timeout
+               -> Map StreamId (StreamWrite store)
+               -> IO InsertionResult
+
+  -- Subscribe to event stream
+  subscribe :: BackendHandle store
+            -> Matcher store m
+            -> EventSelector
+            -> IO (SubscriptionHandle m)
+```
+
+Code written against this interface works with any backend. Change storage by swapping the handle:
+
+```haskell
+-- Testing
+store <- newMemoryStore
+result <- insertEvents store Nothing events
+
+-- Production (same code, different store)
+store <- newPostgreSQLStore connectionString
+result <- insertEvents store Nothing events
+```
+
+## Usage
+
+Import the core module:
+
+```haskell
+import Hindsight  -- Re-exports commonly used types and functions
+```
+
+Or import specific modules:
+
+```haskell
+import Hindsight.Core           -- Event definitions and versioning
+import Hindsight.Store          -- EventStore interface
+import Hindsight.Store.Parsing  -- Event parsing utilities
+```
+
+Then choose a backend:
+
+```haskell
+import Hindsight.Store.Memory (newMemoryStore)
+import Hindsight.Store.Filesystem (newFilesystemStore)
+import Hindsight.Store.PostgreSQL (newPostgreSQLStore)
+```
+
+## Testing Facilities
+
+The `hindsight:event-testing` internal library provides test generation:
+
+```haskell
+import Test.Hindsight.Generate
+
+-- Generate golden test for event serialization
+goldenTest (Proxy @UserRegistered) "golden/user_registered.json"
+```
+
+See the [Testing Guide](https://hindsight.events/development/testing/) for details on property-based testing and golden tests.
 
 ## Documentation
 
-Comprehensive documentation is available in the `docs` directory:
+- **[Tutorials](https://hindsight.events/tutorials/)** - Start here
+- **[Event Versioning Tutorial](https://hindsight.events/tutorials/04-event-versioning/)** - Deep dive on versioning
+- **[API Reference](https://hindsight.events/api/)** - Haddock docs
+- **[Root README](../)** - Project overview
 
-- [Documentation Index](docs/index.md) - Start here for all documentation
-- [Getting Started Guide](docs/getting-started.md) - Begin your journey with Plutarch
-- [Event Core](docs/event-core.md) - Learn about the type-safe event foundation
-- [Event Store](docs/event-store.md) - Understanding the storage system
-- [Projections](docs/projections.md) - Building read models from events
-- [PostgreSQL Details](docs/postgresql-details.md) - Deep dive into the PostgreSQL implementation
-- [Testing](docs/testing.md) - How to test event-sourced applications
+## Design Notes
 
-## System Overview
+### Why Type Families?
 
-```mermaid
-graph TD
-    Client[Client Application] -->|Writes Events| API[API Layer]
-    API -->|Insert Events| ES[Event Store]
-    ES -->|Store Events| DB[(Database)]
-    ES -->|Notify| PS[Projection System]
-    PS -->|Read Events| DB
-    PS -->|Update| PDB[(Projection DB)]
-    Query[Query Service] -->|Read| PDB
-    Client -->|Read Data| Query
-    
-    subgraph "Plutarch Core"
-        ES
-        PS
-    end
-```
-
-## Core Features
-
-- **Type-safe event handling** with compile-time guarantees
-- **Automatic versioning** of events with seamless migration
-- **Multiple storage backends**:
-  - In-memory (for testing)
-  - Filesystem-based
-  - PostgreSQL (production)
-- **Strong consistency guarantees**:
-  - Write atomicity
-  - Causal consistency
-  - Stream version integrity
-  - Total event ordering
-- **Projection system** for building read models
-- **OpenTelemetry integration** for observability
-
-## Quick Start
-
-### Prerequisites
-
-- GHC 9.4 or higher
-- PostgreSQL (for production use)
-- Cabal or Stack build system
-
-### Building and Testing
-
-```bash
-# Build the library
-cabal build plutarch
-
-# Run tests
-cabal run plutarch-test
-```
-
-### Basic Example
+Type families let us associate version information with type-level event names:
 
 ```haskell
--- Define event type
-type UserCreated = 'Event "user_created"
+type UserRegistered = "user_registered"  -- Type-level string
 
--- Define payload
-data UserInfo = UserInfo
-  { userName :: Text,
-    email :: Text
-  } deriving (Show, Eq, Generic, ToJSON, FromJSON)
-
--- Register with the event system
-instance EventVersionInfo UserCreated where
-  type MaxVersion UserCreated = 0
-
-instance EventVersionPayloads UserCreated where
-  type VersionedPayloads UserCreated = FirstVersion UserInfo
-
-instance UpgradableToLatest UserCreated 0 where
-  upgradeToLatest = id
-
--- Main application logic
-main :: IO ()
-main = do
-  -- Create a store
-  store <- newSQLStore connectionString
-
-  -- Generate a stream ID
-  streamId <- StreamId <$> UUID.nextRandom
-
-  -- Insert an event
-  let userInfo = UserInfo "john.doe" "john@example.com"
-      event = SomeLatestEvent (Proxy @UserCreated) userInfo
-  
-  result <- insertEvents store Nothing $
-    Map.singleton streamId (StreamWrite NoStream [event])
-
-  -- Subscribe to events
-  let handler :: EventHandler UserCreated IO SQLStore
-      handler event = do
-        putStrLn $ "User created: " <> event.payload.userName
-        pure Continue
-
-  subscribe store
-    (match @UserCreated handler :? MatchEnd)
-    EventSelector 
-      { streamId = AllStreams
-      , startupPosition = FromBeginning
-      }
+-- Associated types
+type instance MaxVersion UserRegistered = 1
+type instance Versions UserRegistered = FirstVersion V0 :> V1
 ```
 
-## Architecture Decisions
+This means the version information is part of the type signature. Functions that work with `UserRegistered` events have access to version metadata at compile time.
 
-- **Monolithic approach**: The same server handles all aspects:
-  - Client dashboard
-  - Business dashboard
-  - Encoders page
-  - Body shop pages
-  - Intervention creation
-  - ...
+### Why DataKinds?
 
-- **Backend systems**: Axelor is used for billing, but not as the "source of truth" for business data
-  - Requires taking control especially over client files and fleet imports
+DataKinds promotes values to types. The event name `"user_registered"` becomes a type:
 
-- **Technology choices**:
-  - PostgreSQL database for:
-    - Event storage
-    - Projections
-  - Minimal frontend: server-generated HTML fragments with HTMX
+```haskell
+type UserRegistered = "user_registered"  -- Type, not value
 
-## Contact
+-- Can use in type signatures
+handler :: EventHandler UserRegistered IO store
+```
 
-For support, contact Gaël Deest at gael.deest@franbec.org .
+This enables type-safe pattern matching in subscriptions. You can't accidentally match the wrong event type.
+
+### Trade-offs
+
+**Pros**:
+- Schema evolution is checked at compile time
+- Impossible to forget upgrade paths
+- Handlers are simpler (always receive latest version)
+- No runtime version registry
+
+**Cons**:
+- Requires advanced type system features
+- Error messages can be cryptic (improving!)
+- More boilerplate than untyped systems
+- Version changes require recompilation
+
+We believe the type safety is worth it for systems that need to run reliably over long periods with evolving schemas.
