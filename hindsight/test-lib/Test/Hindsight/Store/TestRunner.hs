@@ -116,7 +116,8 @@ multiInstanceTests runner =
   [ testGroup
       "Multi-Instance Tests"
       [ testCase "Multi-Instance Subscriptions (2 instances)" $ runMultiInstanceTest runner 2 (testMultiInstanceSubscription ),
-        testCase "Multi-Instance Subscriptions (5 instances)" $ runMultiInstanceTest runner 5 (testMultiInstanceSubscription )
+        testCase "Multi-Instance Subscriptions (5 instances)" $ runMultiInstanceTest runner 5 (testMultiInstanceSubscription ),
+        testCase "Multi-Instance Subscriptions (10 instances)" $ runMultiInstanceTest runner 10 (testMultiInstanceSubscription )
       ]
   ]
 

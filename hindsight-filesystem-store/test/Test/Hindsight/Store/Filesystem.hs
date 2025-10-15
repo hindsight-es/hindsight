@@ -11,7 +11,6 @@ import Control.Monad (replicateM, void)
 import Data.Aeson (decode)
 import Data.ByteString.Lazy qualified as BL
 import Data.ByteString.Lazy.Char8 qualified as BL8
-import Data.IORef
 import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes)
 import Data.UUID.V4 qualified as UUID

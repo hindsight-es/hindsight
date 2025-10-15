@@ -83,6 +83,7 @@ calculateLatencyPercentiles [] = Nothing
 calculateLatencyPercentiles latencies = 
   let sorted = sort latencies
       n = length sorted
+      percentile :: Double -> NominalDiffTime
       percentile p = sorted !! (round (fromIntegral n * p / 100) - 1)
   in if n < 4  -- Need at least 4 measurements for meaningful percentiles
        then Nothing

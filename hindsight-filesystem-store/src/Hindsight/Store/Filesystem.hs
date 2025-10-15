@@ -100,7 +100,7 @@ import Control.Concurrent.STM
     writeTChan,
     writeTVar,
   )
-import Control.Exception (Exception, bracket, throwIO)
+import Control.Exception (Exception, bracket, throwIO, try)
 import Control.Monad (forever, forM_, void, when)
 import Control.Monad.IO.Class (liftIO)
 import UnliftIO (MonadUnliftIO)
@@ -224,7 +224,7 @@ mkDefaultConfig path =
   FilesystemStoreConfig
     { storePath = path,
       syncInterval = 1, -- Sync every write by default
-      lockTimeout = 1000000 -- 1 second
+      lockTimeout = 5000000 -- 5 seconds (allows ~25 instances @ 200ms each)
     }
 
 -- | Get the configuration from a store handle.
@@ -352,10 +352,12 @@ startNotifier eventLogPath stateVar config = do
 
   -- Central reload thread - responds to broadcasts by reloading events
   -- This replaces per-subscription reload threads, reducing lock contention
+  -- CRITICAL: Must handle LockTimeout exceptions and retry, otherwise
+  -- subscriptions will block forever waiting for updates that never come
   reloadChan <- atomically $ dupTChan chan
   reloadThread <- async $ forever $ do
     atomically $ readTChan reloadChan
-    reloadEventsFromDiskCentral stateVar config
+    reloadEventsFromDiskCentralWithRetry stateVar config 0
 
   pure $ Notifier notifyThread reloadThread
 
@@ -382,6 +384,27 @@ notifierLoop eventLogPath chan = do
 
     -- Keep thread alive
     forever $ threadDelay maxBound
+
+-- | Retry wrapper for reloadEventsFromDiskCentral with exponential backoff
+-- Handles LockTimeout exceptions gracefully to prevent reload thread death
+-- Max retries: 5, with exponential backoff: 10ms, 20ms, 40ms, 80ms, 160ms
+reloadEventsFromDiskCentralWithRetry :: TVar (StoreState FilesystemStore) -> FilesystemStoreConfig -> Int -> IO ()
+reloadEventsFromDiskCentralWithRetry stateVar config retryCount = do
+  result <- try $ reloadEventsFromDiskCentral stateVar config
+  case result of
+    Right () -> pure ()  -- Success, done
+    Left (LockTimeout path) -> do
+      if retryCount >= 5
+        then do
+          -- Max retries exceeded - log warning and give up on this reload
+          -- This is NOT fatal - the next file change will trigger another reload
+          putStrLn $ "WARNING: Failed to reload events after 5 retries due to lock contention on " ++ path
+          pure ()
+        else do
+          -- Exponential backoff: 10ms * 2^retryCount
+          let delayMicros = 10000 * (2 ^ retryCount)
+          threadDelay delayMicros
+          reloadEventsFromDiskCentralWithRetry stateVar config (retryCount + 1)
 
 -- | Reload new events from disk into the in-memory store state
 -- Called by the notifier's reload thread when file changes are detected
