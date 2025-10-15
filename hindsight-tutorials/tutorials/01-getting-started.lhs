@@ -94,7 +94,7 @@ example = do
     multiEvent streamId Any [event1, event2]
 
   case result of
-    SuccessfulInsertion{} -> do
+    SuccessfulInsertion _ -> do
       putStrLn "✓ Events inserted successfully"
       readEventsBack store
 

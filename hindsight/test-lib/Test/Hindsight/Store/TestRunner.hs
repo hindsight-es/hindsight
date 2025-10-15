@@ -162,7 +162,7 @@ testBasicEventReception store = do
 
   case result of
     FailedInsertion err -> assertFailure $ "Failed to insert events: " ++ show err
-    SuccessfulInsertion{} -> do
+    SuccessfulInsertion _ -> do
       handle <-
         subscribe
           store
@@ -219,7 +219,7 @@ testStartFromPosition store = do
   result <- insertEvents store Nothing (Transaction (Map.fromList [(streamId, StreamWrite Any (take 3 testEvents))]))
   case result of
     FailedInsertion err -> assertFailure $ "Failed to insert first batch: " ++ show err
-    SuccessfulInsertion{finalCursor = cursor} -> do
+    SuccessfulInsertion (InsertionSuccess{finalCursor = cursor}) -> do
       _ <- insertEvents store Nothing (Transaction (Map.fromList [(streamId, StreamWrite Any (drop 3 testEvents))]))
       _ <- insertEvents store Nothing (Transaction (Map.fromList [(streamId, StreamWrite Any [makeTombstone])]))
 
@@ -256,7 +256,7 @@ testCorrelationIdPreservation store = do
 
   case result of
     FailedInsertion err -> assertFailure $ "Failed to insert events: " ++ show err
-    SuccessfulInsertion{} -> do
+    SuccessfulInsertion _ -> do
       handle <-
         subscribe
           store
@@ -298,7 +298,7 @@ testAsyncSubscription store = do
     FailedInsertion err -> do
       handle.cancel
       assertFailure $ "Failed to insert events: " ++ show err
-    SuccessfulInsertion{} -> do
+    SuccessfulInsertion _ -> do
       takeMVar completionVar
       handle.cancel
       events <- reverse <$> readIORef receivedEvents
@@ -362,7 +362,7 @@ testSubscriptionStopBehavior store = do
     FailedInsertion err -> do
       handle.cancel
       assertFailure $ "Failed to insert events: " ++ show err
-    SuccessfulInsertion{} -> do
+    SuccessfulInsertion _ -> do
       -- Wait for the Stop handler to signal completion
       takeMVar completionVar
 
@@ -426,7 +426,7 @@ testHandlerExceptionEnrichment store = do
     FailedInsertion err -> do
       handle.cancel
       assertFailure $ "Failed to insert events: " ++ show err
-    SuccessfulInsertion{} -> do
+    SuccessfulInsertion _ -> do
       -- Wait long enough for the exception to propagate and kill the subscription
       -- If the subscription dies, it won't process events after Fail
       threadDelay 200000 -- 200ms - generous grace period
@@ -449,7 +449,7 @@ testNoStreamCondition store = do
 
   case result1 of
     FailedInsertion err -> assertFailure $ "First write failed: " ++ show err
-    SuccessfulInsertion{} -> do
+    SuccessfulInsertion _ -> do
       result2 <-
         insertEvents store Nothing $
           singleEvent streamId NoStream (makeUserEvent 2)
@@ -457,7 +457,7 @@ testNoStreamCondition store = do
       case result2 of
         FailedInsertion (ConsistencyError _) -> pure ()
         FailedInsertion err -> assertFailure $ "Unexpected error: " ++ show err
-        SuccessfulInsertion{} -> assertFailure "Second write should have failed"
+        SuccessfulInsertion _ -> assertFailure "Second write should have failed"
 
 testStreamExistsCondition :: forall backend. (EventStore backend, StoreConstraints backend IO, Show (Cursor backend)) => BackendHandle backend -> IO ()
 testStreamExistsCondition store = do
@@ -479,15 +479,15 @@ testStreamExistsCondition store = do
 
       case result2 of
         FailedInsertion err -> assertFailure $ "Second write failed: " ++ show err
-        SuccessfulInsertion{} -> pure ()
+        SuccessfulInsertion _ -> pure ()
     FailedInsertion err -> assertFailure $ "Unexpected error: " ++ show err
-    SuccessfulInsertion{} -> assertFailure "First write should have failed"
+    SuccessfulInsertion _ -> assertFailure "First write should have failed"
 
 testExactVersionCondition :: forall backend. (EventStore backend, StoreConstraints backend IO, Show (Cursor backend)) => BackendHandle backend -> IO ()
 testExactVersionCondition store = do
   streamId <- StreamId <$> UUID.nextRandom
 
-  SuccessfulInsertion{finalCursor = initCursor} <-
+  SuccessfulInsertion (InsertionSuccess{finalCursor = initCursor}) <-
     insertEvents store Nothing $
       singleEvent streamId NoStream (makeUserEvent 42)
 
@@ -497,7 +497,7 @@ testExactVersionCondition store = do
 
   case result1 of
     FailedInsertion err -> assertFailure $ "First write failed: " ++ show err
-    SuccessfulInsertion{finalCursor = cursor1} -> do
+    SuccessfulInsertion (InsertionSuccess{finalCursor = cursor1}) -> do
       -- Write with wrong version should fail
       result2 <-
         insertEvents store Nothing $
@@ -512,9 +512,9 @@ testExactVersionCondition store = do
 
           case result3 of
             FailedInsertion err -> assertFailure $ "Third write failed: " ++ show err
-            SuccessfulInsertion{} -> pure ()
+            SuccessfulInsertion _ -> pure ()
         FailedInsertion err -> assertFailure $ "Unexpected error: " ++ show err
-        SuccessfulInsertion{} -> assertFailure "Second write should have failed"
+        SuccessfulInsertion _ -> assertFailure "Second write should have failed"
 
 testConcurrentWrites :: forall backend. (EventStore backend, StoreConstraints backend IO, Show (Cursor backend)) => BackendHandle backend -> IO ()
 testConcurrentWrites store = do
@@ -527,7 +527,7 @@ testConcurrentWrites store = do
 
   case result1 of
     FailedInsertion err -> assertFailure $ "Initial write failed: " ++ show err
-    SuccessfulInsertion{finalCursor = cursor} -> do
+    SuccessfulInsertion (InsertionSuccess{finalCursor = cursor}) -> do
       -- Attempt concurrent writes with same expected version
       (result2, result3) <-
         concurrently
@@ -540,8 +540,8 @@ testConcurrentWrites store = do
 
       -- Exactly one write should succeed
       case (result2, result3) of
-        (SuccessfulInsertion{}, FailedInsertion (ConsistencyError _)) -> pure ()
-        (FailedInsertion (ConsistencyError _), SuccessfulInsertion{}) -> pure ()
+        (SuccessfulInsertion _, FailedInsertion (ConsistencyError _)) -> pure ()
+        (FailedInsertion (ConsistencyError _), SuccessfulInsertion _) -> pure ()
         _ -> assertFailure "Expected exactly one write to succeed"
 
 testBatchAtomicity :: forall backend. (EventStore backend, StoreConstraints backend IO) => BackendHandle backend -> IO ()
@@ -583,7 +583,7 @@ testMultiStreamConsistency store = do
 
   case result1 of
     FailedInsertion err -> assertFailure $ "Initial writes failed: " ++ show err
-    SuccessfulInsertion{finalCursor = cursor} -> do
+    SuccessfulInsertion (InsertionSuccess{finalCursor = cursor}) -> do
       -- Try writing to all streams with mix of correct and incorrect versions
       let batch =
             Transaction (Map.fromList
@@ -611,7 +611,7 @@ testExactStreamVersionCondition store = do
 
   case result1 of
     FailedInsertion err -> assertFailure $ "First write failed: " ++ show err
-    SuccessfulInsertion{} -> do
+    SuccessfulInsertion _ -> do
       -- Try with correct stream version
       result2 <-
         insertEvents store Nothing $
@@ -619,7 +619,7 @@ testExactStreamVersionCondition store = do
 
       case result2 of
         FailedInsertion err -> assertFailure $ "Second write with correct stream version failed: " ++ show err
-        SuccessfulInsertion{} -> do
+        SuccessfulInsertion _ -> do
           -- Try with wrong stream version (still expecting version 1)
           result3 <-
             insertEvents store Nothing $
@@ -628,7 +628,7 @@ testExactStreamVersionCondition store = do
           case result3 of
             FailedInsertion (ConsistencyError _) -> pure ()
             FailedInsertion err -> assertFailure $ "Unexpected error: " ++ show err
-            SuccessfulInsertion{} -> assertFailure "Third write should have failed with wrong stream version"
+            SuccessfulInsertion _ -> assertFailure "Third write should have failed with wrong stream version"
 
 testVersionExpectationRaceCondition :: forall backend. (EventStore backend, StoreConstraints backend IO, Show (Cursor backend)) => BackendHandle backend -> IO ()
 testVersionExpectationRaceCondition store = do
@@ -641,14 +641,14 @@ testVersionExpectationRaceCondition store = do
 
   case result of
     FailedInsertion err -> assertFailure $ "Initial write failed: " ++ show err
-    SuccessfulInsertion{finalCursor = cursor} -> do
+    SuccessfulInsertion (InsertionSuccess{finalCursor = cursor}) -> do
       -- Race 10 writers all expecting the same version
       results <- forM [1 .. 10] $ \i -> async $ do
         insertEvents store Nothing $
           singleEvent streamId (ExactVersion cursor) (makeUserEvent i)
 
       outcomes <- mapM wait results
-      let successes = [r | r@(SuccessfulInsertion{}) <- outcomes]
+      let successes = [r | r@(SuccessfulInsertion _) <- outcomes]
           failures = [r | r@(FailedInsertion _) <- outcomes]
 
       length successes @?= 1 -- Exactly one should succeed
@@ -680,7 +680,7 @@ testAnyExpectationConcurrency store = do
 
   -- Verify all complete successfully
   outcomes <- mapM wait results
-  let successes = [r | r@(SuccessfulInsertion{}) <- outcomes]
+  let successes = [r | r@(SuccessfulInsertion _) <- outcomes]
   length successes @?= 20 -- All should succeed with Any expectation
 
 testMixedVersionExpectations :: forall backend. (EventStore backend, StoreConstraints backend IO) => BackendHandle backend -> IO ()
@@ -726,7 +726,7 @@ testCascadingVersionDependencies store = do
       insertEvents store Nothing $
         singleEvent stream NoStream (makeUserEvent i)
     case result of
-      SuccessfulInsertion{finalCursor = cursor} -> pure (stream, cursor)
+      SuccessfulInsertion (InsertionSuccess{finalCursor = cursor}) -> pure (stream, cursor)
       FailedInsertion err -> assertFailure $ "Failed to create dependency chain: " ++ show err
 
   -- Now update middle of chain and verify dependencies
@@ -739,7 +739,7 @@ testCascadingVersionDependencies store = do
 
       case result1 of
         FailedInsertion err -> assertFailure $ "Failed to update middle stream: " ++ show err
-        SuccessfulInsertion{} -> do
+        SuccessfulInsertion _ -> do
           -- Old cursor for s3 should now be invalid
           result2 <-
             insertEvents store Nothing $
@@ -783,7 +783,7 @@ testMultiStreamHeadConsistency store = do
 
       case resultA of
         FailedInsertion err -> assertFailure $ "Failed to append to stream A (stream heads may be corrupted): " ++ show err
-        SuccessfulInsertion{} -> do
+        SuccessfulInsertion _ -> do
           -- Append to stream B
           resultB <-
             insertEvents store Nothing $
@@ -791,7 +791,7 @@ testMultiStreamHeadConsistency store = do
 
           case resultB of
             FailedInsertion err -> assertFailure $ "Failed to append to stream B (stream heads may be corrupted): " ++ show err
-            SuccessfulInsertion{} -> do
+            SuccessfulInsertion _ -> do
               -- Append to stream C
               resultC <-
                 insertEvents store Nothing $
@@ -799,7 +799,7 @@ testMultiStreamHeadConsistency store = do
 
               case resultC of
                 FailedInsertion err -> assertFailure $ "Failed to append to stream C (stream heads may be corrupted): " ++ show err
-                SuccessfulInsertion{} -> pure () -- All streams updated successfully
+                SuccessfulInsertion _ -> pure () -- All streams updated successfully
 
 -- | Test that empty batch insertion is handled correctly
 testEmptyBatchInsertion :: forall backend. (EventStore backend, StoreConstraints backend IO, Show (Cursor backend)) => BackendHandle backend -> IO ()
@@ -809,7 +809,7 @@ testEmptyBatchInsertion store = do
 
   case result of
     FailedInsertion _ -> pure () -- Acceptable to reject empty batches
-    SuccessfulInsertion{} -> do
+    SuccessfulInsertion _ -> do
       -- If we allow empty batches, cursor should be valid (no negative sequence numbers)
       -- Can't easily validate cursor structure across backends, but at least
       -- verify we can query with it
@@ -818,7 +818,7 @@ testEmptyBatchInsertion store = do
         appendToOrCreateStream streamId (makeUserEvent 1)
       case result2 of
         FailedInsertion err -> assertFailure $ "Failed follow-up insert after empty batch: " ++ show err
-        SuccessfulInsertion{} -> pure ()
+        SuccessfulInsertion _ -> pure ()
 
 -- | Test that streams with zero events in a multi-stream batch are handled correctly
 testMixedEmptyStreams :: forall backend. (EventStore backend, StoreConstraints backend IO, Show (Cursor backend)) => BackendHandle backend -> IO ()
@@ -839,7 +839,7 @@ testMixedEmptyStreams store = do
 
   case result of
     FailedInsertion err -> assertFailure $ "Failed to insert mixed empty/non-empty batch: " ++ show err
-    SuccessfulInsertion{} -> do
+    SuccessfulInsertion _ -> do
       -- Verify stream B (empty) can be created
       resultB <-
         insertEvents store Nothing $
@@ -847,7 +847,7 @@ testMixedEmptyStreams store = do
 
       case resultB of
         FailedInsertion err -> assertFailure $ "Stream B should not exist yet, but got error: " ++ show err
-        SuccessfulInsertion{} -> do
+        SuccessfulInsertion _ -> do
           -- Verify streams A and C can be appended to (they should exist)
           resultA <-
             insertEvents store Nothing $
@@ -858,7 +858,7 @@ testMixedEmptyStreams store = do
               singleEvent streamC StreamExists (makeUserEvent 200)
 
           case (resultA, resultC) of
-            (SuccessfulInsertion{}, SuccessfulInsertion{}) -> pure ()
+            (SuccessfulInsertion _, SuccessfulInsertion _) -> pure ()
             _ -> assertFailure "Streams A and C should exist after mixed batch"
 
 -- Per-Stream Cursor Test implementations --
@@ -886,7 +886,7 @@ testPerStreamCursorExtraction store = do
 
   case result1 of
     FailedInsertion err -> assertFailure $ "Initial multi-stream write failed: " ++ show err
-    SuccessfulInsertion{streamCursors} -> do
+    SuccessfulInsertion (InsertionSuccess{streamCursors}) -> do
       -- Extract cursor for stream A
       case Map.lookup streamA streamCursors of
         Nothing -> assertFailure "Stream A cursor missing from streamCursors"
@@ -898,7 +898,7 @@ testPerStreamCursorExtraction store = do
 
           case result2 of
             FailedInsertion err -> assertFailure $ "Append with stream A cursor failed: " ++ show err
-            SuccessfulInsertion{} -> do
+            SuccessfulInsertion _ -> do
               -- Try to use the same cursor again - should fail (stale)
               result3 <-
                 insertEvents store Nothing $
@@ -928,7 +928,7 @@ testCursorIndependence store = do
 
   case result1 of
     FailedInsertion err -> assertFailure $ "Initial write failed: " ++ show err
-    SuccessfulInsertion{streamCursors} -> do
+    SuccessfulInsertion (InsertionSuccess{streamCursors}) -> do
       case (Map.lookup streamA streamCursors, Map.lookup streamB streamCursors) of
         (Just cursorA, Just cursorB) -> do
           -- Tx2: Update stream A (should NOT affect cursorB)
@@ -938,7 +938,7 @@ testCursorIndependence store = do
 
           case result2 of
             FailedInsertion err -> assertFailure $ "Stream A update failed: " ++ show err
-            SuccessfulInsertion{} -> do
+            SuccessfulInsertion _ -> do
               -- Tx3: Use cursorB to append to stream B
               -- This should succeed because stream B hasn't been modified
               result3 <-
@@ -948,7 +948,7 @@ testCursorIndependence store = do
               case result3 of
                 FailedInsertion err ->
                   assertFailure $ "Stream B cursor should still be valid after stream A update: " ++ show err
-                SuccessfulInsertion{} -> pure () -- Success! Independence verified
+                SuccessfulInsertion _ -> pure () -- Success! Independence verified
 
         _ -> assertFailure "Missing cursors from initial transaction"
 
@@ -969,7 +969,7 @@ testStaleCursorPerStream store = do
 
   case result1 of
     FailedInsertion err -> assertFailure $ "Initial write failed: " ++ show err
-    SuccessfulInsertion{streamCursors} -> do
+    SuccessfulInsertion (InsertionSuccess{streamCursors}) -> do
       case (Map.lookup streamA streamCursors, Map.lookup streamB streamCursors) of
         (Just cursorA, Just cursorB) -> do
           -- Update stream A separately (makes cursorA stale)
@@ -979,7 +979,7 @@ testStaleCursorPerStream store = do
 
           case result2 of
             FailedInsertion err -> assertFailure $ "Stream A update failed: " ++ show err
-            SuccessfulInsertion{} -> do
+            SuccessfulInsertion _ -> do
               -- Try multi-stream transaction with stale cursorA
               -- Even though cursorB is still valid, the transaction should fail
               result3 <-
@@ -1014,7 +1014,7 @@ testCursorCompleteness store = do
 
   case result of
     FailedInsertion err -> assertFailure $ "Multi-stream write failed: " ++ show err
-    SuccessfulInsertion{finalCursor, streamCursors} -> do
+    SuccessfulInsertion (InsertionSuccess{finalCursor, streamCursors}) -> do
       -- Verify all 3 streams have cursors
       Map.size streamCursors @?= 3
 
@@ -1037,7 +1037,7 @@ testCursorCompleteness store = do
           resultC <- insertEvents store Nothing $ singleEvent streamC (ExactVersion cursorC) (makeUserEvent 103)
 
           case (resultA, resultB, resultC) of
-            (SuccessfulInsertion{}, SuccessfulInsertion{}, SuccessfulInsertion{}) -> pure ()
+            (SuccessfulInsertion _, SuccessfulInsertion _, SuccessfulInsertion _) -> pure ()
             _ -> assertFailure "One or more stream cursors were not usable"
 
         _ -> assertFailure "Failed to extract all cursors from map"
@@ -1064,7 +1064,7 @@ testEmptyStreamCursorHandling store = do
 
   case result of
     FailedInsertion err -> assertFailure $ "Multi-stream with empty stream failed: " ++ show err
-    SuccessfulInsertion{streamCursors} -> do
+    SuccessfulInsertion (InsertionSuccess{streamCursors}) -> do
       -- Critical question: Does streamB get a cursor even though it has no events?
       -- Behavior expectation: streamB should NOT appear in streamCursors because
       -- it didn't actually write any events. Only streams with events get cursors.
@@ -1084,7 +1084,7 @@ testEmptyStreamCursorHandling store = do
 
           case resultB of
             FailedInsertion err -> assertFailure $ "Stream B should not exist after empty write: " ++ show err
-            SuccessfulInsertion{} -> pure () -- Good! StreamB was never created
+            SuccessfulInsertion _ -> pure () -- Good! StreamB was never created
 
         Just cursorB -> do
           -- Alternative behavior: backend gave cursor for empty stream
@@ -1095,7 +1095,7 @@ testEmptyStreamCursorHandling store = do
           case resultB of
             FailedInsertion err ->
               assertFailure $ "If empty stream gets cursor, it should be usable: " ++ show err
-            SuccessfulInsertion{} -> pure () -- Alternative behavior is OK if consistent
+            SuccessfulInsertion _ -> pure () -- Alternative behavior is OK if consistent
 
 -- Stream Version Test implementations --
 
@@ -1299,7 +1299,7 @@ testMultiInstanceSubscription stores = do
           -- Cancel all subscriptions on failure
           mapM_ (.cancel) subscriptionHandles
           assertFailure $ "Failed to insert events: " ++ show err
-        SuccessfulInsertion{} -> do
+        SuccessfulInsertion _ -> do
           -- Wait for all subscribers to complete
           forM_ completionVars takeMVar
 

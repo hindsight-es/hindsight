@@ -62,7 +62,7 @@ testSyncProjections store = do
 
   case result of
     FailedInsertion err -> assertFailure $ "Failed to insert: " ++ show err
-    SuccessfulInsertion{} -> do
+    SuccessfulInsertion _ -> do
       -- Check that projection was executed by querying the database
       countResult <-
         Pool.use (getPool storeWithProjections) $

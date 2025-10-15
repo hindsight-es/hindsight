@@ -83,7 +83,7 @@ testMassiveVersionConflicts store = do
       Transaction (Map.singleton streamId (StreamWrite NoStream [makeUserEvent 0]))
 
   cursor <- case result1 of
-    SuccessfulInsertion{finalCursor = c} -> pure c
+    SuccessfulInsertion (InsertionSuccess{finalCursor = c}) -> pure c
     _ -> assertFailure "Failed to initialize stream"
 
   -- Have 100 writers all try to use the same exact version
@@ -99,7 +99,7 @@ testMassiveVersionConflicts store = do
       [1 .. 100]
 
   -- Exactly one should succeed
-  let successes = [r | r@(SuccessfulInsertion{}) <- results]
+  let successes = [r | r@(SuccessfulInsertion _) <- results]
       failures = [r | r@(FailedInsertion _) <- results]
 
   length successes @?= 1
@@ -129,7 +129,7 @@ testMassiveVersionAdvancement store = do
       Transaction (Map.singleton streamId (StreamWrite NoStream [makeUserEvent 0]))
 
   initialCursor <- case result1 of
-    SuccessfulInsertion{finalCursor = c} -> pure c
+    SuccessfulInsertion (InsertionSuccess{finalCursor = c}) -> pure c
     _ -> assertFailure "Failed to initialize stream"
 
   -- Rapidly advance version 1000 times, tracking a mid-cursor
@@ -140,7 +140,7 @@ testMassiveVersionAdvancement store = do
             insertEvents store Nothing $
               Transaction (Map.singleton streamId (StreamWrite (ExactVersion cursor) [makeUserEvent i]))
           case result of
-            SuccessfulInsertion{finalCursor = newCursor} ->
+            SuccessfulInsertion (InsertionSuccess{finalCursor = newCursor}) ->
               -- Save cursor at iteration 500 as our "mid cursor"
               if i == 500
                 then pure (newCursor, Just newCursor)
@@ -177,7 +177,7 @@ testMassiveVersionAdvancement store = do
       Transaction (Map.singleton streamId (StreamWrite (ExactVersion finalCursor) [makeUserEvent 10001]))
 
   case result4 of
-    SuccessfulInsertion{} -> pure ()
+    SuccessfulInsertion _ -> pure ()
     _ -> assertFailure "Final cursor should still be valid"
 
 -- | Test version skew with stale expectations
@@ -198,7 +198,7 @@ testVersionSkewScenario store = do
       Transaction (Map.singleton streamId (StreamWrite NoStream [makeUserEvent 0]))
 
   cursor1 <- case result1 of
-    SuccessfulInsertion{finalCursor = c} -> pure c
+    SuccessfulInsertion (InsertionSuccess{finalCursor = c}) -> pure c
     _ -> assertFailure "Failed to initialize stream"
 
   -- Advance the stream multiple times quickly
@@ -210,7 +210,7 @@ testVersionSkewScenario store = do
             insertEvents store Nothing $
               Transaction (Map.singleton streamId (StreamWrite (ExactVersion lastCursor) [makeUserEvent i]))
           case result of
-            SuccessfulInsertion{finalCursor = newCursor} -> pure (acc ++ [newCursor])
+            SuccessfulInsertion (InsertionSuccess{finalCursor = newCursor}) -> pure (acc ++ [newCursor])
             _ -> assertFailure $ "Failed to advance at " ++ show i
       )
       [cursor1]
@@ -234,7 +234,7 @@ testVersionSkewScenario store = do
       Transaction (Map.singleton streamId (StreamWrite (ExactVersion currentCursor) [makeUserEvent 1000]))
 
   case result3 of
-    SuccessfulInsertion{} -> pure ()
+    SuccessfulInsertion _ -> pure ()
     _ -> assertFailure "Current cursor should work"
 
 -- ============================================================================
@@ -268,7 +268,7 @@ testHighContentionVersionChecks store = do
 
   -- Verify all complete without errors
   outcomes <- mapM wait results
-  let successes = [r | r@(SuccessfulInsertion{}) <- outcomes]
+  let successes = [r | r@(SuccessfulInsertion _) <- outcomes]
   length successes @?= 50 -- All should succeed with Any expectation
 
 -- | Test version expectation performance under load
@@ -313,7 +313,7 @@ testVersionExpectationPerformance store = do
   assertBool ("Performance test took too long: " ++ show duration) (duration < 5)
 
   -- Check success/failure ratio
-  let successes = length [r | r@(SuccessfulInsertion{}) <- results]
+  let successes = length [r | r@(SuccessfulInsertion _) <- results]
       failures = length [r | r@(FailedInsertion _) <- results]
 
   assertBool "Should have some successes" (successes > 0)
@@ -336,7 +336,7 @@ testCascadingVersionFailures store = do
       Transaction (Map.singleton streamA (StreamWrite NoStream [makeUserEvent 1]))
 
   cursorA <- case result1 of
-    SuccessfulInsertion{finalCursor = c} -> pure c
+    SuccessfulInsertion (InsertionSuccess{finalCursor = c}) -> pure c
     _ -> assertFailure "Failed to initialize stream A"
 
   -- Create chain where each depends on previous
@@ -354,7 +354,7 @@ testCascadingVersionFailures store = do
       Transaction (Map.singleton streamA (StreamWrite (ExactVersion cursorA) [makeUserEvent 11]))
 
   case result4 of
-    SuccessfulInsertion{} -> do
+    SuccessfulInsertion _ -> do
       -- Try to use old cursor - should fail
       result5 <-
         insertEvents store Nothing $
@@ -402,7 +402,7 @@ testMultiStreamVersionAtomicity store = do
               ++ [(s, StreamWrite NoStream [makeUserEvent 200]) | s <- uninitialized])
 
       case result2 of
-        SuccessfulInsertion{} -> pure ()
+        SuccessfulInsertion _ -> pure ()
         _ -> assertFailure "Batch with correct expectations should succeed"
     _ -> assertFailure "Mixed batch should fail atomically"
 
@@ -422,7 +422,7 @@ testRapidVersionAdvancement store = do
       Transaction (Map.singleton streamId (StreamWrite NoStream [makeUserEvent 0]))
 
   initialCursor <- case result1 of
-    SuccessfulInsertion{finalCursor = c} -> pure c
+    SuccessfulInsertion (InsertionSuccess{finalCursor = c}) -> pure c
     _ -> assertFailure "Failed to initialize stream"
 
   -- Rapidly advance version 100 times
@@ -433,7 +433,7 @@ testRapidVersionAdvancement store = do
             insertEvents store Nothing $
               Transaction (Map.singleton streamId (StreamWrite (ExactVersion cursor) [makeUserEvent i]))
           case result of
-            SuccessfulInsertion{finalCursor = newCursor} -> pure newCursor
+            SuccessfulInsertion (InsertionSuccess{finalCursor = newCursor}) -> pure newCursor
             _ -> assertFailure $ "Failed at iteration " ++ show i
       )
       initialCursor
@@ -483,7 +483,7 @@ testVersionCheckWithConnectionFailures store = do
       Left (_ :: SomeException) -> pure Nothing -- Connection error
       Right insertResult -> pure $ Just insertResult
 
-  let successfulInserts = [r | Just r@(SuccessfulInsertion{}) <- results]
+  let successfulInserts = [r | Just r@(SuccessfulInsertion _) <- results]
 
   -- Should have at least some successes
   assertBool "Should have some successful inserts" (length successfulInserts > 10)
@@ -548,5 +548,5 @@ testVersionCheckDeadlock store = do
       let anySuccess = any isSuccess [r1, r2]
       assertBool "At least one transaction should succeed" anySuccess
   where
-    isSuccess (SuccessfulInsertion{}) = True
+    isSuccess (SuccessfulInsertion _) = True
     isSuccess _ = False

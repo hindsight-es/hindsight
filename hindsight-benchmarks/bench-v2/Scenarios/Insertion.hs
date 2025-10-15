@@ -68,7 +68,7 @@ singleStoreBenchmarks runner = return
         result <- insertEvents backend Nothing $
           singleEvent streamId Any event
         case result of
-          SuccessfulInsertion{} -> pure ()
+          SuccessfulInsertion _ -> pure ()
           FailedInsertion err -> error $ (backendName runner) <> " insertion failed: " <> show err
           
   , bench "Batch Insert (10 events)" $
@@ -78,7 +78,7 @@ singleStoreBenchmarks runner = return
         result <- insertEvents backend Nothing $
           multiEvent streamId Any events
         case result of
-          SuccessfulInsertion{} -> pure ()
+          SuccessfulInsertion _ -> pure ()
           FailedInsertion err -> error $ (backendName runner) <> " batch insertion failed: " <> show err
           
   , bench "Large Batch Insert (100 events)" $
@@ -88,7 +88,7 @@ singleStoreBenchmarks runner = return
         result <- insertEvents backend Nothing $
           multiEvent streamId Any events
         case result of
-          SuccessfulInsertion{} -> pure ()
+          SuccessfulInsertion _ -> pure ()
           FailedInsertion err -> error $ (backendName runner) <> " large batch insertion failed: " <> show err
 
   , bench "Small Event Batch (1000 x 100B)" $
@@ -98,7 +98,7 @@ singleStoreBenchmarks runner = return
         result <- insertEvents backend Nothing $
           multiEvent streamId Any events
         case result of
-          SuccessfulInsertion{} -> pure ()
+          SuccessfulInsertion _ -> pure ()
           FailedInsertion err -> error $ (backendName runner) <> " small event batch failed: " <> show err
 
   , bench "Large Event Batch (10 x 10KB)" $
@@ -108,7 +108,7 @@ singleStoreBenchmarks runner = return
         result <- insertEvents backend Nothing $
           multiEvent streamId Any events
         case result of
-          SuccessfulInsertion{} -> pure ()
+          SuccessfulInsertion _ -> pure ()
           FailedInsertion err -> error $ (backendName runner) <> " large event batch failed: " <> show err
   ]
 
@@ -132,7 +132,7 @@ runInsertionBenchmarks = runForAllBackends $ \(runner :: BenchmarkRunner backend
               result <- insertEvents backend Nothing $
                 multiEvent streamId Any events
               case result of
-                SuccessfulInsertion{} -> pure ()
+                SuccessfulInsertion _ -> pure ()
                 FailedInsertion err -> error $ "Insertion failed: " <> show err
         mapM_ insertTransaction [1..numTx]
     

@@ -109,7 +109,7 @@ runTransactionScalingTest runner config backend = do
         result <- insertEvents backend Nothing $
           Transaction $ Map.singleton streamId (StreamWrite Any events)
         case result of
-          SuccessfulInsertion{} -> pure ()
+          SuccessfulInsertion _ -> pure ()
           FailedInsertion err -> error $ "Transaction scaling test failed: " <> show err
         ) [1..numTransactions config]
   
@@ -151,7 +151,7 @@ runSubscriptionScalingTest runner config backend = do
         result <- insertEvents backend Nothing $
           Transaction $ Map.singleton streamId (StreamWrite Any events)
         case result of
-          SuccessfulInsertion{} -> 
+          SuccessfulInsertion _ -> 
             -- Simulate subscription processing delay
             mapM_ (\_ -> return ()) [1..numSubscriptions config]
           FailedInsertion err -> error $ "Subscription scaling test failed: " <> show err

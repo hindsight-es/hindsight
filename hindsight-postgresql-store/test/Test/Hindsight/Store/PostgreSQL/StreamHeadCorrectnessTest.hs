@@ -102,7 +102,7 @@ testMultiStreamHeadCorrectness store = do
 
   case result of
     FailedInsertion err -> assertFailure $ "Failed to insert events: " ++ show err
-    SuccessfulInsertion{} -> pure ()
+    SuccessfulInsertion _ -> pure ()
 
   -- Now query the database directly to verify stream_heads correctness
   let pool = getPool store

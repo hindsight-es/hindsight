@@ -185,7 +185,7 @@ insertEventsWithSyncProjections handle syncRegistry corrId (Transaction batches)
       pure $ FailedInsertion err
     -- Handle success
     Right (Right insertedEvents) ->
-      pure $ SuccessfulInsertion
+      pure $ SuccessfulInsertion $ InsertionSuccess
         { finalCursor = Insertion.finalCursor insertedEvents
         , streamCursors = Insertion.streamCursors insertedEvents
         }

@@ -80,6 +80,7 @@ module Hindsight.Store
     StreamWrite (..),
     Transaction (..),
     InsertionResult (..),
+    InsertionSuccess (..),
 
     -- ** Transaction Helpers
     -- | Helper functions for constructing transactions.
@@ -245,13 +246,19 @@ instance Show HandlerException where
 
 instance Exception HandlerException
 
+-- | Success data from an event insertion operation.
+--
+-- Contains the global cursor position of the last event inserted
+-- and the per-stream cursor positions.
+data InsertionSuccess backend = InsertionSuccess
+  { finalCursor :: Cursor backend                      -- ^ Global position of last inserted event
+  , streamCursors :: Map StreamId (Cursor backend)     -- ^ Per-stream final cursors
+  }
+
 -- | Result of an event insertion operation.
 data InsertionResult backend
-  = SuccessfulInsertion
-      { finalCursor :: Cursor backend              -- ^ Global position of last inserted event
-      , streamCursors :: Map StreamId (Cursor backend)  -- ^ Per-stream final cursors
-      }
-  | FailedInsertion (EventStoreError backend)  -- ^ Failure with error details
+  = SuccessfulInsertion (InsertionSuccess backend)  -- ^ Success with cursor information
+  | FailedInsertion (EventStoreError backend)       -- ^ Failure with error details
 
 -- | Control flow for event subscriptions.
 data SubscriptionResult 

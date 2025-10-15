@@ -125,7 +125,8 @@ import Hindsight.Store
     EventMatcher,
     EventSelector (..),
     EventStore (..),
-    InsertionResult (FailedInsertion, SuccessfulInsertion, finalCursor, streamCursors),
+    InsertionResult (FailedInsertion, SuccessfulInsertion),
+    InsertionSuccess (..),
     StreamWrite (events),
     SubscriptionHandle (..),
     Transaction (..),
@@ -479,7 +480,7 @@ instance EventStore FilesystemStore where
 
           writeTVar newState.globalNotification (getSequenceNo finalCursor)
 
-        pure $ SuccessfulInsertion
+        pure $ SuccessfulInsertion $ InsertionSuccess
           { finalCursor = finalCursor
           , streamCursors = streamCursors
           }

@@ -443,5 +443,5 @@ withTempDb action = do
     Right val -> pure val
 
 cursorToExpectation :: InsertionResult backend -> ExpectedVersion backend
-cursorToExpectation (SuccessfulInsertion{finalCursor = cursor}) = ExactVersion cursor
+cursorToExpectation (SuccessfulInsertion (InsertionSuccess{finalCursor = cursor})) = ExactVersion cursor
 cursorToExpectation _ = NoStream

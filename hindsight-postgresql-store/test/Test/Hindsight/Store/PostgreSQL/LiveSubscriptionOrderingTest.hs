@@ -555,7 +555,7 @@ executeTransactionPlan store plan mProgressManager = do
                 Nothing -> pure ()
               pure $ Left $ "Transaction " ++ show plan.planId ++ " failed: " ++ show err
 
-          SuccessfulInsertion{finalCursor = cursor} -> do
+          SuccessfulInsertion (InsertionSuccess{finalCursor = cursor}) -> do
             case mProgressManager of
               Just pm -> reportTransactionCompleted pm True
               Nothing -> pure ()

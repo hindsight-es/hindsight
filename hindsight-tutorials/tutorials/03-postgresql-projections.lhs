@@ -168,7 +168,7 @@ demoPostgreSQLProjection = do
       FailedInsertion err -> do
         putStrLn $ "✗ Insert failed: " <> show err
 
-      SuccessfulInsertion{finalCursor = cursor} -> do
+      SuccessfulInsertion (InsertionSuccess{finalCursor = cursor}) -> do
         putStrLn "✓ Inserted events into MemoryStore"
 
         -- Start projection in background thread

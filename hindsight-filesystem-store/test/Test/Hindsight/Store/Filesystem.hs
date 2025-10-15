@@ -76,7 +76,7 @@ testLogFileStructure = testCase "Log File Structure" $ do
 
     case result of
       FailedInsertion err -> assertFailure $ "Failed to insert events: " ++ show err
-      SuccessfulInsertion{} -> do
+      SuccessfulInsertion _ -> do
         -- Read and verify log structure
         entries <- readLogFile paths.eventLogPath
 
@@ -103,7 +103,7 @@ testStoreReload = testCase "Store Reload" $ do
 
     case result1 of
       FailedInsertion err -> assertFailure $ "Failed to insert events: " ++ show err
-      SuccessfulInsertion{} -> do
+      SuccessfulInsertion _ -> do
         -- Create new store instance pointing to same directory
         store2 <- openFilesystemStore (getStoreConfig store)
 
@@ -144,7 +144,7 @@ testLogFileCorruption = testCase "Log File Corruption" $ do
 
     case result of
       FailedInsertion err -> assertFailure $ "Failed to write after corruption: " ++ show err
-      SuccessfulInsertion{} -> pure ()
+      SuccessfulInsertion _ -> pure ()
 
 -- | Run concurrent stream updates in parallel and check that all succeed
 -- This tests the success case for concurrent writes to independent streams
@@ -164,7 +164,7 @@ testMultiStreamConcurrency = testCase "Multi-stream Concurrency" $ withTempStore
   result1 <- insertEvents store Nothing initWrites
   case result1 of
     FailedInsertion err -> assertFailure $ "Initial writes failed: " ++ show err
-    SuccessfulInsertion{} -> do
+    SuccessfulInsertion _ -> do
       -- Perform concurrent writes to different streams
       let writeToStream sid =
             insertEvents store Nothing $
@@ -175,7 +175,7 @@ testMultiStreamConcurrency = testCase "Multi-stream Concurrency" $ withTempStore
       -- All writes should succeed since they're to different streams
       let successCount = length . filter isSuccess $ results
           isSuccess = \case
-            SuccessfulInsertion{} -> True
+            SuccessfulInsertion _ -> True
             _ -> False
 
       assertBool

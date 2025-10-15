@@ -222,7 +222,7 @@ demoAdvancedPostgreSQL = do
       Transaction $ Map.singleton streamId (StreamWrite Any events)
 
     case result of
-      SuccessfulInsertion{} -> do
+      SuccessfulInsertion _ -> do
         putStrLn "✓ Inserted events and ran projections"
 
         -- Query 1: Customer totals

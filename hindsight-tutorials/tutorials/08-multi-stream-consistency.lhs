@@ -272,7 +272,7 @@ demoEmailUniqueness = do
           (StreamWrite NoStream [registerUser aliceId "alice@example.com" "Alice"])
 
       case result1 of
-        SuccessfulInsertion{} ->
+        SuccessfulInsertion _ ->
           putStrLn "  ✓ Alice registered successfully"
         FailedInsertion err ->
           putStrLn $ "  ✗ Alice registration failed: " <> show err
@@ -286,7 +286,7 @@ demoEmailUniqueness = do
           (StreamWrite NoStream [registerUser bobId "alice@example.com" "Bob"])
 
       case result2 of
-        SuccessfulInsertion{} ->
+        SuccessfulInsertion _ ->
           putStrLn "  ✗ Bob registered (SHOULD HAVE FAILED!)"
         FailedInsertion (BackendError _) ->
           putStrLn "  ✓ Bob registration rejected (email conflict) ← Expected!"
@@ -299,7 +299,7 @@ demoEmailUniqueness = do
           (StreamWrite NoStream [registerUser bobId "bob@example.com" "Bob"])
 
       case result3 of
-        SuccessfulInsertion{} ->
+        SuccessfulInsertion _ ->
           putStrLn "  ✓ Bob registered with different email"
         FailedInsertion err ->
           putStrLn $ "  ✗ Bob registration failed: " <> show err
@@ -427,7 +427,7 @@ demoMultiStreamEnrollment = do
           (StreamWrite NoStream [createCourse courseId "Haskell 101" 2])
 
       case result1 of
-        SuccessfulInsertion{streamCursors = cursors1} -> do
+        SuccessfulInsertion (InsertionSuccess{streamCursors = cursors1}) -> do
           let courseCursor = cursors1 Map.! courseStream
           putStrLn "  ✓ Course created (capacity: 2)"
 
@@ -442,7 +442,7 @@ demoMultiStreamEnrollment = do
               ]
 
           case result2 of
-            SuccessfulInsertion{streamCursors = cursors2} -> do
+            SuccessfulInsertion (InsertionSuccess{streamCursors = cursors2}) -> do
               let courseCursor2 = cursors2 Map.! courseStream
               putStrLn "  ✓ Student 1 enrolled (1/2 capacity)"
 
@@ -457,7 +457,7 @@ demoMultiStreamEnrollment = do
                   ]
 
               case result3 of
-                SuccessfulInsertion{streamCursors = cursors3} -> do
+                SuccessfulInsertion (InsertionSuccess{streamCursors = cursors3}) -> do
                   let courseCursor3 = cursors3 Map.! courseStream
                   putStrLn "  ✓ Student 2 enrolled (2/2 capacity - FULL)"
 
@@ -473,7 +473,7 @@ demoMultiStreamEnrollment = do
                       ]
 
                   case result4 of
-                    SuccessfulInsertion{} ->
+                    SuccessfulInsertion _ ->
                       putStrLn "  ✗ Student 3 enrolled (SHOULD HAVE BEEN REJECTED)"
                     FailedInsertion err ->
                       putStrLn $ "  ✓ Student 3 rejected by CHECK constraint: " <> show err

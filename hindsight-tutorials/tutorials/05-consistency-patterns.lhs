@@ -85,7 +85,7 @@ demoAny = do
     singleEvent streamId Any (increment "C1" 1)
 
   putStrLn $ "  First insert: " <> case result1 of
-    SuccessfulInsertion{} -> "✓ Success"
+    SuccessfulInsertion _ -> "✓ Success"
     FailedInsertion err -> "✗ Failed: " <> show err
 
   -- Second insert - Any always succeeds (no version check)
@@ -93,7 +93,7 @@ demoAny = do
     singleEvent streamId Any (increment "C1" 2)
 
   putStrLn $ "  Second insert: " <> case result2 of
-    SuccessfulInsertion{} -> "✓ Success (no conflict check)"
+    SuccessfulInsertion _ -> "✓ Success (no conflict check)"
     FailedInsertion err -> "✗ Failed: " <> show err
 
   putStrLn "  → Use 'Any' when you don't care about conflicts\n"
@@ -118,7 +118,7 @@ demoHelpers = do
     appendToOrCreateStream streamId (increment "C1b" 1)
 
   putStrLn $ "  appendToOrCreateStream: " <> case result1 of
-    SuccessfulInsertion{} -> "✓ Success (create or append)"
+    SuccessfulInsertion _ -> "✓ Success (create or append)"
     FailedInsertion err -> "✗ Failed: " <> show err
 
   -- appendAfterAny: Wrapper for 'StreamExists' expectation
@@ -127,7 +127,7 @@ demoHelpers = do
     appendAfterAny streamId (increment "C1b" 2)
 
   putStrLn $ "  appendAfterAny: " <> case result2 of
-    SuccessfulInsertion{} -> "✓ Success (stream exists, append OK)"
+    SuccessfulInsertion _ -> "✓ Success (stream exists, append OK)"
     FailedInsertion err -> "✗ Failed: " <> show err
 
   -- Try appendAfterAny on non-existent stream
@@ -136,7 +136,7 @@ demoHelpers = do
     appendAfterAny newStreamId (increment "C1b" 3)
 
   putStrLn $ "  appendAfterAny (no stream): " <> case result3 of
-    SuccessfulInsertion{} -> "✓ Success"
+    SuccessfulInsertion _ -> "✓ Success"
     FailedInsertion (ConsistencyError _) -> "✗ Failed (stream doesn't exist) ← Expected!"
     FailedInsertion err -> "✗ Failed: " <> show err
 
@@ -161,7 +161,7 @@ demoNoStream = do
     singleEvent streamId NoStream (increment "C2" 1)
 
   putStrLn $ "  First insert: " <> case result1 of
-    SuccessfulInsertion{} -> "✓ Success (stream created)"
+    SuccessfulInsertion _ -> "✓ Success (stream created)"
     FailedInsertion err -> "✗ Failed: " <> show err
 
   -- Second insert - FAILS (stream now exists!)
@@ -169,7 +169,7 @@ demoNoStream = do
     singleEvent streamId NoStream (increment "C2" 2)
 
   putStrLn $ "  Second insert: " <> case result2 of
-    SuccessfulInsertion{} -> "✓ Success"
+    SuccessfulInsertion _ -> "✓ Success"
     FailedInsertion (ConsistencyError _) -> "✗ Failed (stream already exists) ← Expected!"
     FailedInsertion err -> "✗ Failed: " <> show err
 
@@ -194,7 +194,7 @@ demoExactVersion = do
     singleEvent streamId NoStream (increment "C3" 1)
 
   case result1 of
-    SuccessfulInsertion{finalCursor = cursor} -> do
+    SuccessfulInsertion (InsertionSuccess{finalCursor = cursor}) -> do
       putStrLn $ "  Created stream, cursor: " <> show cursor
 
       -- Append expecting the cursor we just got
@@ -202,7 +202,7 @@ demoExactVersion = do
         singleEvent streamId (ExactVersion cursor) (increment "C3" 2)
 
       case result2 of
-        SuccessfulInsertion{finalCursor = cursor2} -> do
+        SuccessfulInsertion (InsertionSuccess{finalCursor = cursor2}) -> do
           putStrLn $ "  Append at cursor: ✓ Success"
 
           -- Try to append at old cursor again - FAILS (stream moved forward)
@@ -210,7 +210,7 @@ demoExactVersion = do
             singleEvent streamId (ExactVersion cursor) (increment "C3" 3)
 
           putStrLn $ "  Append at old cursor: " <> case result3 of
-            SuccessfulInsertion{} -> "✓ Success"
+            SuccessfulInsertion _ -> "✓ Success"
             FailedInsertion (ConsistencyError _) -> "✗ Failed (wrong version) ← Expected!"
             FailedInsertion err -> "✗ Failed: " <> show err
 

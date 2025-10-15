@@ -109,7 +109,7 @@ instance EventStore MemoryStore where
               writeTVar var (getSequenceNo finalCursor)
           writeTVar state.globalNotification (getSequenceNo finalCursor)
 
-          pure $ SuccessfulInsertion
+          pure $ SuccessfulInsertion $ InsertionSuccess
             { finalCursor = finalCursor
             , streamCursors = streamCursors
             }

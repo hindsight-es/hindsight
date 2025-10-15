@@ -85,7 +85,7 @@ runLowContentionBenchmark runner backend = do
         result <- insertEvents backend Nothing events
         case result of
           FailedInsertion err -> throwIO $ BenchmarkError $ "Low contention insertion failed: " <> show err
-          SuccessfulInsertion{} -> pure ()
+          SuccessfulInsertion _ -> pure ()
   
   let totalEvents = numConcurrent * eventsPerTransaction config
       elapsedTime = case maybeLatency of
@@ -127,7 +127,7 @@ runHighContentionBenchmark runner backend = do
         result <- insertEvents backend Nothing events
         case result of
           FailedInsertion err -> throwIO $ BenchmarkError $ "High contention insertion failed: " <> show err
-          SuccessfulInsertion{} -> pure ()
+          SuccessfulInsertion _ -> pure ()
   
   let elapsedTime = case maybeLatency of
         Just lat -> lat
@@ -171,7 +171,7 @@ runMixedContentionBenchmark runner backend = do
         result <- insertEvents backend Nothing events
         case result of
           FailedInsertion err -> throwIO $ BenchmarkError $ "Mixed contention insertion failed: " <> show err
-          SuccessfulInsertion{} -> pure ()
+          SuccessfulInsertion _ -> pure ()
   
   let elapsedTime = case maybeLatency of
         Just lat -> lat
@@ -209,7 +209,7 @@ runLowContentionTest runner backend numConcurrent = do
     result <- insertEvents backend Nothing events
     case result of
       FailedInsertion err -> throwIO $ BenchmarkError $ "Insertion failed: " <> show err
-      SuccessfulInsertion{} -> pure ()
+      SuccessfulInsertion _ -> pure ()
   
   putStrLn "✓"
 
@@ -229,7 +229,7 @@ runHighContentionTest runner backend numConcurrent = do
     result <- insertEvents backend Nothing events
     case result of
       FailedInsertion err -> throwIO $ BenchmarkError $ "High contention insertion failed: " <> show err
-      SuccessfulInsertion{} -> pure ()
+      SuccessfulInsertion _ -> pure ()
   
   putStrLn "✓"
 
@@ -250,6 +250,6 @@ runMixedContentionTest runner backend numConcurrent = do
     result <- insertEvents backend Nothing events
     case result of
       FailedInsertion err -> throwIO $ BenchmarkError $ "Mixed contention insertion failed: " <> show err
-      SuccessfulInsertion{} -> pure ()
+      SuccessfulInsertion _ -> pure ()
   
   putStrLn "✓"

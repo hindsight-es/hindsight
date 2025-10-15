@@ -86,7 +86,7 @@ syncProjectionTests =
 
             -- Verify the event was inserted
             case result of
-              SuccessfulInsertion{} -> pure ()
+              SuccessfulInsertion _ -> pure ()
               FailedInsertion err -> assertFailure $ "Insertion failed: " ++ show err
 
             -- First check if events were actually inserted
@@ -168,7 +168,7 @@ syncProjectionTests =
 
             -- Verify insertion succeeded
             case result of
-              SuccessfulInsertion{} -> pure ()
+              SuccessfulInsertion _ -> pure ()
               FailedInsertion err -> assertFailure $ "Insertion failed: " ++ show err
 
             -- Verify both projections executed
@@ -232,7 +232,7 @@ syncProjectionTests =
 
             -- Verify the insertion failed
             case result of
-              SuccessfulInsertion{} ->
+              SuccessfulInsertion _ ->
                 assertFailure "Expected insertion to fail due to projection error"
               FailedInsertion _ ->
                 pure () -- Expected
@@ -281,7 +281,7 @@ syncProjectionTests =
 
             -- Should succeed
             case result of
-              SuccessfulInsertion{} -> pure ()
+              SuccessfulInsertion _ -> pure ()
               FailedInsertion err ->
                 assertFailure $ "Insertion should succeed with empty registry: " ++ show err
     ]
