@@ -7,7 +7,7 @@
 module Test.Hindsight.Store.Filesystem where
 
 import Control.Concurrent (threadDelay)
-import Control.Exception (bracket)
+import Control.Exception (bracket, try)
 import Control.Monad (replicateM, void)
 import Data.Aeson (decode)
 import Data.ByteString.Lazy qualified as BL
@@ -124,8 +124,11 @@ testStoreReload = testCase "Store Reload" $ do
           _ -> assertFailure "Second write should have failed due to NoStream constraint"
 
 -- | Test handling of corrupted log files
+--
+-- With fail-fast behavior, opening a corrupted log should throw CorruptEventLog exception.
+-- This test verifies that corruption is detected immediately rather than silently ignored.
 testLogFileCorruption :: TestTree
-testLogFileCorruption = testCase "Log File Corruption" $ do
+testLogFileCorruption = testCase "Log File Corruption Throws Exception" $ do
   withTempStore $ \store -> do
     let paths = getPaths (getStoreConfig store).storePath
 
@@ -140,18 +143,18 @@ testLogFileCorruption = testCase "Log File Corruption" $ do
     -- Corrupt the log file by appending invalid JSON
     BL.appendFile paths.eventLogPath "invalid json\n"
 
-    -- Try to open new store instance
-    store2 <- openFilesystemStore (getStoreConfig store)
-
-    -- Should still be able to write new events
-    streamId2 <- StreamId <$> UUID.nextRandom
-    result <-
-      insertEvents store2 Nothing $
-        Transaction (Map.singleton streamId2 (StreamWrite NoStream [makeUserEvent 4]))
+    -- Try to open new store instance - should throw CorruptEventLog
+    result <- try @StoreException $ openFilesystemStore (getStoreConfig store)
 
     case result of
-      FailedInsertion err -> assertFailure $ "Failed to write after corruption: " ++ show err
-      SuccessfulInsertion _ -> pure ()
+      Left (CorruptEventLog path reason) -> do
+        -- Expected: verify the exception contains meaningful information
+        assertBool "Exception should contain path" (not $ null path)
+        assertBool "Exception should contain reason" (not $ null reason)
+      Left (LockTimeout _) ->
+        assertFailure "Got LockTimeout instead of CorruptEventLog"
+      Right _ ->
+        assertFailure "Expected CorruptEventLog exception but openFilesystemStore succeeded"
 
 -- | Run concurrent stream updates in parallel and check that all succeed
 -- This tests the success case for concurrent writes to independent streams

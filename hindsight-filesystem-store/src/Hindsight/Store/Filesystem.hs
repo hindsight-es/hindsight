@@ -78,6 +78,9 @@ module Hindsight.Store.Filesystem
     openFilesystemStore,
     cleanupFilesystemStore,
 
+    -- * Exceptions
+    StoreException (..),
+
     -- * Testing Support
     EventLogEntry (..),
     StorePaths (..),
@@ -111,7 +114,7 @@ import Data.ByteString.Lazy qualified as BL
 import Data.ByteString.Lazy.Char8 qualified as BL8
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (listToMaybe, mapMaybe)
+import Data.Maybe (listToMaybe)
 import Data.Time (UTCTime, getCurrentTime)
 import Data.Text (pack)
 import Data.UUID (UUID)
@@ -291,18 +294,44 @@ newFilesystemStore config = do
 
   pure FilesystemStoreHandle {..}
 
+-- | Decode log entries strictly, throwing CorruptEventLog on parse failures.
+--
+-- Empty lines are skipped (normal for newline-delimited JSON format).
+-- Non-empty unparseable lines are FATAL and throw CorruptEventLog.
+--
+-- This ensures we fail fast on corruption rather than silently losing data.
+decodeLogEntriesStrict :: FilePath -> BL.ByteString -> IO [EventLogEntry]
+decodeLogEntriesStrict path contents = do
+  let lines' = BL8.split '\n' contents
+      nonEmptyLines = filter (not . BL.null) lines'
+  mapM decodeOne (zip [1 ..] nonEmptyLines)
+  where
+    decodeOne :: (Integer, BL.ByteString) -> IO EventLogEntry
+    decodeOne (lineNum, line) =
+      case decode line of
+        Just entry -> pure entry
+        Nothing ->
+          throwIO $
+            CorruptEventLog path $
+              "Failed to parse JSON at line "
+                ++ show lineNum
+                ++ ": "
+                ++ take 100 (BL8.unpack line)
+
 -- | Process log entries and return completed transactions
 processLogEntries :: [EventLogEntry] -> Map UUID [StoredEvent]
 processLogEntries entries = Map.fromList [(e.transactionId, e.events) | e <- entries]
 
 -- | Read and parse all entries from the event log
+--
+-- Throws CorruptEventLog if any entry fails to parse.
+-- This ensures corruption is detected immediately rather than silently lost.
 readLogEntries :: FilesystemStoreHandle -> IO [EventLogEntry]
 readLogEntries handle =
   withStoreLock handle $ do
     let paths = getPaths handle.config.storePath
     contents <- BL.readFile paths.eventLogPath
-    -- Parse entries, ignoring any corrupt ones
-    pure $ mapMaybe decode $ BL8.split '\n' contents
+    decodeLogEntriesStrict paths.eventLogPath contents
 
 openFilesystemStore :: FilesystemStoreConfig -> IO FilesystemStoreHandle
 openFilesystemStore config = do
@@ -379,8 +408,13 @@ notifierLoop eventLogPath chan = do
     forever $ threadDelay maxBound
 
 -- | Retry wrapper for reloadEventsFromDiskCentral with exponential backoff
--- Handles LockTimeout exceptions gracefully to prevent reload thread death
--- Max retries: 5, with exponential backoff: 10ms, 20ms, 40ms, 80ms, 160ms
+--
+-- Handles two types of exceptions differently:
+--
+-- * LockTimeout: Retryable - uses exponential backoff (5 retries max)
+-- * CorruptEventLog: FATAL - logs error and re-throws (no retry, no swallow)
+--
+-- Max retries for LockTimeout: 5, with exponential backoff: 10ms, 20ms, 40ms, 80ms, 160ms
 reloadEventsFromDiskCentralWithRetry :: TVar (StoreState FilesystemStore) -> FilesystemStoreConfig -> Int -> IO ()
 reloadEventsFromDiskCentralWithRetry stateVar config retryCount = do
   result <- try $ reloadEventsFromDiskCentral stateVar config
@@ -398,11 +432,21 @@ reloadEventsFromDiskCentralWithRetry stateVar config retryCount = do
           let delayMicros = 10000 * (2 ^ retryCount)
           threadDelay delayMicros
           reloadEventsFromDiskCentralWithRetry stateVar config (retryCount + 1)
+    Left (CorruptEventLog path reason) -> do
+      -- FATAL ERROR: Event log corruption indicates either a serious bug or external tampering
+      -- DO NOT retry, DO NOT swallow - this requires operator intervention
+      putStrLn $ "FATAL: Event log corrupted at " ++ path
+      putStrLn $ "Reason: " ++ reason
+      putStrLn "This indicates either a serious bug in the event store or external process tampering."
+      putStrLn "The reload thread will now terminate. Manual intervention is required."
+      throwIO $ CorruptEventLog path reason
 
 -- | Reload new events from disk into the in-memory store state
 -- Called by the notifier's reload thread when file changes are detected
 -- Uses locking to coordinate with writes and avoid "resource busy" errors
 -- Uses STRICT ByteString to ensure file handle is closed immediately
+--
+-- Throws CorruptEventLog if parsing fails - this is FATAL and will terminate the reload thread.
 reloadEventsFromDiskCentral :: TVar (StoreState FilesystemStore) -> FilesystemStoreConfig -> IO ()
 reloadEventsFromDiskCentral stateVar config = do
   -- Acquire lock to coordinate with writes and avoid concurrent file access issues
@@ -410,7 +454,8 @@ reloadEventsFromDiskCentral stateVar config = do
   entries <- withStoreLockDirect config $ do
     let paths = getPaths config.storePath
     contents <- BS.readFile paths.eventLogPath
-    pure $ mapMaybe decode $ map BL.fromStrict $ BS8.split '\n' contents
+    -- Convert strict ByteString to lazy for decoding
+    decodeLogEntriesStrict paths.eventLogPath (BL.fromStrict contents)
 
   let completedEvents = Map.elems $ processLogEntries entries
 
