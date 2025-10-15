@@ -36,7 +36,6 @@ where
 import Control.Exception (SomeException (..), throwIO)
 import Control.Monad.IO.Class (MonadIO (liftIO))
 import Data.ByteString (ByteString)
-import Data.Map (Map)
 import Data.Text (Text, pack)
 import Data.Text qualified
 import Data.Text.Encoding (decodeUtf8)
@@ -46,7 +45,6 @@ import Hasql.Pool (Pool)
 import Hasql.Pool qualified as Pool
 import Hasql.Pool.Config qualified as Config
 import Hasql.Transaction.Sessions qualified as Session
-import Hindsight.Core (SomeLatestEvent)
 import Hindsight.Store
 import Hindsight.Store.PostgreSQL.Events.Insertion qualified as Insertion
 import Hindsight.Store.PostgreSQL.Core.Types (SQLStore, SQLStoreHandle (..), SQLCursor(..), SyncProjectionRegistry)
@@ -57,7 +55,6 @@ import Hindsight.Store.PostgreSQL.Projections.Sync (emptySyncProjectionRegistry,
 import Hindsight.Store.PostgreSQL.Events.Concurrency (checkVersions)
 import Hindsight.Projection (ProjectionId (..))
 import UnliftIO (MonadUnliftIO)
-import qualified Hasql.Transaction.Sessions as Session
 
 -- | Re-export createSchema with a more specific name to avoid conflicts
 createSQLSchema :: Session ()

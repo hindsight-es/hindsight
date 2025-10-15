@@ -17,10 +17,8 @@ where
 
 import Control.Category ((>>>))
 import Data.Aeson qualified as Aeson
-import Data.Aeson (FromJSON, ToJSON)
 import Data.Functor ((<&>))
 import Data.Int (Int32, Int64)
-import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Time (UTCTime)
 import Data.Vector qualified as Vector

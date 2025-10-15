@@ -28,32 +28,10 @@ library
     -- other-extensions:
     build-depends:    base,
                       aeson,
-                      async,
-                      bytestring,
                       containers,
-                      directory,
-                      file-embed,
-                      filelock,
-                      filepath,
-                      fsnotify >= 0.4,
-                      hashable,
-                      hasql,
-                      hasql-notifications >= 0.2.3.0,
-                      hasql-transaction,
-                      hasql-pool,
-                      hasql-th,
-                      profunctors,
-                      random,
-                      stm,
-                      template-haskell,
-                      ttrie >= 0.1.2 && < 0.2,
                       text,
                       time,
-                      unix,
-                      unliftio,
-                      unordered-containers,
-                      uuid,
-                      vector
+                      uuid
     hs-source-dirs:   src
     default-language: GHC2021
     default-extensions: OverloadedRecordDot, DataKinds, DuplicateRecordFields, StrictData, Strict, RequiredTypeArguments
@@ -134,14 +112,12 @@ test-suite hindsight-test
         directory,
         filepath,
         hedgehog,
-        hindsight,
         hindsight:event-testing,
         hindsight:store-testing,
         QuickCheck,
         random,
         stm,
         tasty,
-        tasty-hunit,
         tasty-golden,
         tasty-quickcheck,
         tasty-hedgehog,
@@ -149,7 +125,6 @@ test-suite hindsight-test
         temporary,
         text,
         unix,
-        unliftio,
-        uuid
+        unliftio
 
 

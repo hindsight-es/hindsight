@@ -43,7 +43,6 @@ import Control.Concurrent.STM (atomically, newTVarIO, TVar, readTVarIO, modifyTV
 import Control.Exception (bracket)
 import Control.Monad (void)
 import Data.Aeson (FromJSON, ToJSON)
-import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.UUID.V4 qualified as UUID
 import GHC.Generics (Generic)

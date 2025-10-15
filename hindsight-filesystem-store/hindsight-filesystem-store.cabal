@@ -49,17 +49,6 @@ test-suite hindsight-filesystem-store-test
     other-modules:    Test.Hindsight.Store.Filesystem
     build-depends:
         base,
-        aeson,
-        bytestring,
-        containers,
-        directory,
-        hindsight,
         hindsight-filesystem-store,
-        hindsight-memory-store,
         hindsight:store-testing,
-        tasty,
-        tasty-hunit,
-        temporary,
-        unix,
-        unliftio,
-        uuid
+        tasty

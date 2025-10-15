@@ -56,12 +56,11 @@ import Control.Concurrent.STM
 import Control.Exception (finally, try, Exception, SomeException, AsyncException)
 import UnliftIO.Exception (catch, throwIO)
 import qualified Data.Text as T
-import Control.Monad (forever, forM_)
+import Control.Monad (forever)
 import Data.Aeson (Value)
 import Data.Aeson.Types qualified as Aeson
 import Data.Functor.Contravariant (contramap)
 import Data.Int (Int32, Int64)
-import Data.List (partition)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (listToMaybe)
 import Data.Text (Text, isInfixOf, pack)

@@ -43,7 +43,6 @@ test-suite hindsight-memory-store-test
     build-depends:
         base,
         hindsight,
-        hindsight-memory-store,
         hindsight:store-testing,
         tasty,
         tasty-hunit,

@@ -76,7 +76,6 @@ test-suite hindsight-postgresql-store-test
         hasql,
         hasql-pool,
         hasql-transaction,
-        hasql-th,
         hedgehog,
         hindsight,
         hindsight-postgresql-projections,

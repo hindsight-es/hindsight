@@ -79,7 +79,6 @@ import Hindsight.Store.PostgreSQL
   ( SQLStore,
     createSQLSchema,
     emptySyncProjectionRegistry,
-    getPool,
     newSQLStoreWithProjections,
     registerSyncProjection,
     shutdownSQLStore,

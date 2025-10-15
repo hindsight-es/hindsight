@@ -34,7 +34,7 @@ where
 import Control.Concurrent (forkIO, killThread)
 import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
 import Control.Exception (Exception, SomeException, bracket, bracket_, throwIO)
-import Control.Monad (forM_, when)
+import Control.Monad (when)
 import Control.Monad.IO.Class (liftIO)
 import Data.Aeson (FromJSON, ToJSON, (.:))
 import Data.Aeson qualified as Aeson

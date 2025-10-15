@@ -12,7 +12,8 @@ packages:
 -- You may use `cabal-plan | grep <your-pkg>` to indirectly query it.
 
 -- Enable HIE file generation for all packages (needed for HLS and weeder)
-ghc-options: -fwrite-ide-info
+program-options
+  ghc-options: -fwrite-ide-info
 
 -- Performance profiling configuration
 -- Enable with: cabal configure --enable-profiling

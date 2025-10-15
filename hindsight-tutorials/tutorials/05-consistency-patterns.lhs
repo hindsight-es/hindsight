@@ -36,12 +36,11 @@ Prerequisites
 module Main where
 
 import Data.Aeson (FromJSON, ToJSON)
-import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.UUID.V4 qualified as UUID
 import GHC.Generics (Generic)
 import Hindsight
-import Hindsight.Store.Memory (MemoryStore, newMemoryStore)
+import Hindsight.Store.Memory (newMemoryStore)
 \end{code}
 
 Define a Simple Event

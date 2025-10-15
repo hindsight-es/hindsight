@@ -31,7 +31,6 @@ module Test.Hindsight.Store.TestRunner
 where
 
 import Control.Concurrent (MVar, newEmptyMVar, putMVar, takeMVar, threadDelay)
-import Control.Exception (SomeException (..), fromException)
 import Control.Monad (forM, forM_, replicateM, replicateM_)
 import Data.IORef
 import Data.Map.Strict qualified as Map
@@ -46,7 +45,7 @@ import Test.Hindsight.Examples (UserCreated, UserInformation2 (..))
 import Test.Hindsight.Store.Common
 import Test.Tasty
 import Test.Tasty.HUnit
-import UnliftIO.Async (async, concurrently, wait, waitCatch)
+import UnliftIO.Async (async, concurrently, wait)
 import UnliftIO.Exception (throwIO)
 
 -- | Test runner for event store tests
@@ -773,7 +772,7 @@ testMultiStreamHeadConsistency store = do
 
   case result of
     FailedInsertion err -> assertFailure $ "Failed to insert multi-stream batch: " ++ show err
-    SuccessfulInsertion{} -> do
+    SuccessfulInsertion {} -> do
       -- Verify each stream can be appended to independently
       -- If stream heads are tracked correctly, StreamExists should work for all streams
 
@@ -1309,7 +1308,7 @@ testMultiInstanceSubscription stores = do
 
           -- Verify all subscribers received the same events
           allReceivedEvents <- mapM (fmap reverse . readIORef) receivedEventsRefs
-          forM_ (zip [(1::Int)..] allReceivedEvents) $ \(idx, events) -> do
+          forM_ allReceivedEvents $ \events -> do
             length events @?= 5
             let userInfos = mapMaybe extractUserInfo events
             length userInfos @?= 5
@@ -1320,6 +1319,6 @@ testMultiInstanceSubscription stores = do
           -- All subscribers should have received identical events
           case allReceivedEvents of
             [] -> pure ()
-            (firstEvents : restEvents) -> do
+            (firstEvents : restEvents) ->
               forM_ restEvents $ \events ->
                 length events @?= length firstEvents

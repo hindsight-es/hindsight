@@ -9,10 +9,9 @@ module Core.Metrics
   ) where
 
 import Core.Types
-import Control.Exception (bracket)
 import Data.IORef (IORef, newIORef, readIORef, writeIORef, atomicModifyIORef')
 import Data.List (sort)
-import Data.Time (UTCTime, getCurrentTime, diffUTCTime, NominalDiffTime)
+import Data.Time (getCurrentTime, diffUTCTime, NominalDiffTime)
 import GHC.Stats (getRTSStats, RTSStats(..), gcs, gcdetails_live_bytes, gc_cpu_ns, gc)
 import System.IO.Unsafe (unsafePerformIO)
 

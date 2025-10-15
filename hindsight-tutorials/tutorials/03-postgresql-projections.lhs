@@ -65,7 +65,6 @@ import Hasql.Transaction qualified as Transaction
 import Hindsight
 import Hindsight.Projection (runProjection, waitForEvent, ProjectionId(..))
 import Hindsight.Projection.Matching (ProjectionHandlers(..))
-import Hindsight.Store (EventEnvelope)
 import Hindsight.Store.Memory (newMemoryStore)
 import Hindsight.Store.PostgreSQL.Core.Schema qualified as Schema
 \end{code}

@@ -36,7 +36,7 @@ where
 
 import Control.Concurrent.STM
 import Control.Monad (forM, forM_)
-import Control.Monad.IO.Class (MonadIO, liftIO)
+import Control.Monad.IO.Class (liftIO)
 import UnliftIO (MonadUnliftIO)
 import Data.Aeson (FromJSON (..), ToJSON (..))
 import Data.Map.Strict qualified as Map
