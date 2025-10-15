@@ -127,7 +127,6 @@ runProjection ::
   forall backend m ts.
   ( EventStore backend,
     MonadFail m,
-    Show (Cursor backend),
     FromJSON (Cursor backend),
     ToJSON (Cursor backend),
     StoreConstraints backend m,
@@ -186,7 +185,7 @@ loadProjectionState projId pool = do
 
 makeEventMatcher ::
   forall ts backend m.
-  (MonadUnliftIO m, Show (Cursor backend), ToJSON (Cursor backend)) =>
+  (MonadUnliftIO m, ToJSON (Cursor backend)) =>
   ProjectionId ->
   Pool ->
   Maybe (TVar (Maybe (ProjectionState backend))) ->

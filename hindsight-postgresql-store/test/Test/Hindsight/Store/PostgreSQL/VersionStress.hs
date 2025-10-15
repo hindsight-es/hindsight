@@ -15,7 +15,7 @@ import Data.Map.Strict qualified as Map
 import Data.Time (diffUTCTime, getCurrentTime)
 import Data.UUID.V4 qualified as UUID
 import Hindsight.Store
-import Hindsight.Store.PostgreSQL (SQLStore, SQLStoreHandle (..))
+import Hindsight.Store.PostgreSQL (SQLStoreHandle)
 import System.Random (randomRIO)
 import Test.Hindsight.Store.Common (makeUserEvent)
 import Test.Hindsight.PostgreSQL.Temp (defaultConfig, withTempPostgreSQL)

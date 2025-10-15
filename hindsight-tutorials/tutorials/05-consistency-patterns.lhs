@@ -202,7 +202,7 @@ demoExactVersion = do
         singleEvent streamId (ExactVersion cursor) (increment "C3" 2)
 
       case result2 of
-        SuccessfulInsertion (InsertionSuccess{finalCursor = cursor2}) -> do
+        SuccessfulInsertion (InsertionSuccess{finalCursor = _cursor2}) -> do
           putStrLn $ "  Append at cursor: ✓ Success"
 
           -- Try to append at old cursor again - FAILS (stream moved forward)

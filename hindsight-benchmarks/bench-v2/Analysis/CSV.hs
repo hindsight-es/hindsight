@@ -10,7 +10,6 @@ import Core.Types qualified as CT
 import Data.Csv
 import Data.Text (Text, pack)
 import Data.Time (UTCTime, formatTime, defaultTimeLocale, getCurrentTime)
-import Data.Vector qualified as V
 import System.Directory (createDirectoryIfMissing)
 import System.FilePath (takeDirectory)
 import qualified Data.ByteString.Lazy as BL
@@ -48,31 +47,31 @@ data BenchmarkRecord = BenchmarkRecord
   } deriving (Show)
 
 instance ToNamedRecord BenchmarkRecord where
-  toNamedRecord record = namedRecord
-    [ "timestamp" .= timestamp record
-    , "scenario" .= scenario record
-    , "backend" .= backend record
-    , "tx_count" .= txCount record
-    , "events_per_tx" .= eventsPerTx record
-    , "sub_count" .= subCount record
-    , "event_size_bytes" .= eventSizeBytes record
-    , "insertion_time_ms" .= insertionTimeMs record
-    , "insertion_throughput_eps" .= insertionThroughput record
-    , "avg_latency_ms" .= avgLatencyMs record
-    , "latency_p50_ms" .= latencyP50Ms record
-    , "latency_p95_ms" .= latencyP95Ms record
-    , "latency_p99_ms" .= latencyP99Ms record  
-    , "latency_p999_ms" .= latencyP999Ms record
-    , "initial_memory_mb" .= initialMemoryMb record
-    , "peak_memory_mb" .= peakMemoryMb record
-    , "final_memory_mb" .= finalMemoryMb record
-    , "gc_count" .= gcCount record
-    , "gc_time_ms" .= gcTimeMs record
-    , "subscription_catchup_time_ms" .= subscriptionCatchUpTimeMs record
-    , "subscription_throughput_eps" .= subscriptionThroughput record
-    , "avg_queue_depth" .= avgQueueDepth record
-    , "subscription_lag_ms" .= subscriptionLagMs record
-    , "queue_overflow_count" .= queueOverflowCount record
+  toNamedRecord rec = namedRecord
+    [ "timestamp" .= timestamp rec
+    , "scenario" .= scenario rec
+    , "backend" .= backend rec
+    , "tx_count" .= txCount rec
+    , "events_per_tx" .= eventsPerTx rec
+    , "sub_count" .= subCount rec
+    , "event_size_bytes" .= eventSizeBytes rec
+    , "insertion_time_ms" .= insertionTimeMs rec
+    , "insertion_throughput_eps" .= insertionThroughput rec
+    , "avg_latency_ms" .= avgLatencyMs rec
+    , "latency_p50_ms" .= latencyP50Ms rec
+    , "latency_p95_ms" .= latencyP95Ms rec
+    , "latency_p99_ms" .= latencyP99Ms rec
+    , "latency_p999_ms" .= latencyP999Ms rec
+    , "initial_memory_mb" .= initialMemoryMb rec
+    , "peak_memory_mb" .= peakMemoryMb rec
+    , "final_memory_mb" .= finalMemoryMb rec
+    , "gc_count" .= gcCount rec
+    , "gc_time_ms" .= gcTimeMs rec
+    , "subscription_catchup_time_ms" .= subscriptionCatchUpTimeMs rec
+    , "subscription_throughput_eps" .= subscriptionThroughput rec
+    , "avg_queue_depth" .= avgQueueDepth rec
+    , "subscription_lag_ms" .= subscriptionLagMs rec
+    , "queue_overflow_count" .= queueOverflowCount rec
     ]
 
 instance DefaultOrdered BenchmarkRecord where
@@ -105,7 +104,7 @@ instance DefaultOrdered BenchmarkRecord where
 
 -- | Convert BenchmarkResult to CSV record
 resultToCSVRecord :: UTCTime -> CT.BenchmarkResult -> BenchmarkRecord
-resultToCSVRecord timestamp result@(CT.BenchmarkResult backend config@(CT.BenchmarkConfig numTransactions eventsPerTransaction numSubscriptions eventSizeBytes _) scenarioName insertionTime insertionThroughput avgLatency latencyPercentiles memoryMetrics subscriptionCatchUpTime subscriptionThroughput queueMetrics) = BenchmarkRecord
+resultToCSVRecord timestamp (CT.BenchmarkResult backend (CT.BenchmarkConfig numTransactions eventsPerTransaction numSubscriptions eventSizeBytes _) scenarioName insertionTime insertionThroughput avgLatency latencyPercentiles memoryMetrics subscriptionCatchUpTime subscriptionThroughput queueMetrics) = BenchmarkRecord
   { timestamp = pack $ formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" timestamp
   , scenario = scenarioName
   , backend = pack $ show backend

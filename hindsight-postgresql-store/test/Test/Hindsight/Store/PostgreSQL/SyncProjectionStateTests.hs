@@ -14,7 +14,7 @@ import Control.Exception (SomeException, try)
 import Control.Monad (forM_, forM_)
 import Data.Aeson qualified as Aeson
 import Data.ByteString.Char8 qualified as BS
-import Data.Int (Int32, Int64)
+import Data.Int ()
 import Data.Map.Strict qualified as Map
 import Data.Proxy (Proxy (..))
 import Data.Text (Text)
@@ -29,7 +29,6 @@ import Test.Hindsight.Examples (UserCreated)
 import Hindsight.Projection (ProjectionId (..))
 import Hindsight.Projection.Matching (ProjectionHandlers (..))
 import Hindsight.Store.PostgreSQL
-import Hindsight.Store.PostgreSQL (getPool)
 import Hindsight.Store.PostgreSQL.Core.Schema qualified as SQLStore
 import Test.Hindsight.Store.Common (makeUserEvent)
 import Test.Tasty

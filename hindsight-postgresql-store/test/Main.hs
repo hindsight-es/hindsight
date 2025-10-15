@@ -4,16 +4,16 @@
 module Main (main) where
 
 import Control.Concurrent (threadDelay)
-import Control.Exception (SomeException, bracket, throwIO, try)
+import Control.Exception (SomeException, throwIO, try)
 import Control.Monad (forM_, replicateM, void)
-import Data.Map.Strict qualified as Map
+import Data.Map.Strict ()
 import Database.Postgres.Temp qualified as Temp
 import Hasql.Pool qualified as Pool
-import Hindsight.Store
+import Hindsight.Store ()
 import Hindsight.Store.PostgreSQL (SQLStore, getPool, newSQLStore, shutdownSQLStore)
 import Hindsight.Store.PostgreSQL.Core.Schema qualified as SQLStore
 import System.Timeout (timeout)
-import Test.Hindsight.Store.Common
+import Test.Hindsight.Store.Common ()
 import Test.Hindsight.Store.StressTests (stressTests)
 import Test.Hindsight.Store.PropertyTests (propertyTests)
 import Test.Hindsight.Store.OrderingTests (orderingTests)

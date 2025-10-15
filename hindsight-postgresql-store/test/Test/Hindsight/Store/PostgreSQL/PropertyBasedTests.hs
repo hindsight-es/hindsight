@@ -12,7 +12,7 @@ import Data.Map.Strict qualified as Map
 import Data.UUID.V4 qualified as UUID
 import Hedgehog
 import Hindsight.Store
-import Hindsight.Store.PostgreSQL (SQLStore)
+import Hindsight.Store.PostgreSQL ()
 import Test.Hindsight.Store.Common (makeUserEvent)
 import Test.Hindsight.PostgreSQL.Temp (defaultConfig, withTempPostgreSQL)
 import Test.Tasty

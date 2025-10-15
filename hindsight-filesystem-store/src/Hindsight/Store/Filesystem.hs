@@ -179,8 +179,7 @@ newtype FilesystemCursor = FilesystemCursor
 -- Watches the event log file and broadcasts changes to subscribers
 -- The central reload thread updates the in-memory state when files change
 data Notifier = Notifier
-  { notifierChannel :: TChan (),  -- Internal: file watcher -> reload thread communication
-    notifierThread :: Async (),
+  { notifierThread :: Async (),
     reloadThread :: Async ()  -- Central reload thread (one per store)
   }
 
@@ -358,7 +357,7 @@ startNotifier eventLogPath stateVar config = do
     atomically $ readTChan reloadChan
     reloadEventsFromDiskCentral stateVar config
 
-  pure $ Notifier chan notifyThread reloadThread
+  pure $ Notifier notifyThread reloadThread
 
 -- | Stop the notifier threads
 shutdownNotifier :: Notifier -> IO ()

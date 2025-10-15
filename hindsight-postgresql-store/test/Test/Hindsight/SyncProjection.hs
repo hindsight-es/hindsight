@@ -24,7 +24,6 @@ import Hindsight.Projection.Matching (ProjectionHandlers (..))
 import Hindsight.Store
 
 import Hindsight.Store.PostgreSQL
-import Hindsight.Store.PostgreSQL (getPool)
 import Hindsight.Store.PostgreSQL.Core.Schema qualified as Schema
 import System.Random (randomIO)
 import Test.Tasty

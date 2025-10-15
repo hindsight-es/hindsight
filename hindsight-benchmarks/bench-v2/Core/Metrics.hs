@@ -9,7 +9,7 @@ module Core.Metrics
   ) where
 
 import Core.Types
-import Data.IORef (IORef, newIORef, readIORef, writeIORef, atomicModifyIORef')
+import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Data.List (sort)
 import Data.Time (getCurrentTime, diffUTCTime, NominalDiffTime)
 import GHC.Stats (getRTSStats, RTSStats(..), gcs, gcdetails_live_bytes, gc_cpu_ns, gc)
@@ -23,10 +23,6 @@ newtype BytesAllocated = BytesAllocated Int
 {-# NOINLINE latencyRef #-}
 latencyRef :: IORef [NominalDiffTime]
 latencyRef = unsafePerformIO $ newIORef []
-
--- | Record a latency measurement
-recordLatency :: NominalDiffTime -> IO ()
-recordLatency latency = atomicModifyIORef' latencyRef $ \lats -> (latency : lats, ())
 
 -- | Clear latency measurements
 clearLatencies :: IO ()

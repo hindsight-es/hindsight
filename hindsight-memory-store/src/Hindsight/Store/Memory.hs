@@ -88,7 +88,6 @@ instance EventStore MemoryStore where
 
   insertEvents handle corrId transaction = liftIO $ do
     -- First perform the basic insertion
-    let batches = transaction.transactionWrites
     now <- getCurrentTime
     eventIds <- forM [1 .. totalEvents] $ \_ -> EventId <$> UUID.nextRandom
 

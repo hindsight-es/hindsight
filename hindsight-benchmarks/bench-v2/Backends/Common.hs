@@ -20,7 +20,7 @@ import Hasql.Pool qualified as Pool
 import Hindsight.Store
 import Hindsight.Store.Filesystem qualified as FS
 import Hindsight.Store.Memory
-import Hindsight.Store.PostgreSQL (SQLStore, SQLStoreHandle, getPool, newSQLStore)
+import Hindsight.Store.PostgreSQL (SQLStore, getPool, newSQLStore)
 import Hindsight.Store.PostgreSQL.Core.Schema qualified as SQLStore
 import System.Directory (removeDirectoryRecursive)
 import System.Posix.Temp

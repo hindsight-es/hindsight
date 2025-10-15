@@ -209,7 +209,7 @@ makeStoredEvents state mbCorrId now eventIds streamId batch =
       seqNos = [baseSeq .. baseSeq + fromIntegral (length batch.events) - 1]
       currentStreamVersion = Map.findWithDefault (StreamVersion 0) streamId state.streamLocalVersions
       streamVersions = [currentStreamVersion + 1 .. currentStreamVersion + fromIntegral (length batch.events)]
-      mkEvent (sn, (eid, SomeLatestEvent proxy payload), streamVer) =
+      mkStoredEvent (sn, (eid, SomeLatestEvent proxy payload), streamVer) =
         let name = getEventName proxy
             version = fromInteger $ getMaxVersion proxy
          in ( StoredEvent
@@ -225,7 +225,7 @@ makeStoredEvents state mbCorrId now eventIds streamId batch =
                 },
               sn
             )
-   in unzip $ map mkEvent $ zip3 seqNos (zip eventIds $ toList batch.events) streamVersions
+   in unzip $ map mkStoredEvent $ zip3 seqNos (zip eventIds $ toList batch.events) streamVersions
 
 -- | Check version constraints for all streams
 checkAllVersions ::

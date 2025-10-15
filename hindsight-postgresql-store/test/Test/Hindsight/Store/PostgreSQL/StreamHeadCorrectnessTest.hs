@@ -18,7 +18,7 @@ import Hasql.Pool qualified as Pool
 import Hasql.Session qualified as Session
 import Hasql.Statement (Statement (..))
 import Hindsight.Store
-import Hindsight.Store.PostgreSQL (SQLStore, SQLStoreHandle (..), getPool)
+import Hindsight.Store.PostgreSQL (SQLStoreHandle, getPool)
 import Test.Hindsight.Store.Common (makeUserEvent)
 import Test.Hindsight.PostgreSQL.Temp (debugMode, withTempPostgreSQL)
 import Test.Tasty
@@ -126,14 +126,14 @@ testMultiStreamHeadCorrectness store = do
   let actualLastEventMap = Map.fromList [(e.eventStreamId, e.eventId) | e <- actualLastEvents]
 
   -- Verify each stream head
-  forM_ streamHeads $ \head -> do
-    case Map.lookup head.streamId actualLastEventMap of
-      Nothing -> assertFailure $ "No events found for stream " ++ show head.streamId
+  forM_ streamHeads $ \streamHead -> do
+    case Map.lookup streamHead.streamId actualLastEventMap of
+      Nothing -> assertFailure $ "No events found for stream " ++ show streamHead.streamId
       Just actualLastEventId ->
         assertEqual
-          ("Stream head for " ++ show head.streamId ++ " should point to its actual last event")
+          ("Stream head for " ++ show streamHead.streamId ++ " should point to its actual last event")
           actualLastEventId
-          head.lastEventId
+          streamHead.lastEventId
 
   -- Also verify we got all three streams
   assertEqual "Should have 3 stream heads" 3 (length streamHeads)

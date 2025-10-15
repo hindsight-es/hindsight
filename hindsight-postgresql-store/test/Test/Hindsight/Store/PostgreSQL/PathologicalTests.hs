@@ -13,7 +13,7 @@ import Control.Monad (foldM, forM, forM_, void)
 import Data.Map.Strict qualified as Map
 import Data.UUID.V4 qualified as UUID
 import Hindsight.Store
-import Hindsight.Store.PostgreSQL (SQLStore, SQLStoreHandle (..))
+import Hindsight.Store.PostgreSQL (SQLStoreHandle)
 import System.Timeout (timeout)
 import System.Random (randomRIO)
 import Test.Hindsight.Store.Common (makeUserEvent)

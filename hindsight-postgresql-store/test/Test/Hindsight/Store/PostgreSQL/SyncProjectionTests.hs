@@ -22,7 +22,7 @@ import Test.Hindsight.Examples (UserCreated)
 import Hindsight.Projection (ProjectionId (..))
 import Hindsight.Projection.Matching (ProjectionHandlers (..))
 import Hindsight.Store
-import Hindsight.Store.PostgreSQL (SQLStore, SQLStoreHandle, getPool, getConnectionString, newSQLStoreWithProjections)
+import Hindsight.Store.PostgreSQL (SQLStoreHandle, getPool, getConnectionString, newSQLStoreWithProjections)
 import Hindsight.Store.PostgreSQL.Projections.Sync (emptySyncProjectionRegistry, registerSyncProjection)
 import Test.Hindsight.Store.Common (makeUserEvent)
 import Test.Hindsight.PostgreSQL.Temp (defaultConfig, withTempPostgreSQL)

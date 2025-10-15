@@ -9,7 +9,7 @@
 
 module Test.Hindsight.Store.StressTests where
 
-import Control.Concurrent (MVar, newEmptyMVar, putMVar, readMVar, takeMVar, threadDelay)
+import Control.Concurrent (newEmptyMVar, putMVar, readMVar, takeMVar, threadDelay)
 import Control.Exception (SomeException, try)
 import Control.Monad (foldM, forM, forM_, replicateM)
 import Data.Map.Strict qualified as Map
@@ -27,7 +27,7 @@ import UnliftIO.Async (async, mapConcurrently, wait)
 -- | Backend-agnostic stress test suite
 stressTests ::
   forall backend.
-  (EventStore backend, StoreConstraints backend IO, Show (Cursor backend), Show (EventStoreError backend)) =>
+  (EventStore backend, StoreConstraints backend IO) =>
   EventStoreTestRunner backend ->
   [TestTree]
 stressTests runner =
@@ -71,7 +71,7 @@ stressTests runner =
 -- Exactly one should succeed, 99 should fail with ConsistencyError.
 testMassiveVersionConflicts ::
   forall backend.
-  (EventStore backend, StoreConstraints backend IO, Show (Cursor backend)) =>
+  (EventStore backend, StoreConstraints backend IO) =>
   BackendHandle backend ->
   IO ()
 testMassiveVersionConflicts store = do
@@ -117,7 +117,7 @@ testMassiveVersionConflicts store = do
 -- - Current cursor still works
 testMassiveVersionAdvancement ::
   forall backend.
-  (EventStore backend, StoreConstraints backend IO, Show (Cursor backend)) =>
+  (EventStore backend, StoreConstraints backend IO) =>
   BackendHandle backend ->
   IO ()
 testMassiveVersionAdvancement store = do
@@ -186,7 +186,7 @@ testMassiveVersionAdvancement store = do
 -- - Current cursor works
 testVersionSkewScenario ::
   forall backend.
-  (EventStore backend, StoreConstraints backend IO, Show (Cursor backend)) =>
+  (EventStore backend, StoreConstraints backend IO) =>
   BackendHandle backend ->
   IO ()
 testVersionSkewScenario store = do
@@ -323,7 +323,7 @@ testVersionExpectationPerformance store = do
 -- Create a chain A -> B -> C, update A, verify old cursor for A is rejected
 testCascadingVersionFailures ::
   forall backend.
-  (EventStore backend, StoreConstraints backend IO, Show (Cursor backend)) =>
+  (EventStore backend, StoreConstraints backend IO) =>
   BackendHandle backend ->
   IO ()
 testCascadingVersionFailures store = do
@@ -410,7 +410,7 @@ testMultiStreamVersionAtomicity store = do
 -- Advance a stream version 100 times rapidly, verify old cursors are invalid
 testRapidVersionAdvancement ::
   forall backend.
-  (EventStore backend, StoreConstraints backend IO, Show (Cursor backend)) =>
+  (EventStore backend, StoreConstraints backend IO) =>
   BackendHandle backend ->
   IO ()
 testRapidVersionAdvancement store = do

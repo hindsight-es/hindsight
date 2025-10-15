@@ -10,7 +10,7 @@ module Scenarios.Concurrency
   ) where
 
 import Backends.Common
-import Control.Concurrent.Async (forConcurrently_, async, wait)
+import Control.Concurrent.Async (forConcurrently_)
 import Control.Exception (Exception, throwIO)
 import Control.Monad (replicateM)
 import Core.Metrics
@@ -199,7 +199,7 @@ runLowContentionTest :: forall backend. (EventStore backend, StoreConstraints ba
                      -> BackendHandle backend
                      -> Int
                      -> IO ()
-runLowContentionTest runner backend numConcurrent = do
+runLowContentionTest _runner backend numConcurrent = do
   putStr $ "  Running " ++ show numConcurrent ++ " concurrent insertions to different streams... "
   hFlush stdout
   
@@ -215,10 +215,10 @@ runLowContentionTest runner backend numConcurrent = do
 
 runHighContentionTest :: forall backend. (EventStore backend, StoreConstraints backend IO, Show (Cursor backend))
                       => BenchmarkRunner backend
-                      -> BackendHandle backend  
+                      -> BackendHandle backend
                       -> Int
                       -> IO ()
-runHighContentionTest runner backend numConcurrent = do
+runHighContentionTest _runner backend numConcurrent = do
   putStr $ "  Running " ++ show numConcurrent ++ " concurrent insertions to same stream... "
   hFlush stdout
   
@@ -236,9 +236,9 @@ runHighContentionTest runner backend numConcurrent = do
 runMixedContentionTest :: forall backend. (EventStore backend, StoreConstraints backend IO, Show (Cursor backend))
                        => BenchmarkRunner backend
                        -> BackendHandle backend
-                       -> Int  
+                       -> Int
                        -> IO ()
-runMixedContentionTest runner backend numConcurrent = do
+runMixedContentionTest _runner backend numConcurrent = do
   putStr $ "  Running " ++ show numConcurrent ++ " concurrent insertions with mixed contention... "
   hFlush stdout
   

@@ -190,7 +190,7 @@ insertEventsWithSyncProjections syncRegistry correlationId eventBatches = do
 
     -- Compute per-stream cursors from stream head metadata
     let perStreamCursors = Map.mapWithKey
-          (\streamId (_lastEventId, lastSeqNo) -> SQLCursor txNo lastSeqNo)
+          (\_ (_lastEventId, lastSeqNo) -> SQLCursor txNo lastSeqNo)
           streamHeadMetadata
 
     -- Return final cursor and updated streams
@@ -274,13 +274,13 @@ insertEventsWithSyncProjections syncRegistry correlationId eventBatches = do
         
         -- Create envelope and execute both database insertion and sync projections
         -- Ensures identical metadata for both database insertion and projection execution
-        processEventWithUnifiedMetadata eventId streamId cursor corrId timestamp streamVer (SomeLatestEvent eventProxy payload) = do
+        processEventWithUnifiedMetadata eventId streamId cursor corrId' timestamp streamVer (SomeLatestEvent eventProxy payload) = do
           let envelope = EventWithMetadata
                 { position = cursor,
                   eventId = EventId eventId,
                   streamId = streamId,
                   streamVersion = streamVer,
-                  correlationId = corrId,
+                  correlationId = corrId',
                   createdAt = timestamp,
                   payload = payload
                 }
@@ -292,16 +292,16 @@ insertEventsWithSyncProjections syncRegistry correlationId eventBatches = do
           executeSyncProjectionForEvent registry eventProxy envelope
         
         insertSingleEventFromEnvelope envelope streamVer proxy payload = do
-          let SQLCursor txNo seqNo = envelope.position
+          let SQLCursor cursorTxNo cursorSeqNo = envelope.position
               EventId eventId = envelope.eventId
               name = getEventName proxy
               ver = getMaxVersion proxy
           HasqlTransaction.statement
-            (txNo, seqNo, EventId eventId, envelope.streamId, (.toUUID) <$> envelope.correlationId, 
+            (cursorTxNo, cursorSeqNo, EventId eventId, envelope.streamId, (.toUUID) <$> envelope.correlationId,
              envelope.createdAt, name, fromIntegral ver, toJSON payload, streamVer)
             insertEventStatement
         
-        updateStreamHeadsFromVersionMap versionMap headMetadata txNo = do
+        updateStreamHeadsFromVersionMap versionMap headMetadata txNo' = do
           forM_ (Map.toList versionMap) $ \(streamId, versions) -> do
             case reverse versions of  -- Get the last (highest) version
               [] -> pure ()
@@ -311,5 +311,5 @@ insertEventsWithSyncProjections syncRegistry correlationId eventBatches = do
                   Nothing -> pure ()  -- Stream has no events, skip
                   Just (lastEventId, lastSeqNo) ->
                     HasqlTransaction.statement
-                      (streamId, txNo, lastSeqNo, EventId lastEventId, finalVersion)
+                      (streamId, txNo', lastSeqNo, EventId lastEventId, finalVersion)
                       updateStreamHeadStatement

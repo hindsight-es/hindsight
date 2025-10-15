@@ -14,7 +14,6 @@ import Analysis.CSV (writeCSVResults)
 import Backends.Common
 import Core.Metrics
 import Core.Types
-import Data.Text (pack)
 import Data.Time (getCurrentTime, formatTime, defaultTimeLocale)
 import Data.UUID.V4 qualified as UUID
 import Hindsight.Store
@@ -103,7 +102,7 @@ runTransactionScalingTest runner config backend = do
   ((_, maybeLatency), memMetrics) <- withMemoryProfiling $ do
     withLatencyMeasurement (numTransactions config * eventsPerTransaction config) $ do
       -- Insert transactions sequentially to measure throughput
-      mapM_ (\txId -> do
+      mapM_ (\_txId -> do
         streamId <- StreamId <$> UUID.nextRandom
         let events = makeBenchEventBatch (eventsPerTransaction config) (eventSizeBytes config)
         result <- insertEvents backend Nothing $
@@ -145,13 +144,13 @@ runSubscriptionScalingTest runner config backend = do
   ((_, maybeLatency), memMetrics) <- withMemoryProfiling $ do
     withLatencyMeasurement (numTransactions config * eventsPerTransaction config) $ do
       -- Insert events and simulate subscription processing overhead
-      mapM_ (\txId -> do
+      mapM_ (\_txId -> do
         streamId <- StreamId <$> UUID.nextRandom
         let events = makeBenchEventBatch (eventsPerTransaction config) (eventSizeBytes config)
         result <- insertEvents backend Nothing $
           Transaction $ Map.singleton streamId (StreamWrite Any events)
         case result of
-          SuccessfulInsertion _ -> 
+          SuccessfulInsertion _ ->
             -- Simulate subscription processing delay
             mapM_ (\_ -> return ()) [1..numSubscriptions config]
           FailedInsertion err -> error $ "Subscription scaling test failed: " <> show err

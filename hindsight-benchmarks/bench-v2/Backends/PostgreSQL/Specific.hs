@@ -10,10 +10,6 @@ module Backends.PostgreSQL.Specific
   ) where
 
 import Backends.Common (postgresqlRunner, BenchmarkRunner(..))
-import Core.Types
-import Core.Metrics
-import Data.Text (pack)
-import Data.Time (getCurrentTime)
 import System.IO (hFlush, stdout)
 
 -- | Run PostgreSQL-specific benchmarks
@@ -44,8 +40,8 @@ runPostgreSQLSpecificBenchmarks = do
 runSyncProjectionBenchmarks :: IO ()
 runSyncProjectionBenchmarks = do
   putStrLn "Testing synchronous projection performance..."
-  
-  (withBackend postgresqlRunner) $ \backend -> do
+
+  (withBackend postgresqlRunner) $ \_backend -> do
     putStr "  Setting up projection infrastructure... "
     hFlush stdout
     
@@ -70,8 +66,8 @@ runSyncProjectionBenchmarks = do
 runNotificationBenchmarks :: IO ()
 runNotificationBenchmarks = do
   putStrLn "Testing LISTEN/NOTIFY performance..."
-  
-  (withBackend postgresqlRunner) $ \backend -> do
+
+  (withBackend postgresqlRunner) $ \_backend -> do
     putStr "  Setting up notification channels... "
     hFlush stdout
     
@@ -113,8 +109,8 @@ runConnectionPoolBenchmarks = do
 runMVCCBenchmarks :: IO ()
 runMVCCBenchmarks = do
   putStrLn "Testing MVCC transaction performance..."
-  
-  (withBackend postgresqlRunner) $ \backend -> do
+
+  (withBackend postgresqlRunner) $ \_backend -> do
     putStr "  Testing concurrent transaction isolation... "
     hFlush stdout
     

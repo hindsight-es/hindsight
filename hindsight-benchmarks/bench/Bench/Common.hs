@@ -101,7 +101,7 @@ filesystemBenchRunner =
               dir <- mkdtemp "/tmp/bench-store"
               newFilesystemStore $ mkDefaultConfig dir
           )
-          (\store -> removeDirectoryRecursive $ store.config.storePath)
+          (\store -> removeDirectoryRecursive $ (getStoreConfig store).storePath)
           action,
       backendName = "Filesystem"
     }

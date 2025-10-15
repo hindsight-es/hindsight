@@ -17,7 +17,6 @@ import Core.Types
 import Core.Types qualified as CT
 import Criterion
 import Criterion.Main (defaultMain)
-import Data.Map.Strict qualified as Map
 import Data.Proxy (Proxy(..))
 import Data.Text (pack)
 import Data.UUID.V4 qualified as UUID
@@ -126,7 +125,7 @@ runInsertionBenchmarks = runForAllBackends $ \(runner :: BenchmarkRunner backend
     ((_, avgLatency), memMetrics) <- withMemoryProfiling $ do
       withLatencyMeasurement (numTx * eventsPerTx) $ do
         -- Run the actual benchmark
-        let insertTransaction i = do
+        let insertTransaction _i = do
               streamId <- StreamId <$> UUID.nextRandom
               let events = makeBenchEventBatch eventsPerTx eventSize
               result <- insertEvents backend Nothing $

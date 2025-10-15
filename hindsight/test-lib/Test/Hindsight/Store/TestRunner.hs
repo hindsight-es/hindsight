@@ -40,7 +40,6 @@ import Data.Typeable (cast)
 import Data.UUID.V4 qualified as UUID
 import Hindsight.Core (SomeLatestEvent)
 import Hindsight.Store
-import System.Random (randomRIO)
 import Test.Hindsight.Examples (UserCreated, UserInformation2 (..))
 import Test.Hindsight.Store.Common
 import Test.Tasty
@@ -270,11 +269,6 @@ testCorrelationIdPreservation store = do
       handle.cancel -- Cancel subscription after completion
       events <- readIORef receivedEvents
       mapM_ (\evt -> evt.correlationId @?= Just corrId) events
-
-generateDelays :: IO (Int, Int)
-generateDelays = do
-  let maxDelay = 500000 -- 0.5 seconds in microseconds
-  (,) <$> randomRIO (0, maxDelay) <*> randomRIO (0, maxDelay)
 
 testAsyncSubscription :: forall backend. (EventStore backend, StoreConstraints backend IO, Show (Cursor backend)) => BackendHandle backend -> IO ()
 testAsyncSubscription store = do
@@ -869,7 +863,7 @@ testMixedEmptyStreams store = do
 -- This is the core use case from Tutorial 08: when inserting events to multiple
 -- streams in a single transaction, we need to get back individual cursors for
 -- each stream to use in subsequent optimistic locking operations.
-testPerStreamCursorExtraction :: forall backend. (EventStore backend, StoreConstraints backend IO, Show (Cursor backend), Ord (Cursor backend)) => BackendHandle backend -> IO ()
+testPerStreamCursorExtraction :: forall backend. (EventStore backend, StoreConstraints backend IO, Show (Cursor backend)) => BackendHandle backend -> IO ()
 testPerStreamCursorExtraction store = do
   streamA <- StreamId <$> UUID.nextRandom
   streamB <- StreamId <$> UUID.nextRandom
@@ -913,7 +907,7 @@ testPerStreamCursorExtraction store = do
 -- Updating stream A should not invalidate stream B's cursor. This is critical
 -- for concurrent multi-stream operations where different processes may be
 -- updating different streams.
-testCursorIndependence :: forall backend. (EventStore backend, StoreConstraints backend IO, Show (Cursor backend), Ord (Cursor backend)) => BackendHandle backend -> IO ()
+testCursorIndependence :: forall backend. (EventStore backend, StoreConstraints backend IO, Show (Cursor backend)) => BackendHandle backend -> IO ()
 testCursorIndependence store = do
   streamA <- StreamId <$> UUID.nextRandom
   streamB <- StreamId <$> UUID.nextRandom
@@ -954,7 +948,7 @@ testCursorIndependence store = do
 
 -- | Test that using a stale cursor for one stream in a multi-stream transaction
 -- causes the entire transaction to fail atomically.
-testStaleCursorPerStream :: forall backend. (EventStore backend, StoreConstraints backend IO, Show (Cursor backend), Ord (Cursor backend)) => BackendHandle backend -> IO ()
+testStaleCursorPerStream :: forall backend. (EventStore backend, StoreConstraints backend IO, Show (Cursor backend)) => BackendHandle backend -> IO ()
 testStaleCursorPerStream store = do
   streamA <- StreamId <$> UUID.nextRandom
   streamB <- StreamId <$> UUID.nextRandom
@@ -1048,7 +1042,7 @@ testCursorCompleteness store = do
 --
 -- The user specifically flagged this: "Check that we get the proper cursor event
 -- for EMPTY stream writes - that's the kind of places where nasty stupid bugs may lie."
-testEmptyStreamCursorHandling :: forall backend. (EventStore backend, StoreConstraints backend IO, Show (Cursor backend), Ord (Cursor backend)) => BackendHandle backend -> IO ()
+testEmptyStreamCursorHandling :: forall backend. (EventStore backend, StoreConstraints backend IO, Show (Cursor backend)) => BackendHandle backend -> IO ()
 testEmptyStreamCursorHandling store = do
   streamA <- StreamId <$> UUID.nextRandom
   streamB <- StreamId <$> UUID.nextRandom
