@@ -76,14 +76,7 @@ def main():
     """Main conversion function."""
     print("Converting Literate Haskell files to reStructuredText...")
 
-    # 1. Convert introduction.lhs if it exists
-    intro_lhs = PROJECT_DIR / "introduction.lhs"
-    if intro_lhs.exists():
-        print("\nConverting introduction...")
-        if convert_lhs_to_rst(intro_lhs, DOCS_SOURCE_DIR):
-            print("✓ Converted introduction.lhs → source/introduction.rst")
-
-    # 2. Convert tutorials
+    # Convert tutorials
     print("\nConverting tutorials...")
 
     # Ensure output directory exists

@@ -7,7 +7,7 @@ guarantees for event versioning and compatibility.
 
 This introduction explains what Hindsight does and why you might use it.
 For hands-on code examples, see the
-:doc:``tutorials/01-getting-started``.
+:doc:`tutorials/01-getting-started`.
 
 What is Event Sourcing?
 -----------------------
@@ -186,24 +186,24 @@ Getting Started
 
 To learn Hindsight, start with the hands-on tutorials:
 
-1. :doc:``tutorials/01-getting-started`` - Basic event definitions and
+1. :doc:`tutorials/01-getting-started` - Basic event definitions and
    storage
-2. :doc:``tutorials/02-in-memory-projections`` - Building read models
-3. :doc:``tutorials/03-postgresql-projections`` - Durable projections
-4. :doc:``tutorials/04-event-versioning`` - Schema evolution
-5. :doc:``tutorials/05-consistency-patterns`` - Optimistic locking
-6. :doc:``tutorials/06-backend-agnostic`` - Writing portable code
-7. :doc:``tutorials/07-advanced-postgresql`` - SQL projection patterns
-8. :doc:``tutorials/08-multi-stream-consistency`` - Cross-aggregate
+2. :doc:`tutorials/02-in-memory-projections` - Building read models
+3. :doc:`tutorials/03-postgresql-projections` - Durable projections
+4. :doc:`tutorials/04-event-versioning` - Schema evolution
+5. :doc:`tutorials/05-consistency-patterns` - Optimistic locking
+6. :doc:`tutorials/06-backend-agnostic` - Writing portable code
+7. :doc:`tutorials/07-advanced-postgresql` - SQL projection patterns
+8. :doc:`tutorials/08-multi-stream-consistency` - Cross-aggregate
    invariants
 
-For API details, see the :doc:``api/index``.
+For API details, see the :doc:`api/index`.
 
 Contributing
 ------------
 
 Hindsight is open source and welcomes contributions. See
-:doc:``development/contributing`` for guidelines.
+:doc:`development/contributing` for guidelines.
 
 Areas where contributions would be particularly valuable:
 
@@ -232,7 +232,7 @@ Areas where contributions would be particularly valuable:
 Further Reading
 ---------------
 
-- **Tutorials**: :doc:``tutorials/index``
-- **API Reference**: :doc:``api/index``
-- **Development Guide**: :doc:``development/building``
-- **Testing Guide**: :doc:``development/testing``
+- **Tutorials**: :doc:`tutorials/index`
+- **API Reference**: :doc:`api/index`
+- **Development Guide**: :doc:`development/building`
+- **Testing Guide**: :doc:`development/testing`
