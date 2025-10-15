@@ -150,11 +150,11 @@ instance EventStore SQLStore where
 -- a different registry than the one configured in the handle.
 insertEventsWithSyncProjections ::
   (Traversable t, MonadUnliftIO m) =>
-  SQLStoreHandle ->
-  SyncProjectionRegistry ->
-  Maybe CorrelationId ->
-  Transaction t SQLStore ->
-  m (InsertionResult SQLStore)
+  SQLStoreHandle ->              -- ^ Store handle with connection pool
+  SyncProjectionRegistry ->      -- ^ Registry of sync projections to execute
+  Maybe CorrelationId ->         -- ^ Optional correlation ID for event tracking
+  Transaction t SQLStore ->      -- ^ Transaction containing events to insert
+  m (InsertionResult SQLStore)   -- ^ Result indicating success or failure
 insertEventsWithSyncProjections handle syncRegistry corrId (Transaction batches) = liftIO $ do
   -- Create transaction that will insert events and run sync projections
   tx <- Insertion.insertEventsWithSyncProjections syncRegistry corrId batches

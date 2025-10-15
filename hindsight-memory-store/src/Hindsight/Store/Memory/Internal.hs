@@ -68,29 +68,29 @@ import Hindsight.Core
 import Hindsight.Store.Parsing (parseStoredEventToEnvelope)
 import Hindsight.Store
 
--- | Raw stored event with minimal type information
+-- | Raw stored event with minimal type information.
 data StoredEvent = StoredEvent
-  { seqNo :: Integer,
-    eventId :: EventId,
-    streamId :: StreamId,
-    correlationId :: Maybe CorrelationId,
-    createdAt :: UTCTime,
-    eventName :: Text,
-    eventVersion :: Integer,
-    payload :: Value,
-    streamVersion :: StreamVersion -- Local stream version
+  { seqNo :: Integer                     -- ^ Global sequence number for total ordering
+  , eventId :: EventId                   -- ^ Unique event identifier
+  , streamId :: StreamId                 -- ^ Stream this event belongs to
+  , correlationId :: Maybe CorrelationId -- ^ Optional correlation ID for tracking
+  , createdAt :: UTCTime                 -- ^ Event creation timestamp
+  , eventName :: Text                    -- ^ Event type name
+  , eventVersion :: Integer              -- ^ Event payload version number
+  , payload :: Value                     -- ^ JSON payload
+  , streamVersion :: StreamVersion       -- ^ Local stream version (1, 2, 3...)
   }
   deriving (Show, Eq, Generic, FromJSON, ToJSON)
 
--- | Internal state maintained by the store
+-- | Internal state maintained by the store.
 data StoreState backend = StoreState
-  { nextSequence :: Integer,
-    events :: Map Integer StoredEvent,
-    streamEvents :: Map StreamId [Integer],
-    streamVersions :: Map StreamId (Cursor backend),
-    streamLocalVersions :: Map StreamId StreamVersion, -- Local stream versions
-    streamNotifications :: Map StreamId (TVar Integer),
-    globalNotification :: TVar Integer
+  { nextSequence :: Integer                           -- ^ Next global sequence number to assign
+  , events :: Map Integer StoredEvent                 -- ^ All events indexed by sequence number
+  , streamEvents :: Map StreamId [Integer]            -- ^ Stream-to-sequence-numbers index
+  , streamVersions :: Map StreamId (Cursor backend)   -- ^ Latest global cursor per stream
+  , streamLocalVersions :: Map StreamId StreamVersion -- ^ Latest local version per stream
+  , streamNotifications :: Map StreamId (TVar Integer) -- ^ Per-stream notification variables for subscriptions
+  , globalNotification :: TVar Integer                 -- ^ Global notification variable for all-stream subscriptions
   }
 
 deriving instance (Eq (Cursor backend)) => Eq (StoreState backend)
