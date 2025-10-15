@@ -261,16 +261,6 @@ withStoreLockDirect config action = do
 withStoreLock :: FilesystemStoreHandle -> IO a -> IO a
 withStoreLock handle = withStoreLockDirect handle.config
 
--- | Write a log entry with proper locking
--- Uses strict ByteString for immediate file handle release
-writeLogEntry :: FilesystemStoreHandle -> EventLogEntry -> IO ()
-writeLogEntry handle entry =
-  withStoreLock handle $ do
-    let paths = getPaths handle.config.storePath
-        jsonLine = BL.toStrict (encode entry) <> "\n"  -- Convert to strict + newline
-    -- Use strict appendFile to ensure immediate file closure
-    BS.appendFile paths.eventLogPath jsonLine
-
 -- | Initialize a new store
 newFilesystemStore :: FilesystemStoreConfig -> IO FilesystemStoreHandle
 newFilesystemStore config = do

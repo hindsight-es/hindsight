@@ -40,7 +40,8 @@ library
 library event-testing
     import:           warnings, opts
     visibility:       public
-    exposed-modules:  Test.Hindsight.Generate
+    exposed-modules:  Test.Hindsight.Generate,
+                      Test.Hindsight.Examples
     build-depends:    base,
                       aeson,
                       aeson-pretty,
@@ -52,7 +53,7 @@ library event-testing
                       tasty-golden,
                       tasty-quickcheck,
                       text
-    hs-source-dirs:   test-lib
+    hs-source-dirs:   event-test-lib
     default-language: GHC2021
     default-extensions: OverloadedRecordDot, DataKinds, DuplicateRecordFields, StrictData, Strict, RequiredTypeArguments
 
@@ -64,27 +65,21 @@ library store-testing
                       Test.Hindsight.Store.TestRunner,
                       Test.Hindsight.Store.StressTests,
                       Test.Hindsight.Store.PropertyTests,
-                      Test.Hindsight.Store.OrderingTests,
-                      Test.Hindsight.Examples
-    other-modules:    Test.Hindsight.Generate
+                      Test.Hindsight.Store.OrderingTests
     build-depends:    base,
                       aeson,
-                      aeson-pretty,
                       async,
-                      bytestring,
                       containers,
-                      filepath,
                       hedgehog,
                       hindsight,
+                      hindsight:event-testing,
                       QuickCheck,
                       quickcheck-instances,
                       random,
                       stm,
                       tasty,
-                      tasty-golden,
                       tasty-hedgehog,
                       tasty-hunit,
-                      tasty-quickcheck,
                       text,
                       time,
                       unliftio,
@@ -103,5 +98,5 @@ test-suite hindsight-test
     main-is:          Main.hs
     build-depends:
         base,
-        hindsight:store-testing,
+        hindsight:event-testing,
         tasty

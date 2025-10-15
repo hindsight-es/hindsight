@@ -57,7 +57,6 @@ test-suite hindsight-filesystem-store-test
         hindsight-filesystem-store,
         hindsight-memory-store,
         hindsight:store-testing,
-        stm,
         tasty,
         tasty-hunit,
         temporary,

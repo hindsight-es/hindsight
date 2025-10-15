@@ -46,7 +46,7 @@ import Test.Hindsight.Store.Common
 import Test.Tasty
 import Test.Tasty.HUnit
 import UnliftIO.Async (async, concurrently, wait)
-import UnliftIO.Exception (SomeException, fromException, throwIO, tryAny)
+import UnliftIO.Exception (fromException, throwIO, tryAny)
 
 -- | Test runner for event store tests
 data EventStoreTestRunner backend = EventStoreTestRunner
