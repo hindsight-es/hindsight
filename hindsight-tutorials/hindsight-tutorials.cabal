@@ -24,12 +24,12 @@ executable tutorial-01
     main-is:          tutorials/01-getting-started.lhs
     hs-source-dirs:   .
     build-depends:
-        base,
-        aeson,
-        hindsight,
-        hindsight-memory-store,
-        text,
-        uuid
+        base >= 4.20.1 && < 5,
+        aeson >= 2.2.3 && < 2.3,
+        hindsight >= 0.1.0 && < 0.2,
+        hindsight-memory-store >= 0.1.0 && < 0.2,
+        text >= 2.1.2 && < 2.2,
+        uuid >= 1.3.16 && < 1.4
 
 executable tutorial-02
     import:           warnings, opts
@@ -37,14 +37,14 @@ executable tutorial-02
     main-is:          tutorials/02-in-memory-projections.lhs
     hs-source-dirs:   .
     build-depends:
-        base,
-        aeson,
-        containers,
-        hindsight,
-        hindsight-memory-store,
-        stm,
-        text,
-        uuid
+        base >= 4.20.1 && < 5,
+        aeson >= 2.2.3 && < 2.3,
+        containers >= 0.7 && < 0.9,
+        hindsight >= 0.1.0 && < 0.2,
+        hindsight-memory-store >= 0.1.0 && < 0.2,
+        stm >= 2.5.3 && < 2.6,
+        text >= 2.1.2 && < 2.2,
+        uuid >= 1.3.16 && < 1.4
 
 executable tutorial-03
     import:           warnings, opts
@@ -53,20 +53,20 @@ executable tutorial-03
     hs-source-dirs:   .
     ghc-options:      -threaded
     build-depends:
-        base,
-        aeson,
-        bytestring,
-        containers,
-        hasql,
-        hasql-pool,
-        hasql-transaction,
-        hindsight,
-        hindsight-memory-store,
-        hindsight-postgresql-store,
-        hindsight-postgresql-projections,
-        text,
-        tmp-postgres,
-        uuid
+        base >= 4.20.1 && < 5,
+        aeson >= 2.2.3 && < 2.3,
+        bytestring >= 0.12.2 && < 0.13,
+        containers >= 0.7 && < 0.9,
+        hasql >= 1.9 && < 1.10,
+        hasql-pool >= 1.3.0 && < 1.4,
+        hasql-transaction >= 1.2 && < 1.3,
+        hindsight >= 0.1.0 && < 0.2,
+        hindsight-memory-store >= 0.1.0 && < 0.2,
+        hindsight-postgresql-store >= 0.1.0 && < 0.2,
+        hindsight-postgresql-projections >= 0.1.0 && < 0.2,
+        text >= 2.1.2 && < 2.2,
+        tmp-postgres >= 1.35.0 && < 1.36,
+        uuid >= 1.3.16 && < 1.4
 
 executable tutorial-04
     import:           warnings, opts
@@ -74,12 +74,12 @@ executable tutorial-04
     main-is:          tutorials/04-event-versioning.lhs
     hs-source-dirs:   .
     build-depends:
-        base,
-        aeson,
-        hindsight,
-        hindsight-memory-store,
-        text,
-        uuid
+        base >= 4.20.1 && < 5,
+        aeson >= 2.2.3 && < 2.3,
+        hindsight >= 0.1.0 && < 0.2,
+        hindsight-memory-store >= 0.1.0 && < 0.2,
+        text >= 2.1.2 && < 2.2,
+        uuid >= 1.3.16 && < 1.4
 
 executable tutorial-05
     import:           warnings, opts
@@ -87,12 +87,12 @@ executable tutorial-05
     main-is:          tutorials/05-consistency-patterns.lhs
     hs-source-dirs:   .
     build-depends:
-        base,
-        aeson,
-        hindsight,
-        hindsight-memory-store,
-        text,
-        uuid
+        base >= 4.20.1 && < 5,
+        aeson >= 2.2.3 && < 2.3,
+        hindsight >= 0.1.0 && < 0.2,
+        hindsight-memory-store >= 0.1.0 && < 0.2,
+        text >= 2.1.2 && < 2.2,
+        uuid >= 1.3.16 && < 1.4
 
 executable tutorial-06
     import:           warnings, opts
@@ -100,16 +100,16 @@ executable tutorial-06
     main-is:          tutorials/06-backend-agnostic.lhs
     hs-source-dirs:   .
     build-depends:
-        base,
-        aeson,
-        directory,
-        hindsight,
-        hindsight-memory-store,
-        hindsight-filesystem-store,
-        stm,
-        temporary,
-        text,
-        uuid
+        base >= 4.20.1 && < 5,
+        aeson >= 2.2.3 && < 2.3,
+        directory >= 1.3.8 && < 1.4,
+        hindsight >= 0.1.0 && < 0.2,
+        hindsight-memory-store >= 0.1.0 && < 0.2,
+        hindsight-filesystem-store >= 0.1.0 && < 0.2,
+        stm >= 2.5.3 && < 2.6,
+        temporary >= 1.3 && < 1.4,
+        text >= 2.1.2 && < 2.2,
+        uuid >= 1.3.16 && < 1.4
 
 executable tutorial-07
     import:           warnings, opts
@@ -118,19 +118,19 @@ executable tutorial-07
     hs-source-dirs:   .
     ghc-options:      -threaded
     build-depends:
-        base,
-        aeson,
-        bytestring,
-        containers,
-        hasql,
-        hasql-pool,
-        hasql-transaction,
-        hindsight,
-        hindsight-postgresql-store,
-        hindsight-postgresql-projections,
-        text,
-        tmp-postgres,
-        uuid
+        base >= 4.20.1 && < 5,
+        aeson >= 2.2.3 && < 2.3,
+        bytestring >= 0.12.2 && < 0.13,
+        containers >= 0.7 && < 0.9,
+        hasql >= 1.9 && < 1.10,
+        hasql-pool >= 1.3.0 && < 1.4,
+        hasql-transaction >= 1.2 && < 1.3,
+        hindsight >= 0.1.0 && < 0.2,
+        hindsight-postgresql-store >= 0.1.0 && < 0.2,
+        hindsight-postgresql-projections >= 0.1.0 && < 0.2,
+        text >= 2.1.2 && < 2.2,
+        tmp-postgres >= 1.35.0 && < 1.36,
+        uuid >= 1.3.16 && < 1.4
 
 executable tutorial-08
     import:           warnings, opts
@@ -139,16 +139,16 @@ executable tutorial-08
     hs-source-dirs:   .
     ghc-options:      -threaded
     build-depends:
-        base,
-        aeson,
-        containers,
-        hasql,
-        hasql-pool,
-        hasql-th,
-        hasql-transaction,
-        hindsight,
-        hindsight-postgresql-store,
-        hindsight-postgresql-projections,
-        text,
-        tmp-postgres,
-        uuid
+        base >= 4.20.1 && < 5,
+        aeson >= 2.2.3 && < 2.3,
+        containers >= 0.7 && < 0.9,
+        hasql >= 1.9 && < 1.10,
+        hasql-pool >= 1.3.0 && < 1.4,
+        hasql-th >= 0.4.0 && < 0.5,
+        hasql-transaction >= 1.2 && < 1.3,
+        hindsight >= 0.1.0 && < 0.2,
+        hindsight-postgresql-store >= 0.1.0 && < 0.2,
+        hindsight-postgresql-projections >= 0.1.0 && < 0.2,
+        text >= 2.1.2 && < 2.2,
+        tmp-postgres >= 1.35.0 && < 1.36,
+        uuid >= 1.3.16 && < 1.4
