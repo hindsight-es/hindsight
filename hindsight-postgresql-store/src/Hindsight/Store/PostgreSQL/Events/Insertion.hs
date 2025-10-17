@@ -274,6 +274,7 @@ insertEventsWithSyncProjections syncRegistry correlationId eventBatches = do
         
         -- Create envelope and execute both database insertion and sync projections
         -- Ensures identical metadata for both database insertion and projection execution
+        processEventWithUnifiedMetadata :: UUID -> StreamId -> SQLCursor -> Maybe CorrelationId -> UTCTime -> StreamVersion -> SomeLatestEvent -> HasqlTransaction.Transaction ()
         processEventWithUnifiedMetadata eventId streamId cursor corrId' timestamp streamVer (SomeLatestEvent eventProxy payload) = do
           let envelope = EventWithMetadata
                 { position = cursor,
