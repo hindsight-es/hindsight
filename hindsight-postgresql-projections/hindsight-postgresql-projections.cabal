@@ -1,0 +1,46 @@
+cabal-version:      3.4
+name:               hindsight-postgresql-projections
+version:            0.1.0.0
+synopsis:           Backend-agnostic PostgreSQL projections for Hindsight
+description:
+    PostgreSQL-based projection system for building read models from event streams.
+
+    Projections use PostgreSQL for state management and execution, but can subscribe to
+    events from ANY Hindsight event store backend (Memory, Filesystem, or PostgreSQL).
+
+    This enables flexible deployment patterns:
+    - Testing: Memory store + PostgreSQL projections (fast!)
+    - Single-node: Filesystem store + PostgreSQL projections
+    - Production: PostgreSQL store + PostgreSQL projections
+license:            NONE
+author:             Gaël Deest
+maintainer:         gael.deest@franbec.org
+category:           Web
+build-type:         Simple
+
+common warnings
+    ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -Wunused-packages
+
+common opts
+    ghc-options: -O
+
+library
+    import:           warnings, opts
+    exposed-modules:  Hindsight.Projection,
+                      Hindsight.Projection.Matching
+    build-depends:    base >= 4.20.1 && < 5,
+                      aeson >= 2.2.3 && < 2.3,
+                      bytestring >= 0.12.2 && < 0.13,
+                      hasql >= 1.9 && < 1.10,
+                      hasql-notifications >= 0.2.4 && < 0.3,
+                      hasql-pool >= 1.3.0 && < 1.4,
+                      hasql-th >= 0.4.0 && < 0.5,
+                      hasql-transaction >= 1.2 && < 1.3,
+                      hindsight-core >= 0.1.0 && < 0.2,
+                      profunctors >= 5.6.3 && < 5.7,
+                      text >= 2.1.2 && < 2.2,
+                      time >= 1.12.2 && < 1.13,
+                      unliftio >= 0.2.25 && < 0.3
+    hs-source-dirs:   src
+    default-language: GHC2021
+    default-extensions: OverloadedRecordDot, DataKinds, DuplicateRecordFields, StrictData, Strict, RequiredTypeArguments

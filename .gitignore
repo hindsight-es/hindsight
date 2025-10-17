@@ -1,0 +1,38 @@
+**/dist-newstyle/
+**/run-data/
+**/node_modules/
+**/.obsidian/
+.devenv/
+.direnv/
+.devenv.flake.nix
+deps/.env
+.claude/
+CLAUDE.md
+*.log
+*.eventlog
+hindsight/benchmark-results
+hindsight/benchmar-report.html
+
+# Website build artifacts
+website/_site/
+website/_cache/
+
+# Documentation build artifacts
+docs/_cache/
+docs/build/
+
+# Backup files
+*.back
+_cache/
+cabal.project.local
+
+# Cachix authentication token
+.cachix-token
+
+# Misc.
+.DS_Store
+.session-reports/
+.session-report/
+.tracking/
+**/result/
+TODO.md

@@ -1,0 +1,154 @@
+cabal-version:      3.4
+name:               hindsight-tutorials
+version:            0.1.0.0
+synopsis:           Tutorials for the Hindsight event sourcing library
+description:
+    A collection of literate Haskell tutorials demonstrating how to use Hindsight
+    for event sourcing applications. Covers getting started, projections, versioning,
+    consistency patterns, and backend-agnostic design.
+license:            NONE
+author:             Gaël Deest
+maintainer:         gael.deest@franbec.org
+category:           Web
+build-type:         Simple
+
+common warnings
+    ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -Wunused-packages
+
+common opts
+    ghc-options: -O
+
+executable tutorial-01
+    import:           warnings, opts
+    default-language: GHC2021
+    main-is:          tutorials/01-getting-started.lhs
+    hs-source-dirs:   .
+    build-depends:
+        base >= 4.20.1 && < 5,
+        aeson >= 2.2.3 && < 2.3,
+        hindsight-core >= 0.1.0 && < 0.2,
+        hindsight-memory-store >= 0.1.0 && < 0.2,
+        text >= 2.1.2 && < 2.2,
+        uuid >= 1.3.16 && < 1.4
+
+executable tutorial-02
+    import:           warnings, opts
+    default-language: GHC2021
+    main-is:          tutorials/02-in-memory-projections.lhs
+    hs-source-dirs:   .
+    build-depends:
+        base >= 4.20.1 && < 5,
+        aeson >= 2.2.3 && < 2.3,
+        containers >= 0.7 && < 0.9,
+        hindsight-core >= 0.1.0 && < 0.2,
+        hindsight-memory-store >= 0.1.0 && < 0.2,
+        stm >= 2.5.3 && < 2.6,
+        text >= 2.1.2 && < 2.2,
+        uuid >= 1.3.16 && < 1.4
+
+executable tutorial-03
+    import:           warnings, opts
+    default-language: GHC2021
+    main-is:          tutorials/03-postgresql-projections.lhs
+    hs-source-dirs:   .
+    ghc-options:      -threaded
+    build-depends:
+        base >= 4.20.1 && < 5,
+        aeson >= 2.2.3 && < 2.3,
+        bytestring >= 0.12.2 && < 0.13,
+        containers >= 0.7 && < 0.9,
+        hasql >= 1.9 && < 1.10,
+        hasql-pool >= 1.3.0 && < 1.4,
+        hasql-transaction >= 1.2 && < 1.3,
+        hindsight-core >= 0.1.0 && < 0.2,
+        hindsight-memory-store >= 0.1.0 && < 0.2,
+        hindsight-postgresql-store >= 0.1.0 && < 0.2,
+        hindsight-postgresql-projections >= 0.1.0 && < 0.2,
+        text >= 2.1.2 && < 2.2,
+        tmp-postgres >= 1.35.0 && < 1.36,
+        uuid >= 1.3.16 && < 1.4
+
+executable tutorial-04
+    import:           warnings, opts
+    default-language: GHC2021
+    main-is:          tutorials/04-event-versioning.lhs
+    hs-source-dirs:   .
+    build-depends:
+        base >= 4.20.1 && < 5,
+        aeson >= 2.2.3 && < 2.3,
+        hindsight-core >= 0.1.0 && < 0.2,
+        hindsight-memory-store >= 0.1.0 && < 0.2,
+        text >= 2.1.2 && < 2.2,
+        uuid >= 1.3.16 && < 1.4
+
+executable tutorial-05
+    import:           warnings, opts
+    default-language: GHC2021
+    main-is:          tutorials/05-consistency-patterns.lhs
+    hs-source-dirs:   .
+    build-depends:
+        base >= 4.20.1 && < 5,
+        aeson >= 2.2.3 && < 2.3,
+        hindsight-core >= 0.1.0 && < 0.2,
+        hindsight-memory-store >= 0.1.0 && < 0.2,
+        text >= 2.1.2 && < 2.2,
+        uuid >= 1.3.16 && < 1.4
+
+executable tutorial-06
+    import:           warnings, opts
+    default-language: GHC2021
+    main-is:          tutorials/06-backend-agnostic.lhs
+    hs-source-dirs:   .
+    build-depends:
+        base >= 4.20.1 && < 5,
+        aeson >= 2.2.3 && < 2.3,
+        directory >= 1.3.8 && < 1.4,
+        hindsight-core >= 0.1.0 && < 0.2,
+        hindsight-memory-store >= 0.1.0 && < 0.2,
+        hindsight-filesystem-store >= 0.1.0 && < 0.2,
+        stm >= 2.5.3 && < 2.6,
+        temporary >= 1.3 && < 1.4,
+        text >= 2.1.2 && < 2.2,
+        uuid >= 1.3.16 && < 1.4
+
+executable tutorial-07
+    import:           warnings, opts
+    default-language: GHC2021
+    main-is:          tutorials/07-advanced-postgresql.lhs
+    hs-source-dirs:   .
+    ghc-options:      -threaded
+    build-depends:
+        base >= 4.20.1 && < 5,
+        aeson >= 2.2.3 && < 2.3,
+        bytestring >= 0.12.2 && < 0.13,
+        containers >= 0.7 && < 0.9,
+        hasql >= 1.9 && < 1.10,
+        hasql-pool >= 1.3.0 && < 1.4,
+        hasql-transaction >= 1.2 && < 1.3,
+        hindsight-core >= 0.1.0 && < 0.2,
+        hindsight-postgresql-store >= 0.1.0 && < 0.2,
+        hindsight-postgresql-projections >= 0.1.0 && < 0.2,
+        text >= 2.1.2 && < 2.2,
+        tmp-postgres >= 1.35.0 && < 1.36,
+        uuid >= 1.3.16 && < 1.4
+
+executable tutorial-08
+    import:           warnings, opts
+    default-language: GHC2021
+    main-is:          tutorials/08-multi-stream-consistency.lhs
+    hs-source-dirs:   .
+    ghc-options:      -threaded
+    build-depends:
+        base >= 4.20.1 && < 5,
+        aeson >= 2.2.3 && < 2.3,
+        containers >= 0.7 && < 0.9,
+        hasql >= 1.9 && < 1.10,
+        hasql-pool >= 1.3.0 && < 1.4,
+        hasql-th >= 0.4.0 && < 0.5,
+        hasql-transaction >= 1.2 && < 1.3,
+        hindsight-core >= 0.1.0 && < 0.2,
+        hindsight-postgresql-store >= 0.1.0 && < 0.2,
+        hindsight-postgresql-projections >= 0.1.0 && < 0.2,
+        text >= 2.1.2 && < 2.2,
+        tmp-postgres >= 1.35.0 && < 1.36,
+        uuid >= 1.3.16 && < 1.4

@@ -1,0 +1,12 @@
+dist-newstyle/
+.git/
+.gitignore
+*.swp
+*.swo
+.DS_Store
+benchmark-results/
+docs/build/
+.devenv/
+.direnv/
+.envrc
+run-data/
