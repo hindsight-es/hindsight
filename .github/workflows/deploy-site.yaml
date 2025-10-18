@@ -57,7 +57,7 @@ jobs:
           nix develop .#ci --command bash -c "cd docs && make html"
           echo "✓ Documentation build completed"
 
-      - name: Verify Haddock documentation was built
+      - name: Sanity check: Verify Haddock documentation was built
         run: |
           echo "📚 Checking for Haddock documentation..."
           if [ -d "docs/build/html/haddock" ]; then
@@ -87,7 +87,7 @@ jobs:
           cd website && ../result/bin/site build
           echo "✓ Hakyll build completed"
 
-      - name: Verify Haddock was copied to site
+      - name: Sanity check: Verify Haddock was copied to site
         run: |
           echo "📦 Verifying Haddock in final site..."
           if [ -d "website/_site/docs/haddock" ]; then
