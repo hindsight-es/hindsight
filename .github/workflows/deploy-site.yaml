@@ -1,10 +1,10 @@
 name: Deploy Hindsight Website to GitHub Pages
 
 on:
-  # Trigger on pushes to main branch that affect website or docs
+  # Trigger on pushes to website branch that affect website or docs
   push:
     branches:
-      - main
+      - website
     paths:
       - 'website/**'
       - 'docs/**'
@@ -52,11 +52,63 @@ jobs:
 
       - name: Build Sphinx documentation
         run: |
+          set -e
+          echo "📖 Building Sphinx documentation (includes Haddock generation)..."
           nix develop .#ci --command bash -c "cd docs && make html"
+          echo "✓ Documentation build completed"
+
+      - name: Sanity check: Verify Haddock documentation was built
+        run: |
+          echo "📚 Checking for Haddock documentation..."
+          if [ -d "docs/build/html/haddock" ]; then
+            echo "✓ Haddock directory exists"
+            ls -la docs/build/html/haddock/ | head -20
+            echo ""
+            echo "Checking for package directories:"
+            for pkg in hindsight-core hindsight-memory-store hindsight-filesystem-store hindsight-postgresql-store hindsight-postgresql-projections; do
+              if [ -d "docs/build/html/haddock/$pkg" ]; then
+                echo "  ✓ $pkg found"
+              else
+                echo "  ✗ $pkg MISSING"
+                exit 1
+              fi
+            done
+          else
+            echo "✗ ERROR: Haddock directory not found!"
+            echo "Contents of docs/build/html/:"
+            ls -la docs/build/html/ || true
+            exit 1
+          fi
 
       - name: Generate Hakyll site
         run: |
+          set -e
+          echo "🏗️  Building Hakyll site..."
           cd website && ../result/bin/site build
+          echo "✓ Hakyll build completed"
+
+      - name: Sanity check: Verify Haddock was copied to site
+        run: |
+          echo "📦 Verifying Haddock in final site..."
+          if [ -d "website/_site/docs/haddock" ]; then
+            echo "✓ Haddock directory exists in site"
+            ls -la website/_site/docs/haddock/ | head -20
+            echo ""
+            echo "Checking for package directories:"
+            for pkg in hindsight-core hindsight-memory-store hindsight-filesystem-store hindsight-postgresql-store hindsight-postgresql-projections; do
+              if [ -f "website/_site/docs/haddock/$pkg/index.html" ]; then
+                echo "  ✓ $pkg/index.html found"
+              else
+                echo "  ✗ $pkg/index.html MISSING"
+                exit 1
+              fi
+            done
+          else
+            echo "✗ ERROR: Haddock not copied to site!"
+            echo "Contents of website/_site/docs/:"
+            ls -la website/_site/docs/ || true
+            exit 1
+          fi
 
       - name: Upload artifact for GitHub Pages
         uses: actions/upload-pages-artifact@v4

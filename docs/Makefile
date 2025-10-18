@@ -34,10 +34,15 @@ haddock:
 # Build HTML documentation with LHS conversion and Haddock
 html: convert-lhs haddock
 	@$(SPHINXBUILD) -M html "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS) $(O)
-	@if [ -d "$(HADDOCKDIR)" ] && [ -f "$(HADDOCKDIR)/hindsight/index.html" ]; then \
+	@if [ -d "$(HADDOCKDIR)" ] && [ -f "$(HADDOCKDIR)/index.html" ]; then \
 		mkdir -p $(BUILDDIR)/html/haddock; \
 		cp -r $(HADDOCKDIR)/* $(BUILDDIR)/html/haddock/; \
 		echo "Haddock documentation integrated at $(BUILDDIR)/html/haddock/"; \
+	else \
+		echo "WARNING: Haddock directory not found or missing index.html"; \
+		echo "Expected: $(HADDOCKDIR)/index.html"; \
+		echo "Contents of $(HADDOCKDIR):"; \
+		ls -la $(HADDOCKDIR)/ 2>&1 | head -10 || echo "Haddock directory does not exist"; \
 	fi
 	@echo "HTML documentation built in $(BUILDDIR)/html/"
 
@@ -56,7 +61,7 @@ clean:
 # Build HTML without regenerating Haddock (faster for iterative docs work)
 html-no-haddock: convert-lhs
 	@$(SPHINXBUILD) -M html "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS) $(O)
-	@if [ -d "$(HADDOCKDIR)" ] && [ -f "$(HADDOCKDIR)/hindsight/index.html" ]; then \
+	@if [ -d "$(HADDOCKDIR)" ] && [ -f "$(HADDOCKDIR)/index.html" ]; then \
 		mkdir -p $(BUILDDIR)/html/haddock; \
 		cp -r $(HADDOCKDIR)/* $(BUILDDIR)/html/haddock/; \
 		echo "Using cached Haddock documentation at $(BUILDDIR)/html/haddock/"; \
