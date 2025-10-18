@@ -166,6 +166,7 @@
             haskellPackages.ghcid
             haskellPackages.graphmod
             haskellPackages.weeder
+            jq
             git
             graphviz
             R

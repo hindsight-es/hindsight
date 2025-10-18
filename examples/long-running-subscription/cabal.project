@@ -1,0 +1,30 @@
+packages: ./*.cabal
+
+-- For local development: reference local packages
+packages:
+  ../../hindsight-core
+  ../../hindsight-postgresql-store
+  ../../hindsight-postgresql-projections
+  ../../hindsight-memory-store
+  ../../hindsight-filesystem-store
+
+-- When deployed from GitHub, users should uncomment this instead:
+-- source-repository-package
+--     type: git
+--     location: https://github.com/hindsight-es/hindsight.git
+--     tag: main
+--     subdir:
+--       hindsight-core
+--       hindsight-postgresql-store
+--       hindsight-postgresql-projections
+--       hindsight-memory-store
+--       hindsight-filesystem-store
+
+-- Required for tmp-postgres dependency (used by hindsight test suites)
+source-repository-package
+    type: git
+    location: https://github.com/jfischoff/tmp-postgres.git
+    tag: 7f2467a6d6d5f6db7eed59919a6773fe006cf22b
+
+allow-newer:
+    hasql-notifications:hasql-pool
