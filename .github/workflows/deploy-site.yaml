@@ -50,10 +50,19 @@ jobs:
         run: |
           nix build .#hindsight-website
 
+      - name: Build all packages (required for Haddock generation)
+        run: |
+          set -e
+          echo "🔨 Building all packages for Haddock documentation..."
+          nix develop .#ci --command bash -c "cabal update && cabal build all"
+          echo "✓ All packages built"
+
       - name: Build Sphinx documentation
         run: |
           set -e
+          echo "📖 Building Sphinx documentation (includes Haddock generation)..."
           nix develop .#ci --command bash -c "cd docs && make html"
+          echo "✓ Documentation build completed"
 
       - name: Verify Haddock documentation was built
         run: |
