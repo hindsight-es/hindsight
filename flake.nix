@@ -198,10 +198,6 @@
               echo ""
               echo "Nix build:"
               echo "  nix build .#hindsight-website  - Build website generator (for hindsight.events)"
-              echo ""
-              echo "Multi-GHC testing:"
-              echo "  See docker-example branch for GHC 9.10.2 and 9.12.2 Docker-based CI"
-              echo ""
             '';
           };
 
