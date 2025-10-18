@@ -73,22 +73,14 @@
             }
           );
 
-          # Disable tests for faster CI builds
-          hindsight-lib = pkgs.haskell.lib.dontCheck haskellPackages.hindsight-core;
+          # Build website executable (used by CI for docs deployment)
           hindsight-website-exe = pkgs.haskell.lib.dontCheck haskellPackages.hindsight-website;
-          munihac-exe = pkgs.haskell.lib.dontCheck haskellPackages.munihac;
 
         in {
-          # Main library
-          hindsight = hindsight-lib;
-
-          # Website executable (what CI needs)
+          # Website static site generator (used by GitHub Actions to build hindsight.events)
           hindsight-website = hindsight-website-exe;
 
-          # Demo executables
-          munihac = munihac-exe;
-
-          # Default: website for CI
+          # Default: website builder
           default = hindsight-website-exe;
         });
 
@@ -200,12 +192,15 @@
               echo "Using Cabal: $(cabal --version)"
               echo ""
               echo "Dev workflow:"
-              echo "  cabal build all       - Build with cabal"
-              echo "  cabal test            - Run tests"
+              echo "  cabal build all              - Build all packages"
+              echo "  cabal test                   - Run test suite"
+              echo "  cd docs && make html         - Build documentation"
               echo ""
-              echo "Nix builds (CI-ready):"
-              echo "  nix build .#hindsight          - Build core library"
-              echo "  nix build .#hindsight-website  - Build website"
+              echo "Nix build:"
+              echo "  nix build .#hindsight-website  - Build website generator (for hindsight.events)"
+              echo ""
+              echo "Multi-GHC testing:"
+              echo "  See docker-example branch for GHC 9.10.2 and 9.12.2 Docker-based CI"
               echo ""
             '';
           };
