@@ -47,7 +47,7 @@ jobs:
         run: |
           set -e
           echo "🧪 Running test suite..."
-          nix develop .#ci --command bash -c "cabal test --test-show-details=streaming"
+          nix develop .#ci --command bash -c "cabal test all --test-show-details=streaming"
           echo "✓ Tests completed"
 
       - name: Check for dead code (weeder)
