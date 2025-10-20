@@ -169,6 +169,11 @@
             let
               sources = pkgs.haskell.lib.compose.packageSourceOverrides {
                 hindsight-core = ./hindsight-core;
+                hindsight-memory-store = ./hindsight-memory-store;
+                hindsight-filesystem-store = ./hindsight-filesystem-store;
+                hindsight-postgresql-store = ./hindsight-postgresql-store;
+                hindsight-postgresql-projections = ./hindsight-postgresql-projections;
+                hindsight-tutorials = ./hindsight-tutorials;
                 hindsight-website = ./website;
                 munihac = ./munihac;
 
@@ -182,9 +187,7 @@
             in
             sources // {
               # Disable tests for all overridden packages
-              # foundation = pkgs.haskell.lib.dontCheck super.foundation;
-              # weeder = pkgs.haskell.lib.dontCheck sources.weeder;
-              # Note: tmp-postgres tests disabled via dontCheck applied to source in packageSourceOverrides
+              tmp-postgres = pkgs.haskell.lib.dontCheck sources.tmp-postgres;
 
               # ============================================================
               # CRITICAL OVERRIDES - Same as packages section above
@@ -332,7 +335,14 @@
 
           # Minimal CI shell
           ci = haskellPackages.shellFor {
-            packages = p: [ ];
+            packages = p: [
+              p.hindsight-core
+              p.hindsight-memory-store
+              p.hindsight-filesystem-store
+              p.hindsight-postgresql-store
+              p.hindsight-postgresql-projections
+              p.hindsight-tutorials
+            ];
             buildInputs = coreBuildInputs ++ docsBuildInputs;
 
             shellHook = ''
