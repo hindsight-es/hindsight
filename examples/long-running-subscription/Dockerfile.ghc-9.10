@@ -1,0 +1,56 @@
+# Dockerfile for testing with GHC 9.10
+FROM ubuntu:22.04
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    curl \
+    git \
+    libffi-dev \
+    libgmp-dev \
+    libncurses-dev \
+    libnuma-dev \
+    libpq-dev \
+    pkg-config \
+    zlib1g-dev \
+    locales \
+    && rm -rf /var/lib/apt/lists/* \
+    && locale-gen en_US.UTF-8
+
+# Install GHCup
+RUN curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org | \
+    BOOTSTRAP_HASKELL_NONINTERACTIVE=1 \
+    BOOTSTRAP_HASKELL_GHC_VERSION=9.10.2 \
+    BOOTSTRAP_HASKELL_CABAL_VERSION=3.12.1.0 \
+    sh
+
+# Add GHCup to PATH
+ENV PATH="/root/.ghcup/bin:${PATH}"
+
+# Set working directory
+WORKDIR /build
+
+# Copy project files
+COPY cabal.project.docker cabal.project
+COPY long-running-subscription.cabal .
+COPY src/ src/
+
+# Update cabal and build
+RUN cabal update && \
+    cabal build all --only-dependencies && \
+    cabal build all
+
+# Set locale for UTF-8 support
+ENV LANG=en_US.UTF-8 \
+    LC_ALL=en_US.UTF-8
+
+# Set runtime configuration
+ENV DB_HOST=postgres \
+    DB_PORT=5432 \
+    DB_USER=postgres \
+    DB_PASS=postgres \
+    DB_NAME=hindsight \
+    API_PORT=8080
+
+# Run the application
+CMD ["cabal", "run", "long-running-subscription"]
