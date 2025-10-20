@@ -38,23 +38,13 @@
                   rev = "7f2467a6d6d5f6db7eed59919a6773fe006cf22b";
                   sha256 = "sha256-dE1OQN7I4Lxy6RBdLCvm75Z9D/Hu+9G4ejV2pEtvL1A=";
                 };
-
-                # Weeder 2.10.0 (released Aug 1, 2025) - required for GHC 9.10.2 support
-                # This commit is the official 2.10.0 release tag
-                # We override because nixpkgs GHC 9.10.2 package set may not have 2.10.0 yet
-                weeder = pkgs.fetchFromGitHub {
-                  owner = "ocharles";
-                  repo = "weeder";
-                  rev = "fb052ddad9a69442937feed5958fe9bab03b1fc1"; # tag: 2.10.0
-                  sha256 = "sha256-mUc2iPoiOgp6qLVeG1sJHo1fSYvy+DO+E2ED/bWtnyY=";
-                };
               } self super;
             in
             sources // {
               # Disable tests for all overridden packages
               foundation = pkgs.haskell.lib.dontCheck super.foundation;
               tmp-postgres = pkgs.haskell.lib.dontCheck sources.tmp-postgres;
-              weeder = pkgs.haskell.lib.dontCheck sources.weeder;
+              postgresql-syntax = pkgs.haskell.lib.dontCheck super.postgresql-syntax; # FAILING text suite 
 
               # Disable tests for all hindsight packages (critical: prevents test execution during inter-package builds)
               hindsight-core = pkgs.haskell.lib.dontCheck sources.hindsight-core;
@@ -67,96 +57,71 @@
               munihac = pkgs.haskell.lib.dontCheck sources.munihac;
 
               # ============================================================
-              # JAILBREAKS - Packages with tight version bounds rejecting our overrides
-              # ============================================================
-              attoparsec = pkgs.haskell.lib.doJailbreak super.attoparsec;
-              indexed-traversable-instances = pkgs.haskell.lib.doJailbreak super.indexed-traversable-instances;
-              integer-conversion = pkgs.haskell.lib.doJailbreak super.integer-conversion;
-              integer-logarithms = pkgs.haskell.lib.doJailbreak super.integer-logarithms;
-              psqueues = pkgs.haskell.lib.doJailbreak super.psqueues;
-              time-compat = pkgs.haskell.lib.doJailbreak super.time-compat;
-              unicode-transforms = pkgs.haskell.lib.doJailbreak super.unicode-transforms;
-              uuid-types = pkgs.haskell.lib.doJailbreak super.uuid-types;
-
-              # tasty-hedgehog: needs jailbreak to accept hedgehog 1.7
-              tasty-hedgehog = pkgs.haskell.lib.doJailbreak super.tasty-hedgehog;
-              text-iso8601 = pkgs.haskell.lib.doJailbreak super.text-iso8601;
-              uuid = pkgs.haskell.lib.doJailbreak super.uuid;
-              vector-algorithms = pkgs.haskell.lib.doJailbreak super.vector-algorithms;
-
-              # ============================================================
-              # CRITICAL OVERRIDES - Versions from cabal.project.freeze
-              # These 7 packages differ from nixpkgs ghc910 and must match freeze file
-              # Analysis: only 7 out of 323 packages need overrides! (98% match rate)
+              # CRITICAL OVERRIDES - Only what's actually needed
               # ============================================================
 
-              # QuickCheck 2.16.0.0 (nixpkgs has 2.15.0.1)
-              QuickCheck = pkgs.haskell.lib.dontCheck (
-                self.callHackageDirect {
-                  pkg = "QuickCheck";
-                  ver = "2.16.0.0";
-                  sha256 = "sha256-HWL+HFdHG6Vnk+Thfa0AoEjgPggiQmyKMLRYUUKLAZU=";
-                } {}
-              );
+              # Jailbreaks for packages rejecting our overrides
+              # tasty-hedgehog = pkgs.haskell.lib.doJailbreak super.tasty-hedgehog;  # Needs hedgehog >= 1.7
+              # time-compat = pkgs.haskell.lib.doJailbreak super.time-compat;  # Rejects random 1.3.1
 
-              # hedgehog 1.7 (nixpkgs has 1.5)
-              hedgehog = pkgs.haskell.lib.dontCheck (
-                self.callHackageDirect {
-                  pkg = "hedgehog";
-                  ver = "1.7";
-                  sha256 = "sha256-flX5CCnhZYG/nNzDr/rD/KrPgs9DIfVX2kPjEMm3khE=";
-                } {}
-              );
+              # # hedgehog 1.7 (nixpkgs has 1.5)
+              # hedgehog = pkgs.haskell.lib.dontCheck (
+              #   self.callHackageDirect {
+              #     pkg = "hedgehog";
+              #     ver = "1.7";
+              #     sha256 = "sha256-flX5CCnhZYG/nNzDr/rD/KrPgs9DIfVX2kPjEMm3khE=";
+              #   } {}
+              # );
 
-              # random 1.3.1 (nixpkgs has 1.2.1.3)
-              random = pkgs.haskell.lib.dontCheck (
-                self.callHackageDirect {
-                  pkg = "random";
-                  ver = "1.3.1";
-                  sha256 = "sha256-M2xVhHMZ7Lqvx/F832mGirHULgzv7TjP/oNkQ4V6YLM=";
-                } {}
-              );
+              # # random 1.3.1 (nixpkgs has 1.2.1.3)
+              # random = pkgs.haskell.lib.dontCheck (
+              #   self.callHackageDirect {
+              #     pkg = "random";
+              #     ver = "1.3.1";
+              #     sha256 = "sha256-M2xVhHMZ7Lqvx/F832mGirHULgzv7TjP/oNkQ4V6YLM=";
+              #   } {}
+              # );
 
-              # criterion 1.6.4.1 (nixpkgs has 1.6.4.0)
-              criterion = pkgs.haskell.lib.dontCheck (
-                self.callHackageDirect {
-                  pkg = "criterion";
-                  ver = "1.6.4.1";
-                  sha256 = "sha256-673mD22+aQhhy2UaY+qwHM4hfVjy8UUPocBkX4xAtbc=";
-                } {}
-              );
+              # # criterion 1.6.4.1 (nixpkgs has 1.6.4.0)
+              # criterion = pkgs.haskell.lib.dontCheck (
+              #   self.callHackageDirect {
+              #     pkg = "criterion";
+              #     ver = "1.6.4.1";
+              #     sha256 = "sha256-673mD22+aQhhy2UaY+qwHM4hfVjy8UUPocBkX4xAtbc=";
+              #   } {}
+              # );
 
-              # optparse-applicative 0.19.0.0 (nixpkgs has 0.18.1.0)
-              # This was causing cascading failures when QuickCheck was upgraded
-              optparse-applicative = pkgs.haskell.lib.dontCheck (
-                self.callHackageDirect {
-                  pkg = "optparse-applicative";
-                  ver = "0.19.0.0";
-                  sha256 = "sha256-dhqvRILfdbpYPMxC+WpAyO0KUfq2nLopGk1NdSN2SDM=";
-                } {}
-              );
+              # # optparse-applicative 0.19.0.0 (nixpkgs has 0.18.1.0)
+              # # This was causing cascading failures when QuickCheck was upgraded
+              # optparse-applicative = pkgs.haskell.lib.dontCheck (
+              #   self.callHackageDirect {
+              #     pkg = "optparse-applicative";
+              #     ver = "0.19.0.0";
+              #     sha256 = "sha256-dhqvRILfdbpYPMxC+WpAyO0KUfq2nLopGk1NdSN2SDM=";
+              #   } {}
+              # );
 
-              # Citeproc 0.10 (nixpkgs has 0.9.0.1) - required for pandoc 3.8.2
-              citeproc = pkgs.haskell.lib.dontCheck (
-                pkgs.haskell.lib.doJailbreak (
-                  self.callHackageDirect {
-                    pkg = "citeproc";
-                    ver = "0.10";
-                    sha256 = "sha256-j5f+nB1x6aGAWeRjIdHkecXwRsYsqbqVHRz8md1qkfk=";
-                  } {}
-                )
-              );
+              # # Citeproc 0.10 (nixpkgs has 0.9.0.1) - required for pandoc 3.8.2
+              # citeproc = pkgs.haskell.lib.dontCheck (
+              #   pkgs.haskell.lib.doJailbreak (
+              #     self.callHackageDirect {
+              #       pkg = "citeproc";
+              #       ver = "0.10";
+              #       sha256 = "sha256-j5f+nB1x6aGAWeRjIdHkecXwRsYsqbqVHRz8md1qkfk=";
+              #     } {}
+              #   )
+              # );
 
-              # Pandoc 3.8.2 (nixpkgs has 3.7.0.2) - required for HighlightMethod API
-              pandoc = pkgs.haskell.lib.dontCheck (
-                pkgs.haskell.lib.doJailbreak (
-                  self.callHackageDirect {
-                    pkg = "pandoc";
-                    ver = "3.8.2";
-                    sha256 = "sha256-/MEHAjXiRy5URBpp8xYDCaS/c5q0ZYpEjZAY2EhhFIA=";
-                  } {}
-                )
-              );
+              # # Pandoc 3.8.2 (nixpkgs has 3.7.0.2) - required for HighlightMethod API
+              # pandoc = pkgs.haskell.lib.dontCheck (
+              #   pkgs.haskell.lib.doJailbreak (
+              #     self.callHackageDirect {
+              #       pkg = "pandoc";
+              #       ver = "3.8.2";
+              #       sha256 = "sha256-/MEHAjXiRy5URBpp8xYDCaS/c5q0ZYpEjZAY2EhhFIA=";
+              #     } {}
+              #   )
+              # );
             }
           );
 
@@ -213,105 +178,96 @@
                   rev = "7f2467a6d6d5f6db7eed59919a6773fe006cf22b";
                   sha256 = "sha256-dE1OQN7I4Lxy6RBdLCvm75Z9D/Hu+9G4ejV2pEtvL1A=";
                 };
-
-                # Weeder 2.10.0 (released Aug 1, 2025) - required for GHC 9.10.2 support
-                # This commit is the official 2.10.0 release tag
-                # We override because nixpkgs GHC 9.10.2 package set may not have 2.10.0 yet
-                weeder = pkgs.fetchFromGitHub {
-                  owner = "ocharles";
-                  repo = "weeder";
-                  rev = "fb052ddad9a69442937feed5958fe9bab03b1fc1"; # tag: 2.10.0
-                  sha256 = "sha256-mUc2iPoiOgp6qLVeG1sJHo1fSYvy+DO+E2ED/bWtnyY=";
-                };
               } self super;
             in
             sources // {
               # Disable tests for all overridden packages
-              foundation = pkgs.haskell.lib.dontCheck super.foundation;
-              weeder = pkgs.haskell.lib.dontCheck sources.weeder;
+              # foundation = pkgs.haskell.lib.dontCheck super.foundation;
+              # weeder = pkgs.haskell.lib.dontCheck sources.weeder;
               # Note: tmp-postgres tests disabled via dontCheck applied to source in packageSourceOverrides
 
               # ============================================================
               # CRITICAL OVERRIDES - Same as packages section above
               # ============================================================
 
-              QuickCheck = pkgs.haskell.lib.dontCheck (
-                self.callHackageDirect {
-                  pkg = "QuickCheck";
-                  ver = "2.16.0.0";
-                  sha256 = "sha256-HWL+HFdHG6Vnk+Thfa0AoEjgPggiQmyKMLRYUUKLAZU=";
-                } {}
-              );
+              # QuickCheck = pkgs.haskell.lib.dontCheck (
+              #   self.callHackageDirect {
+              #     pkg = "QuickCheck";
+              #     ver = "2.16.0.0";
+              #     sha256 = "sha256-HWL+HFdHG6Vnk+Thfa0AoEjgPggiQmyKMLRYUUKLAZU=";
+              #   } {}
+              # );
 
-              hedgehog = pkgs.haskell.lib.dontCheck (
-                self.callHackageDirect {
-                  pkg = "hedgehog";
-                  ver = "1.7";
-                  sha256 = "sha256-flX5CCnhZYG/nNzDr/rD/KrPgs9DIfVX2kPjEMm3khE=";
-                } {}
-              );
+              # hedgehog = pkgs.haskell.lib.dontCheck (
+              #   self.callHackageDirect {
+              #     pkg = "hedgehog";
+              #     ver = "1.7";
+              #     sha256 = "sha256-flX5CCnhZYG/nNzDr/rD/KrPgs9DIfVX2kPjEMm3khE=";
+              #   } {}
+              # );
 
-              random = pkgs.haskell.lib.dontCheck (
-                self.callHackageDirect {
-                  pkg = "random";
-                  ver = "1.3.1";
-                  sha256 = "sha256-M2xVhHMZ7Lqvx/F832mGirHULgzv7TjP/oNkQ4V6YLM=";
-                } {}
-              );
+              # random = pkgs.haskell.lib.dontCheck (
+              #   self.callHackageDirect {
+              #     pkg = "random";
+              #     ver = "1.3.1";
+              #     sha256 = "sha256-M2xVhHMZ7Lqvx/F832mGirHULgzv7TjP/oNkQ4V6YLM=";
+              #   } {}
+              # );
 
-              criterion = pkgs.haskell.lib.dontCheck (
-                self.callHackageDirect {
-                  pkg = "criterion";
-                  ver = "1.6.4.1";
-                  sha256 = "sha256-673mD22+aQhhy2UaY+qwHM4hfVjy8UUPocBkX4xAtbc=";
-                } {}
-              );
+              # criterion = pkgs.haskell.lib.dontCheck (
+              #   self.callHackageDirect {
+              #     pkg = "criterion";
+              #     ver = "1.6.4.1";
+              #     sha256 = "sha256-673mD22+aQhhy2UaY+qwHM4hfVjy8UUPocBkX4xAtbc=";
+              #   } {}
+              # );
 
-              optparse-applicative = pkgs.haskell.lib.dontCheck (
-                self.callHackageDirect {
-                  pkg = "optparse-applicative";
-                  ver = "0.19.0.0";
-                  sha256 = "sha256-dhqvRILfdbpYPMxC+WpAyO0KUfq2nLopGk1NdSN2SDM=";
-                } {}
-              );
+              # optparse-applicative = pkgs.haskell.lib.dontCheck (
+              #   self.callHackageDirect {
+              #     pkg = "optparse-applicative";
+              #     ver = "0.19.0.0";
+              #     sha256 = "sha256-dhqvRILfdbpYPMxC+WpAyO0KUfq2nLopGk1NdSN2SDM=";
+              #   } {}
+              # );
 
-              citeproc = pkgs.haskell.lib.dontCheck (
-                pkgs.haskell.lib.doJailbreak (
-                  self.callHackageDirect {
-                    pkg = "citeproc";
-                    ver = "0.10";
-                    sha256 = "sha256-j5f+nB1x6aGAWeRjIdHkecXwRsYsqbqVHRz8md1qkfk=";
-                  } {}
-                )
-              );
+              # citeproc = pkgs.haskell.lib.dontCheck (
+              #   pkgs.haskell.lib.doJailbreak (
+              #     self.callHackageDirect {
+              #       pkg = "citeproc";
+              #       ver = "0.10";
+              #       sha256 = "sha256-j5f+nB1x6aGAWeRjIdHkecXwRsYsqbqVHRz8md1qkfk=";
+              #     } {}
+              #   )
+              # );
 
-              pandoc = pkgs.haskell.lib.dontCheck (
-                pkgs.haskell.lib.doJailbreak (
-                  self.callHackageDirect {
-                    pkg = "pandoc";
-                    ver = "3.8.2";
-                    sha256 = "sha256-/MEHAjXiRy5URBpp8xYDCaS/c5q0ZYpEjZAY2EhhFIA=";
-                  } {}
-                )
-              );
+              # pandoc = pkgs.haskell.lib.dontCheck (
+              #   pkgs.haskell.lib.doJailbreak (
+              #     self.callHackageDirect {
+              #       pkg = "pandoc";
+              #       ver = "3.8.2";
+              #       sha256 = "sha256-/MEHAjXiRy5URBpp8xYDCaS/c5q0ZYpEjZAY2EhhFIA=";
+              #     } {}
+              #   )
+              # );
 
               # ============================================================
               # JAILBREAKS - Packages with tight version bounds rejecting our overrides
               # ============================================================
-              attoparsec = pkgs.haskell.lib.doJailbreak super.attoparsec;
-              indexed-traversable-instances = pkgs.haskell.lib.doJailbreak super.indexed-traversable-instances;
-              integer-conversion = pkgs.haskell.lib.doJailbreak super.integer-conversion;
-              integer-logarithms = pkgs.haskell.lib.doJailbreak super.integer-logarithms;
-              psqueues = pkgs.haskell.lib.doJailbreak super.psqueues;
-              time-compat = pkgs.haskell.lib.doJailbreak super.time-compat;
-              unicode-transforms = pkgs.haskell.lib.doJailbreak super.unicode-transforms;
-              uuid-types = pkgs.haskell.lib.doJailbreak super.uuid-types;
+              # attoparsec = pkgs.haskell.lib.doJailbreak super.attoparsec;
+              # indexed-traversable-instances = pkgs.haskell.lib.doJailbreak super.indexed-traversable-instances;
+              # integer-conversion = pkgs.haskell.lib.doJailbreak super.integer-conversion;
+              # integer-logarithms = pkgs.haskell.lib.doJailbreak super.integer-logarithms;
+              # psqueues = pkgs.haskell.lib.doJailbreak super.psqueues;
+              # time-compat = pkgs.haskell.lib.doJailbreak super.time-compat;
+              # unicode-transforms = pkgs.haskell.lib.doJailbreak super.unicode-transforms;
+              # uuid-types = pkgs.haskell.lib.doJailbreak super.uuid-types;
+
 
               # tasty-hedgehog: needs jailbreak to accept hedgehog 1.7
-              tasty-hedgehog = pkgs.haskell.lib.doJailbreak super.tasty-hedgehog;
-              text-iso8601 = pkgs.haskell.lib.doJailbreak super.text-iso8601;
-              uuid = pkgs.haskell.lib.doJailbreak super.uuid;
-              vector-algorithms = pkgs.haskell.lib.doJailbreak super.vector-algorithms;
+              # tasty-hedgehog = pkgs.haskell.lib.doJailbreak super.tasty-hedgehog;
+              # text-iso8601 = pkgs.haskell.lib.doJailbreak super.text-iso8601;
+              # uuid = pkgs.haskell.lib.doJailbreak super.uuid;
+              # vector-algorithms = pkgs.haskell.lib.doJailbreak super.vector-algorithms;
             }
           );
 

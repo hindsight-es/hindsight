@@ -19,7 +19,10 @@ on:
 jobs:
   test:
     name: Build and Test
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
 
     steps:
       - name: Checkout repository
@@ -36,23 +39,29 @@ jobs:
           name: hindsight-es
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
 
+      - name: Prepare dependencies
+        run: |
+          set -e
+          echo "???? Preparing dependencies from Nix..."
+          nix develop .#ci --command echo "??? Dependencies ready (cached or built)"
+
       - name: Build all packages
         run: |
           set -e
-          echo "🔨 Building all packages..."
-          nix develop .#ci --command bash -c "cabal update && cabal build all"
-          echo "✓ Build completed"
+          echo "???? Building all packages..."
+          nix develop .#ci --command cabal build all
+          echo "??? Build completed"
 
       - name: Run test suite
         run: |
           set -e
-          echo "🧪 Running test suite..."
+          echo "???? Running test suite..."
           nix develop .#ci --command bash -c "cabal test all --test-show-details=streaming"
-          echo "✓ Tests completed"
+          echo "??? Tests completed"
 
       - name: Check for dead code (weeder)
         run: |
           set -e
-          echo "🔍 Checking for dead code..."
+          echo "???? Checking for dead code..."
           # Generate HIE files are already generated via cabal.project
-          nix develop --command bash -c "weeder" || echo "⚠️  Weeder found dead code (non-fatal)"
+          nix develop --command bash -c "weeder" || echo "??????  Weeder found dead code (non-fatal)"

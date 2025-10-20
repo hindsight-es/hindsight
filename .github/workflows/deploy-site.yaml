@@ -29,6 +29,8 @@ concurrency:
 jobs:
   build:
     name: Build Website
+    # Note: Documentation builds only need one platform - using ubuntu-latest for consistency
+    # Package testing across platforms happens in test.yaml and nix-build.yaml
     runs-on: ubuntu-latest
 
     steps:
