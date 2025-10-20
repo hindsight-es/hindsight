@@ -342,6 +342,8 @@
               p.hindsight-postgresql-store
               p.hindsight-postgresql-projections
               p.hindsight-tutorials
+              p.hindsight-website
+
             ];
             buildInputs = coreBuildInputs ++ docsBuildInputs;
 
