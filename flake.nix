@@ -56,6 +56,16 @@
               tmp-postgres = pkgs.haskell.lib.dontCheck sources.tmp-postgres;
               weeder = pkgs.haskell.lib.dontCheck sources.weeder;
 
+              # Disable tests for all hindsight packages (critical: prevents test execution during inter-package builds)
+              hindsight-core = pkgs.haskell.lib.dontCheck sources.hindsight-core;
+              hindsight-memory-store = pkgs.haskell.lib.dontCheck sources.hindsight-memory-store;
+              hindsight-filesystem-store = pkgs.haskell.lib.dontCheck sources.hindsight-filesystem-store;
+              hindsight-postgresql-store = pkgs.haskell.lib.dontCheck sources.hindsight-postgresql-store;
+              hindsight-postgresql-projections = pkgs.haskell.lib.dontCheck sources.hindsight-postgresql-projections;
+              hindsight-tutorials = pkgs.haskell.lib.dontCheck sources.hindsight-tutorials;
+              hindsight-website = pkgs.haskell.lib.dontCheck sources.hindsight-website;
+              munihac = pkgs.haskell.lib.dontCheck sources.munihac;
+
               # ============================================================
               # JAILBREAKS - Packages with tight version bounds rejecting our overrides
               # ============================================================
