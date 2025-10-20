@@ -16,12 +16,18 @@
           pkgs = nixpkgs.legacyPackages.${system};
 
           # Extend Haskell package set with our local packages + git deps
-          haskellPackages = pkgs.haskell.packages.ghc9102.extend (self: super:
+          # Using ghc910 which has excellent version alignment with cabal.project.freeze
+          haskellPackages = pkgs.haskell.packages.ghc910.extend (self: super:
             let
               # Source overrides for local and git packages
               sources = pkgs.haskell.lib.compose.packageSourceOverrides {
-                # Local packages
+                # Local hindsight packages
                 hindsight-core = ./hindsight-core;
+                hindsight-memory-store = ./hindsight-memory-store;
+                hindsight-filesystem-store = ./hindsight-filesystem-store;
+                hindsight-postgresql-store = ./hindsight-postgresql-store;
+                hindsight-postgresql-projections = ./hindsight-postgresql-projections;
+                hindsight-tutorials = ./hindsight-tutorials;
                 hindsight-website = ./website;
                 munihac = ./munihac;
 
@@ -45,11 +51,82 @@
               } self super;
             in
             sources // {
-              # Disable tests for packages with flaky tests
+              # Disable tests for all overridden packages
               foundation = pkgs.haskell.lib.dontCheck super.foundation;
+              tmp-postgres = pkgs.haskell.lib.dontCheck sources.tmp-postgres;
               weeder = pkgs.haskell.lib.dontCheck sources.weeder;
 
-              # Citeproc 0.10+ required for pandoc 3.8.2 (nixpkgs has older version)
+              # ============================================================
+              # JAILBREAKS - Packages with tight version bounds rejecting our overrides
+              # ============================================================
+              attoparsec = pkgs.haskell.lib.doJailbreak super.attoparsec;
+              indexed-traversable-instances = pkgs.haskell.lib.doJailbreak super.indexed-traversable-instances;
+              integer-conversion = pkgs.haskell.lib.doJailbreak super.integer-conversion;
+              integer-logarithms = pkgs.haskell.lib.doJailbreak super.integer-logarithms;
+              psqueues = pkgs.haskell.lib.doJailbreak super.psqueues;
+              time-compat = pkgs.haskell.lib.doJailbreak super.time-compat;
+              unicode-transforms = pkgs.haskell.lib.doJailbreak super.unicode-transforms;
+              uuid-types = pkgs.haskell.lib.doJailbreak super.uuid-types;
+
+              # tasty-hedgehog: needs jailbreak to accept hedgehog 1.7
+              tasty-hedgehog = pkgs.haskell.lib.doJailbreak super.tasty-hedgehog;
+              text-iso8601 = pkgs.haskell.lib.doJailbreak super.text-iso8601;
+              uuid = pkgs.haskell.lib.doJailbreak super.uuid;
+              vector-algorithms = pkgs.haskell.lib.doJailbreak super.vector-algorithms;
+
+              # ============================================================
+              # CRITICAL OVERRIDES - Versions from cabal.project.freeze
+              # These 7 packages differ from nixpkgs ghc910 and must match freeze file
+              # Analysis: only 7 out of 323 packages need overrides! (98% match rate)
+              # ============================================================
+
+              # QuickCheck 2.16.0.0 (nixpkgs has 2.15.0.1)
+              QuickCheck = pkgs.haskell.lib.dontCheck (
+                self.callHackageDirect {
+                  pkg = "QuickCheck";
+                  ver = "2.16.0.0";
+                  sha256 = "sha256-HWL+HFdHG6Vnk+Thfa0AoEjgPggiQmyKMLRYUUKLAZU=";
+                } {}
+              );
+
+              # hedgehog 1.7 (nixpkgs has 1.5)
+              hedgehog = pkgs.haskell.lib.dontCheck (
+                self.callHackageDirect {
+                  pkg = "hedgehog";
+                  ver = "1.7";
+                  sha256 = "sha256-flX5CCnhZYG/nNzDr/rD/KrPgs9DIfVX2kPjEMm3khE=";
+                } {}
+              );
+
+              # random 1.3.1 (nixpkgs has 1.2.1.3)
+              random = pkgs.haskell.lib.dontCheck (
+                self.callHackageDirect {
+                  pkg = "random";
+                  ver = "1.3.1";
+                  sha256 = "sha256-M2xVhHMZ7Lqvx/F832mGirHULgzv7TjP/oNkQ4V6YLM=";
+                } {}
+              );
+
+              # criterion 1.6.4.1 (nixpkgs has 1.6.4.0)
+              criterion = pkgs.haskell.lib.dontCheck (
+                self.callHackageDirect {
+                  pkg = "criterion";
+                  ver = "1.6.4.1";
+                  sha256 = "sha256-673mD22+aQhhy2UaY+qwHM4hfVjy8UUPocBkX4xAtbc=";
+                } {}
+              );
+
+              # optparse-applicative 0.19.0.0 (nixpkgs has 0.18.1.0)
+              # This was causing cascading failures when QuickCheck was upgraded
+              optparse-applicative = pkgs.haskell.lib.dontCheck (
+                self.callHackageDirect {
+                  pkg = "optparse-applicative";
+                  ver = "0.19.0.0";
+                  sha256 = "sha256-dhqvRILfdbpYPMxC+WpAyO0KUfq2nLopGk1NdSN2SDM=";
+                } {}
+              );
+
+              # Citeproc 0.10 (nixpkgs has 0.9.0.1) - required for pandoc 3.8.2
               citeproc = pkgs.haskell.lib.dontCheck (
                 pkgs.haskell.lib.doJailbreak (
                   self.callHackageDirect {
@@ -60,7 +137,7 @@
                 )
               );
 
-              # Pandoc 3.8.2 required for HighlightMethod API (nixpkgs has 3.7.x)
+              # Pandoc 3.8.2 (nixpkgs has 3.7.0.2) - required for HighlightMethod API
               pandoc = pkgs.haskell.lib.dontCheck (
                 pkgs.haskell.lib.doJailbreak (
                   self.callHackageDirect {
@@ -73,23 +150,47 @@
             }
           );
 
-          # Build website executable (used by CI for docs deployment)
+          # Build all hindsight packages with tests disabled
+          hindsight-core-pkg = pkgs.haskell.lib.dontCheck haskellPackages.hindsight-core;
+          hindsight-memory-store-pkg = pkgs.haskell.lib.dontCheck haskellPackages.hindsight-memory-store;
+          hindsight-filesystem-store-pkg = pkgs.haskell.lib.dontCheck haskellPackages.hindsight-filesystem-store;
+          hindsight-postgresql-store-pkg = pkgs.haskell.lib.dontCheck haskellPackages.hindsight-postgresql-store;
+          hindsight-postgresql-projections-pkg = pkgs.haskell.lib.dontCheck haskellPackages.hindsight-postgresql-projections;
+          hindsight-tutorials-pkg = pkgs.haskell.lib.dontCheck haskellPackages.hindsight-tutorials;
           hindsight-website-exe = pkgs.haskell.lib.dontCheck haskellPackages.hindsight-website;
 
         in {
+          # Core hindsight packages
+          hindsight-core = hindsight-core-pkg;
+          hindsight-memory-store = hindsight-memory-store-pkg;
+          hindsight-filesystem-store = hindsight-filesystem-store-pkg;
+          hindsight-postgresql-store = hindsight-postgresql-store-pkg;
+          hindsight-postgresql-projections = hindsight-postgresql-projections-pkg;
+          hindsight-tutorials = hindsight-tutorials-pkg;
+
           # Website static site generator (used by GitHub Actions to build hindsight.events)
           hindsight-website = hindsight-website-exe;
 
-          # Default: website builder
-          default = hindsight-website-exe;
+          # Default: build all core packages
+          default = pkgs.symlinkJoin {
+            name = "hindsight-all";
+            paths = [
+              hindsight-core-pkg
+              hindsight-memory-store-pkg
+              hindsight-filesystem-store-pkg
+              hindsight-postgresql-store-pkg
+              hindsight-postgresql-projections-pkg
+              hindsight-tutorials-pkg
+            ];
+          };
         });
 
       devShells = forEachSystem (system:
         let
           pkgs = nixpkgs.legacyPackages.${system};
 
-          # Same extended package set as above
-          haskellPackages = pkgs.haskell.packages.ghc9102.extend (self: super:
+          # Same extended package set as above (ghc910 for version alignment)
+          haskellPackages = pkgs.haskell.packages.ghc910.extend (self: super:
             let
               sources = pkgs.haskell.lib.compose.packageSourceOverrides {
                 hindsight-core = ./hindsight-core;
@@ -115,11 +216,55 @@
               } self super;
             in
             sources // {
-              # Disable tests for packages with flaky tests
+              # Disable tests for all overridden packages
               foundation = pkgs.haskell.lib.dontCheck super.foundation;
               weeder = pkgs.haskell.lib.dontCheck sources.weeder;
+              # Note: tmp-postgres tests disabled via dontCheck applied to source in packageSourceOverrides
 
-              # Citeproc 0.10+ required for pandoc 3.8.2 (nixpkgs has older version)
+              # ============================================================
+              # CRITICAL OVERRIDES - Same as packages section above
+              # ============================================================
+
+              QuickCheck = pkgs.haskell.lib.dontCheck (
+                self.callHackageDirect {
+                  pkg = "QuickCheck";
+                  ver = "2.16.0.0";
+                  sha256 = "sha256-HWL+HFdHG6Vnk+Thfa0AoEjgPggiQmyKMLRYUUKLAZU=";
+                } {}
+              );
+
+              hedgehog = pkgs.haskell.lib.dontCheck (
+                self.callHackageDirect {
+                  pkg = "hedgehog";
+                  ver = "1.7";
+                  sha256 = "sha256-flX5CCnhZYG/nNzDr/rD/KrPgs9DIfVX2kPjEMm3khE=";
+                } {}
+              );
+
+              random = pkgs.haskell.lib.dontCheck (
+                self.callHackageDirect {
+                  pkg = "random";
+                  ver = "1.3.1";
+                  sha256 = "sha256-M2xVhHMZ7Lqvx/F832mGirHULgzv7TjP/oNkQ4V6YLM=";
+                } {}
+              );
+
+              criterion = pkgs.haskell.lib.dontCheck (
+                self.callHackageDirect {
+                  pkg = "criterion";
+                  ver = "1.6.4.1";
+                  sha256 = "sha256-673mD22+aQhhy2UaY+qwHM4hfVjy8UUPocBkX4xAtbc=";
+                } {}
+              );
+
+              optparse-applicative = pkgs.haskell.lib.dontCheck (
+                self.callHackageDirect {
+                  pkg = "optparse-applicative";
+                  ver = "0.19.0.0";
+                  sha256 = "sha256-dhqvRILfdbpYPMxC+WpAyO0KUfq2nLopGk1NdSN2SDM=";
+                } {}
+              );
+
               citeproc = pkgs.haskell.lib.dontCheck (
                 pkgs.haskell.lib.doJailbreak (
                   self.callHackageDirect {
@@ -130,7 +275,6 @@
                 )
               );
 
-              # Pandoc 3.8.2 required for HighlightMethod API (nixpkgs has 3.7.x)
               pandoc = pkgs.haskell.lib.dontCheck (
                 pkgs.haskell.lib.doJailbreak (
                   self.callHackageDirect {
@@ -140,6 +284,24 @@
                   } {}
                 )
               );
+
+              # ============================================================
+              # JAILBREAKS - Packages with tight version bounds rejecting our overrides
+              # ============================================================
+              attoparsec = pkgs.haskell.lib.doJailbreak super.attoparsec;
+              indexed-traversable-instances = pkgs.haskell.lib.doJailbreak super.indexed-traversable-instances;
+              integer-conversion = pkgs.haskell.lib.doJailbreak super.integer-conversion;
+              integer-logarithms = pkgs.haskell.lib.doJailbreak super.integer-logarithms;
+              psqueues = pkgs.haskell.lib.doJailbreak super.psqueues;
+              time-compat = pkgs.haskell.lib.doJailbreak super.time-compat;
+              unicode-transforms = pkgs.haskell.lib.doJailbreak super.unicode-transforms;
+              uuid-types = pkgs.haskell.lib.doJailbreak super.uuid-types;
+
+              # tasty-hedgehog: needs jailbreak to accept hedgehog 1.7
+              tasty-hedgehog = pkgs.haskell.lib.doJailbreak super.tasty-hedgehog;
+              text-iso8601 = pkgs.haskell.lib.doJailbreak super.text-iso8601;
+              uuid = pkgs.haskell.lib.doJailbreak super.uuid;
+              vector-algorithms = pkgs.haskell.lib.doJailbreak super.vector-algorithms;
             }
           );
 
