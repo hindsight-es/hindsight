@@ -41,20 +41,22 @@ jobs:
         run: |
           set -e
           echo "???? Preparing dependencies from Nix..."
+          # Remove freeze file - Nix provides all dependencies at correct versions
+          rm -f cabal.project.freeze
           nix develop .#ci --command echo "??? Dependencies ready (cached or built)"
 
       - name: Build all packages
         run: |
           set -e
           echo "???? Building all packages..."
-          nix develop .#ci --command cabal build all
+          nix develop .#ci --command cabal build all --project-file=cabal.project.ci
           echo "??? Build completed"
 
       - name: Run test suite
         run: |
           set -e
           echo "???? Running test suite..."
-          nix develop .#ci --command bash -c "cabal test all --test-show-details=streaming"
+          nix develop .#ci --command bash -c "cabal test all --test-show-details=streaming --project-file=cabal.project.ci"
           echo "??? Tests completed"
 
       - name: Check for dead code (weeder)
