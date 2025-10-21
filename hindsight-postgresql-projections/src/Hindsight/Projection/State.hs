@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
 
-{-|
+{- |
 Module      : Hindsight.Projection.State
 Description : Shared projection state management operations
 Copyright   : (c) 2024
@@ -32,11 +32,11 @@ Session.statement (projId, now, cursorJson) Projection.State.upsertProjectionCur
 Transaction.statement (projId, now, cursorJson) Projection.State.upsertProjectionCursor
 @
 -}
-module Hindsight.Projection.State
-  ( -- * State Update Operations
+module Hindsight.Projection.State (
+    -- * State Update Operations
     upsertProjectionCursor,
     registerProjection,
-  )
+)
 where
 
 import Data.Aeson qualified as Aeson
@@ -44,19 +44,20 @@ import Data.Text (Text)
 import Hasql.Statement (Statement (..))
 import Hasql.TH (resultlessStatement)
 
--- | Update or insert projection cursor position with error clearing.
---
--- This operation:
--- - Creates a new projection row if it doesn't exist
--- - Updates cursor position if row exists
--- - Marks projection as active
--- - Clears any error state
--- - Sets last_updated to current time (using SQL NOW())
---
--- Works in both Session and Transaction contexts via 'statement' functions.
+{- | Update or insert projection cursor position with error clearing.
+
+This operation:
+- Creates a new projection row if it doesn't exist
+- Updates cursor position if row exists
+- Marks projection as active
+- Clears any error state
+- Sets last_updated to current time (using SQL NOW())
+
+Works in both Session and Transaction contexts via 'statement' functions.
+-}
 upsertProjectionCursor :: Statement (Text, Aeson.Value) ()
 upsertProjectionCursor =
-  [resultlessStatement|
+    [resultlessStatement|
     INSERT INTO projections (id, last_updated, head_position, is_active)
     VALUES ($1 :: text, NOW(), $2 :: jsonb, true)
     ON CONFLICT (id) DO UPDATE SET
@@ -67,17 +68,17 @@ upsertProjectionCursor =
       error_timestamp = NULL
   |]
 
--- | Register a projection without setting cursor position.
---
--- This is primarily used by sync projections during initialization to ensure
--- the projection row exists before catch-up begins.
---
--- Uses INSERT ... ON CONFLICT DO NOTHING to be idempotent.
+{- | Register a projection without setting cursor position.
+
+This is primarily used by sync projections during initialization to ensure
+the projection row exists before catch-up begins.
+
+Uses INSERT ... ON CONFLICT DO NOTHING to be idempotent.
+-}
 registerProjection :: Statement Text ()
 registerProjection =
-  [resultlessStatement|
+    [resultlessStatement|
     INSERT INTO projections (id, last_updated, is_active)
     VALUES ($1 :: text, NOW(), true)
     ON CONFLICT (id) DO NOTHING
   |]
-

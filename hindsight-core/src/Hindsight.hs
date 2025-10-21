@@ -1,4 +1,4 @@
-{-|
+{- |
 Module      : Hindsight
 Description : Type-safe event sourcing system for Haskell
 Copyright   : (c) 2024
@@ -63,10 +63,10 @@ Storage backends are in separate packages:
 
 For projection system, see the hindsight-postgresql-projections package.
 -}
-module Hindsight
-  ( module Hindsight.Events,
+module Hindsight (
+    module Hindsight.Events,
     module Hindsight.Store,
-  )
+)
 where
 
 import Hindsight.Events

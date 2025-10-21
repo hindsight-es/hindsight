@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 
-{-|
+{- |
 Module      : Hindsight.Projection.Schema
 Description : PostgreSQL schema for async projections
 Copyright   : (c) 2024
@@ -27,24 +27,24 @@ making them safe to run multiple times and alongside other projection systems.
 - Async → Sync: Trigger remains (harmless), or can be dropped manually
 - Both: They share the table harmoniously
 -}
-
-module Hindsight.Projection.Schema
-  ( createProjectionSchema,
-  )
+module Hindsight.Projection.Schema (
+    createProjectionSchema,
+)
 where
 
 import Data.FileEmbed (embedFileRelative)
 import Hasql.Session (Session)
 import Hasql.Session qualified as Session
 
--- | Creates the projection state schema
---
--- This creates the 'projections' table and the LISTEN/NOTIFY trigger for
--- async projection progress notifications.
---
--- Safe to call multiple times (idempotent).
--- Safe to call alongside hindsight-postgresql-store schema (compatible).
+{- | Creates the projection state schema
+
+This creates the 'projections' table and the LISTEN/NOTIFY trigger for
+async projection progress notifications.
+
+Safe to call multiple times (idempotent).
+Safe to call alongside hindsight-postgresql-store schema (compatible).
+-}
 createProjectionSchema :: Session ()
 createProjectionSchema =
-  Session.sql $
-    $(embedFileRelative "sql/projection-schema.sql")
+    Session.sql $
+        $(embedFileRelative "sql/projection-schema.sql")

@@ -12,7 +12,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
-{-|
+{- |
 Module      : Hindsight.Projection
 Description : Backend-agnostic projection system for building read models
 Copyright   : (c) 2024
@@ -113,9 +113,8 @@ Projection state is tracked in the @projections@ table with:
 The 'loadProjectionState' function reads this state, and handlers automatically
 update it after each successful event.
 -}
-
-module Hindsight.Projection
-  ( -- * Projection types
+module Hindsight.Projection (
+    -- * Projection types
     ProjectionId (..),
     ProjectionState (..),
     ProjectionStateError (..),
@@ -130,7 +129,7 @@ module Hindsight.Projection
 
     -- * Waiting for events
     waitForEvent,
-  )
+)
 where
 
 import Control.Concurrent (forkIO, killThread)
@@ -159,8 +158,8 @@ import Hasql.Transaction qualified as Transaction
 import Hasql.Transaction.Sessions qualified as Session
 import Hindsight.Projection.Matching (ProjectionHandler, ProjectionHandlers (..))
 import Hindsight.Projection.State qualified as ProjectionState
-import Hindsight.Store
-  ( BackendHandle,
+import Hindsight.Store (
+    BackendHandle,
     Cursor,
     EventEnvelope (position),
     EventHandler,
@@ -170,18 +169,17 @@ import Hindsight.Store
     StartupPosition (FromBeginning, FromLastProcessed),
     StreamSelector (AllStreams),
     SubscriptionResult (Continue, Stop),
-  )
+ )
 import UnliftIO (MonadUnliftIO (..))
 import UnliftIO.STM (TVar, atomically, writeTVar)
-
 
 --------------------------------------------------------------------------------
 -- Projection types
 --------------------------------------------------------------------------------
 
 newtype ProjectionId = ProjectionId
-  {unProjectionId :: Text}
-  deriving (Show, Eq, Ord)
+    {unProjectionId :: Text}
+    deriving (Show, Eq, Ord)
 
 --------------------------------------------------------------------------------
 -- Projection results and errors
@@ -189,37 +187,42 @@ newtype ProjectionId = ProjectionId
 
 -- | Result of projection execution
 data ProjectionResult
-  = ProjectionSuccess
-  | ProjectionSkipped  -- ^ Handler didn't match the event
-  | ProjectionError ProjectionError
-  deriving (Show, Eq)
+    = ProjectionSuccess
+    | -- | Handler didn't match the event
+      ProjectionSkipped
+    | ProjectionError ProjectionError
+    deriving (Show, Eq)
 
 -- | Types of projection errors
 data ProjectionError
-  = ParseError Text
-  | HandlerError SomeException
-  | BackendError Text
-  deriving (Show)
+    = ParseError Text
+    | HandlerError SomeException
+    | BackendError Text
+    deriving (Show)
 
--- | Manual Eq instance for ProjectionError
---
--- SomeException doesn't have an Eq instance, so we compare based on the string representation
+{- | Manual Eq instance for ProjectionError
+
+SomeException doesn't have an Eq instance, so we compare based on the string representation
+-}
 instance Eq ProjectionError where
-  (ParseError t1) == (ParseError t2) = t1 == t2
-  (HandlerError e1) == (HandlerError e2) = show e1 == show e2
-  (BackendError t1) == (BackendError t2) = t1 == t2
-  _ == _ = False
+    (ParseError t1) == (ParseError t2) = t1 == t2
+    (HandlerError e1) == (HandlerError e2) = show e1 == show e2
+    (BackendError t1) == (BackendError t2) = t1 == t2
+    _ == _ = False
 
 -- | State of a running projection tracked in PostgreSQL.
 data ProjectionState backend = ProjectionState
-  { projectionId :: ProjectionId    -- ^ Unique identifier for this projection
-  , lastProcessed :: Cursor backend -- ^ Last event cursor successfully processed
-  , lastUpdated :: UTCTime          -- ^ Timestamp of last state update
-  }
+    { projectionId :: ProjectionId
+    -- ^ Unique identifier for this projection
+    , lastProcessed :: Cursor backend
+    -- ^ Last event cursor successfully processed
+    , lastUpdated :: UTCTime
+    -- ^ Timestamp of last state update
+    }
 
 data ProjectionStateError = ProjectionStateError
-  {errorMessage :: Text}
-  deriving (Show, Eq, Generic, FromJSON, ToJSON)
+    {errorMessage :: Text}
+    deriving (Show, Eq, Generic, FromJSON, ToJSON)
 
 instance Exception ProjectionStateError
 
@@ -227,116 +230,129 @@ instance Exception ProjectionStateError
 -- Main projection runner
 --------------------------------------------------------------------------------
 
--- | Run a projection continuously, processing events and maintaining state in PostgreSQL.
---
--- The projection subscribes to events from the provided backend and executes handlers
--- within PostgreSQL transactions. State is persisted after each successful event processing.
+{- | Run a projection continuously, processing events and maintaining state in PostgreSQL.
+
+The projection subscribes to events from the provided backend and executes handlers
+within PostgreSQL transactions. State is persisted after each successful event processing.
+-}
 runProjection ::
-  forall backend m ts.
-  ( EventStore backend,
-    MonadFail m,
-    FromJSON (Cursor backend),
-    ToJSON (Cursor backend),
-    StoreConstraints backend m,
-    MonadUnliftIO m
-  ) =>
-  ProjectionId ->                                      -- ^ Unique identifier for this projection
-  Pool ->                                              -- ^ PostgreSQL connection pool for state management
-  Maybe (TVar (Maybe (ProjectionState backend))) ->   -- ^ Optional TVar for exposing state to other threads
-  BackendHandle backend ->                             -- ^ Event store backend to subscribe to
-  ProjectionHandlers ts backend ->                     -- ^ Handlers for processing events
-  m ()                                                  -- ^ Returns when subscription ends
+    forall backend m ts.
+    ( EventStore backend
+    , MonadFail m
+    , FromJSON (Cursor backend)
+    , ToJSON (Cursor backend)
+    , StoreConstraints backend m
+    , MonadUnliftIO m
+    ) =>
+    -- | Unique identifier for this projection
+    ProjectionId ->
+    -- | PostgreSQL connection pool for state management
+    Pool ->
+    -- | Optional TVar for exposing state to other threads
+    Maybe (TVar (Maybe (ProjectionState backend))) ->
+    -- | Event store backend to subscribe to
+    BackendHandle backend ->
+    -- | Handlers for processing events
+    ProjectionHandlers ts backend ->
+    -- | Returns when subscription ends
+    m ()
 runProjection projId pool mbTVar store handlers = do
-  -- Load projection state
-  mbLastState <- loadProjectionState projId pool
+    -- Load projection state
+    mbLastState <- loadProjectionState projId pool
 
-  -- Update TVar if provided
-  case (mbTVar, mbLastState) of
-    (Just tvar, Just state) ->
-      liftIO $ atomically $ writeTVar tvar (Just state)
-    _ -> pure ()
+    -- Update TVar if provided
+    case (mbTVar, mbLastState) of
+        (Just tvar, Just state) ->
+            liftIO $ atomically $ writeTVar tvar (Just state)
+        _ -> pure ()
 
-  -- Start subscription
+    -- Start subscription
 
-  _ <-
-    subscribe
-      store
-      (makeEventMatcher projId pool mbTVar handlers)
-      EventSelector
-        { streamId = AllStreams,
-          startupPosition = maybe FromBeginning FromLastProcessed (fmap (.lastProcessed) mbLastState)
-        }
+    _ <-
+        subscribe
+            store
+            (makeEventMatcher projId pool mbTVar handlers)
+            EventSelector
+                { streamId = AllStreams
+                , startupPosition = maybe FromBeginning FromLastProcessed (fmap (.lastProcessed) mbLastState)
+                }
 
-  pure ()
+    pure ()
 
--- | Load the current state of a projection from PostgreSQL.
---
--- Returns Nothing if the projection has never been run, or throws ProjectionStateError
--- if there's a database or JSON parsing error.
+{- | Load the current state of a projection from PostgreSQL.
+
+Returns Nothing if the projection has never been run, or throws ProjectionStateError
+if there's a database or JSON parsing error.
+-}
 loadProjectionState ::
-  (MonadUnliftIO m, MonadFail m, FromJSON (Cursor backend)) =>
-  ProjectionId ->                       -- ^ Projection identifier
-  Pool ->                               -- ^ PostgreSQL connection pool
-  m (Maybe (ProjectionState backend))   -- ^ Current state, or Nothing if never run
+    (MonadUnliftIO m, MonadFail m, FromJSON (Cursor backend)) =>
+    -- | Projection identifier
+    ProjectionId ->
+    -- | PostgreSQL connection pool
+    Pool ->
+    -- | Current state, or Nothing if never run
+    m (Maybe (ProjectionState backend))
 loadProjectionState projId pool = do
-  result <- liftIO $ Pool.use pool $ getProjectionState projId
-  case result of
-    Left err -> do
-      -- Database error - propagate it with context
-      liftIO $ throwIO $ ProjectionStateError $ 
-        "Failed to query projection state for " <> (pack $ show projId) <> ": " <> (pack $ show err)
-    Right mbStateResult -> case mbStateResult of
-      Nothing -> pure Nothing  -- Table exists, but no row for this projection
-      Just (Left err) -> liftIO $ throwIO err  -- JSON parsing error
-      Just (Right state) -> pure $ Just state  -- Successfully loaded state
+    result <- liftIO $ Pool.use pool $ getProjectionState projId
+    case result of
+        Left err -> do
+            -- Database error - propagate it with context
+            liftIO $
+                throwIO $
+                    ProjectionStateError $
+                        "Failed to query projection state for " <> (pack $ show projId) <> ": " <> (pack $ show err)
+        Right mbStateResult -> case mbStateResult of
+            Nothing -> pure Nothing -- Table exists, but no row for this projection
+            Just (Left err) -> liftIO $ throwIO err -- JSON parsing error
+            Just (Right state) -> pure $ Just state -- Successfully loaded state
 
 --------------------------------------------------------------------------------
 -- Event matcher
 --------------------------------------------------------------------------------
 
 makeEventMatcher ::
-  forall ts backend m.
-  (MonadUnliftIO m, ToJSON (Cursor backend)) =>
-  ProjectionId ->
-  Pool ->
-  Maybe (TVar (Maybe (ProjectionState backend))) ->
-  ProjectionHandlers ts backend ->
-  EventMatcher ts backend m
+    forall ts backend m.
+    (MonadUnliftIO m, ToJSON (Cursor backend)) =>
+    ProjectionId ->
+    Pool ->
+    Maybe (TVar (Maybe (ProjectionState backend))) ->
+    ProjectionHandlers ts backend ->
+    EventMatcher ts backend m
 makeEventMatcher projId pool mbTVar = go
   where
     go :: ProjectionHandlers ts' backend -> EventMatcher ts' backend m
     go ProjectionEnd = MatchEnd
     go ((proxy, handler) :-> rest) =
-      (proxy, handleEvent handler) :? go rest
+        (proxy, handleEvent handler) :? go rest
 
     handleEvent ::
-      forall event.
-      ProjectionHandler event backend ->
-      EventHandler event m backend
+        forall event.
+        ProjectionHandler event backend ->
+        EventHandler event m backend
     handleEvent projHandler envelope = do
-      now <- liftIO getCurrentTime
-      let state =
-            ProjectionState
-              { projectionId = projId,
-                lastProcessed = envelope.position,
-                lastUpdated = now
-              }
+        now <- liftIO getCurrentTime
+        let state =
+                ProjectionState
+                    { projectionId = projId
+                    , lastProcessed = envelope.position
+                    , lastUpdated = now
+                    }
 
-      -- Run projection logic in transaction
-      result <- liftIO $
-        Pool.use pool $
-          Session.transaction Session.ReadCommitted Session.Write $ do
-            projHandler envelope
-            Transaction.statement state (updateProjectionStatement )
+        -- Run projection logic in transaction
+        result <- liftIO $
+            Pool.use pool $
+                Session.transaction Session.ReadCommitted Session.Write $ do
+                    projHandler envelope
+                    Transaction.statement state (updateProjectionStatement)
 
-      case result of
-        Left _err -> do
-          pure Stop
-        Right _ -> do
-          case mbTVar of
-            Nothing -> pure ()
-            Just tvar -> liftIO $ atomically $ writeTVar tvar (Just state)
-          pure Continue
+        case result of
+            Left _err -> do
+                pure Stop
+            Right _ -> do
+                case mbTVar of
+                    Nothing -> pure ()
+                    Just tvar -> liftIO $ atomically $ writeTVar tvar (Just state)
+                pure Continue
 
 -- Rest of the module remains largely unchanged, including:
 -- - Schema setup
@@ -350,13 +366,13 @@ makeEventMatcher projId pool mbTVar = go
 --------------------------------------------------------------------------------
 
 getProjectionState ::
-  (FromJSON (Cursor backend)) =>
-  ProjectionId ->
-  Session (Maybe (Either ProjectionStateError (ProjectionState backend)))
+    (FromJSON (Cursor backend)) =>
+    ProjectionId ->
+    Session (Maybe (Either ProjectionStateError (ProjectionState backend)))
 getProjectionState (ProjectionId pid) =
-  Session.statement
-    pid
-    [maybeStatement|
+    Session.statement
+        pid
+        [maybeStatement|
             select 
                 id :: text,
                 last_updated :: timestamptz,
@@ -364,111 +380,118 @@ getProjectionState (ProjectionId pid) =
             from projections
             where id = $1 :: text
         |]
-    & fmap transform
+        & fmap transform
   where
     transform res =
-      case res of
-        Nothing -> Nothing
-        Just (id', updated, mbCursorJson) ->
-          case mbCursorJson of
-            Nothing -> Nothing  -- Never processed
-            Just cursorJson -> 
-              case Aeson.fromJSON cursorJson of
-                Aeson.Success cursor ->
-                  Just $
-                    Right $
-                      ProjectionState
-                        { projectionId = ProjectionId id',
-                          lastProcessed = cursor,
-                          lastUpdated = updated
-                        }
-                Aeson.Error err ->
-                  Just $
-                    Left $
-                      ProjectionStateError $
-                        "Could not parse projection state cursor: " <> pack err
+        case res of
+            Nothing -> Nothing
+            Just (id', updated, mbCursorJson) ->
+                case mbCursorJson of
+                    Nothing -> Nothing -- Never processed
+                    Just cursorJson ->
+                        case Aeson.fromJSON cursorJson of
+                            Aeson.Success cursor ->
+                                Just $
+                                    Right $
+                                        ProjectionState
+                                            { projectionId = ProjectionId id'
+                                            , lastProcessed = cursor
+                                            , lastUpdated = updated
+                                            }
+                            Aeson.Error err ->
+                                Just $
+                                    Left $
+                                        ProjectionStateError $
+                                            "Could not parse projection state cursor: " <> pack err
 
 updateProjectionStatement ::
-  (ToJSON (Cursor backend)) =>
-  Statement (ProjectionState backend) ()
+    (ToJSON (Cursor backend)) =>
+    Statement (ProjectionState backend) ()
 updateProjectionStatement =
-  ProjectionState.upsertProjectionCursor
-    & dimap
-      (\(ProjectionState (ProjectionId pid) cursor _ts) -> (pid, Aeson.toJSON cursor))
-      id
+    ProjectionState.upsertProjectionCursor
+        & dimap
+            (\(ProjectionState (ProjectionId pid) cursor _ts) -> (pid, Aeson.toJSON cursor))
+            id
 
 --------------------------------------------------------------------------------
 -- Waiting on events
 --------------------------------------------------------------------------------
 
--- | Wait for a projection to process up to (or past) a specific cursor position.
---
--- This function uses PostgreSQL LISTEN/NOTIFY to efficiently wait for projection
--- progress without polling. It returns once the projection has processed the target
--- cursor or throws an error if the projection state cannot be read.
+{- | Wait for a projection to process up to (or past) a specific cursor position.
+
+This function uses PostgreSQL LISTEN/NOTIFY to efficiently wait for projection
+progress without polling. It returns once the projection has processed the target
+cursor or throws an error if the projection state cannot be read.
+-}
 waitForEvent ::
-  forall backend m.
-  ( Ord (Cursor backend),
-    MonadUnliftIO m,
-    FromJSON (Cursor backend)
-  ) =>
-  ProjectionId ->      -- ^ Projection to monitor
-  Cursor backend ->    -- ^ Target cursor position to wait for
-  Connection ->        -- ^ PostgreSQL connection for LISTEN/NOTIFY
-  m ()                 -- ^ Returns when target cursor reached or throws on error
+    forall backend m.
+    ( Ord (Cursor backend)
+    , MonadUnliftIO m
+    , FromJSON (Cursor backend)
+    ) =>
+    -- | Projection to monitor
+    ProjectionId ->
+    -- | Target cursor position to wait for
+    Cursor backend ->
+    -- | PostgreSQL connection for LISTEN/NOTIFY
+    Connection ->
+    -- | Returns when target cursor reached or throws on error
+    m ()
 waitForEvent projectionId@(ProjectionId projId) targetCursor conn = do
-  let pgId = Notifications.toPgIdentifier projId
-  liftIO $
-    bracket_
-      (Notifications.listen conn pgId)
-      (Notifications.unlisten conn pgId)
-      ( do
-          result <- Session.run (getProjectionState  projectionId) conn
-          case result of
-            Right (Just (Right currState))
-              | currState.lastProcessed >= targetCursor ->
-                  pure ()
-            Right Nothing ->
-              waitForNotifications
-            Right (Just (Right _)) ->
-              waitForNotifications
-            Right (Just (Left err)) ->
-              throwIO err
-            Left err ->
-              throwIO err
-      )
+    let pgId = Notifications.toPgIdentifier projId
+    liftIO $
+        bracket_
+            (Notifications.listen conn pgId)
+            (Notifications.unlisten conn pgId)
+            ( do
+                result <- Session.run (getProjectionState projectionId) conn
+                case result of
+                    Right (Just (Right currState))
+                        | currState.lastProcessed >= targetCursor ->
+                            pure ()
+                    Right Nothing ->
+                        waitForNotifications
+                    Right (Just (Right _)) ->
+                        waitForNotifications
+                    Right (Just (Left err)) ->
+                        throwIO err
+                    Left err ->
+                        throwIO err
+            )
   where
     waitForNotifications = do
-      completionVar <- newEmptyMVar
-      bracket
-        ( forkIO $ flip Notifications.waitForNotifications conn $ \channel notifPayload -> do
-            when (Data.Text.decodeASCII channel == projId) $ do
-              case Aeson.decode @(NotificationPayload backend) $ ByteString.fromStrict notifPayload of
-                Nothing ->
-                  throwIO $
-                    ProjectionStateError $
-                      "Could not decode notification payload: "
-                        <> Data.Text.pack (show $ ByteString.unpack notifPayload)
-                Just payload ->
-                  when (payload.headPosition >= targetCursor) $
-                    putMVar completionVar ()
-        )
-        killThread
-        (\_ -> takeMVar completionVar)
+        completionVar <- newEmptyMVar
+        bracket
+            ( forkIO $ flip Notifications.waitForNotifications conn $ \channel notifPayload -> do
+                when (Data.Text.decodeASCII channel == projId) $ do
+                    case Aeson.decode @(NotificationPayload backend) $ ByteString.fromStrict notifPayload of
+                        Nothing ->
+                            throwIO $
+                                ProjectionStateError $
+                                    "Could not decode notification payload: "
+                                        <> Data.Text.pack (show $ ByteString.unpack notifPayload)
+                        Just payload ->
+                            when (payload.headPosition >= targetCursor) $
+                                putMVar completionVar ()
+            )
+            killThread
+            (\_ -> takeMVar completionVar)
 
 -- | Payload sent via PostgreSQL NOTIFY when projection state updates.
 data NotificationPayload backend = NotificationPayload
-  { headPosition :: Cursor backend -- ^ Latest cursor position processed by projection
-  , lastUpdated :: UTCTime         -- ^ Timestamp of the state update
-  }
-  deriving (Generic)
+    { headPosition :: Cursor backend
+    -- ^ Latest cursor position processed by projection
+    , lastUpdated :: UTCTime
+    -- ^ Timestamp of the state update
+    }
+    deriving (Generic)
 
 deriving instance (Show (Cursor backend)) => Show (NotificationPayload backend)
 
 deriving instance (Eq (Cursor backend)) => Eq (NotificationPayload backend)
 
 instance (FromJSON (Cursor backend)) => FromJSON (NotificationPayload backend) where
-  parseJSON = Aeson.withObject "NotificationPayload" $ \obj -> do
-    headPosition <- obj .: "head_position"
-    lastUpdated <- obj .: "last_updated"
-    pure NotificationPayload {..}
+    parseJSON = Aeson.withObject "NotificationPayload" $ \obj -> do
+        headPosition <- obj .: "head_position"
+        lastUpdated <- obj .: "last_updated"
+        pure NotificationPayload{..}

@@ -5,8 +5,8 @@ import Test.Tasty
 
 tree :: IO TestTree
 tree = do
-  return $
-    testGroup
-      "Core Event Tests"
-      [ Test.Hindsight.Examples.tree
-      ]
+    return $
+        testGroup
+            "Core Event Tests"
+            [ Test.Hindsight.Examples.tree
+            ]
