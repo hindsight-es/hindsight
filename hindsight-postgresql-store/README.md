@@ -44,7 +44,7 @@ main = do
     multiEvent streamId Any [event]
 
   -- Subscribe to events
-  handle <- subscribe store
+  void $ subscribe store
     (match UserRegistered handleEvent :? MatchEnd)
     (EventSelector AllStreams FromBeginning)
 ```

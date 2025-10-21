@@ -35,7 +35,7 @@ main = do
   result <- insertEvents store Nothing $
     multiEvent streamId Any [event]
 
-  handle <- subscribe store
+  void $ subscribe store
     (match UserRegistered handleEvent :? MatchEnd)
     (EventSelector AllStreams FromBeginning)
 ```
