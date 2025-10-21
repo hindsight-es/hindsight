@@ -3,10 +3,11 @@ name:               hindsight-core
 version:            0.1.0.0
 -- synopsis:
 -- description:
-license:            NONE
+license:            BSD-3-Clause
+license-file:       LICENSE
 author:             Gaël Deest
 maintainer:         gael.deest@franbec.org
--- copyright:
+copyright:          (c) 2025 Gaël Deest
 category:           Web
 build-type:         Simple
 extra-doc-files:    CHANGELOG.md

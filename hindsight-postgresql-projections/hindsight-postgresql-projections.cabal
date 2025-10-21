@@ -12,9 +12,11 @@ description:
     - Testing: Memory store + PostgreSQL projections (fast!)
     - Single-node: Filesystem store + PostgreSQL projections
     - Production: PostgreSQL store + PostgreSQL projections
-license:            NONE
+license:            BSD-3-Clause
+license-file:       LICENSE
 author:             Gaël Deest
 maintainer:         gael.deest@franbec.org
+copyright:          (c) 2025 Gaël Deest
 category:           Web
 build-type:         Simple
 extra-source-files: sql/projection-schema.sql
