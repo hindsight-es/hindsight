@@ -5,7 +5,7 @@ module Main where
 import Hakyll
 import System.FilePath ((</>), takeBaseName)
 import Text.Pandoc.Highlighting (pygments)
-import Text.Pandoc.Options (WriterOptions(..), HighlightMethod(..))
+import Text.Pandoc.Options (WriterOptions(..))
 
 --------------------------------------------------------------------------------
 -- Configuration
@@ -98,7 +98,7 @@ main = hakyllWith config $ do
 
 writerOptions :: WriterOptions
 writerOptions = defaultHakyllWriterOptions
-    { writerHighlightMethod = Skylighting pygments
+    { writerHighlightStyle = Just pygments
     }
 
 --------------------------------------------------------------------------------

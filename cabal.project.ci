@@ -1,0 +1,17 @@
+-- CI-specific cabal.project for Nix-based builds
+-- This file is used in GitHub Actions workflows where all dependencies
+-- come from nixpkgs. We don't need source-repository-package overrides
+-- or allow-newer constraints since Nix handles dependency resolution.
+
+packages:
+  ./*/*.cabal
+
+-- Enable HIE file generation for all packages (needed for weeder)
+program-options
+  ghc-options: -fwrite-ide-info
+
+package hindsight-core
+  profiling-detail: all-functions
+  ghc-options: -fprof-auto -fprof-auto-top -rtsopts -threaded
+
+multi-repl: True
