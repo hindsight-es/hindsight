@@ -64,4 +64,4 @@ jobs:
           set -e
           echo "???? Checking for dead code..."
           # HIE files generated during build, use full cabal.project for weeder source-repository-package
-          nix develop .#ci --command bash -c "cabal run weeder" || echo "??????  Weeder found dead code (non-fatal)"
+          nix develop .#ci --command bash -c "weeder" || echo "??????  Weeder found dead code (non-fatal)"
