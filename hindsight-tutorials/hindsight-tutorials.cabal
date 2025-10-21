@@ -6,9 +6,11 @@ description:
     A collection of literate Haskell tutorials demonstrating how to use Hindsight
     for event sourcing applications. Covers getting started, projections, versioning,
     consistency patterns, and backend-agnostic design.
-license:            NONE
+license:            BSD-3-Clause
+license-file:       ../LICENSE
 author:             Gaël Deest
 maintainer:         gael.deest@franbec.org
+copyright:          (c) 2025 Gaël Deest
 category:           Web
 build-type:         Simple
 
