@@ -154,10 +154,11 @@ import Hasql.Pool qualified as Pool
 import Hasql.Session (Session)
 import Hasql.Session qualified as Session
 import Hasql.Statement (Statement)
-import Hasql.TH (maybeStatement, resultlessStatement)
+import Hasql.TH (maybeStatement)
 import Hasql.Transaction qualified as Transaction
 import Hasql.Transaction.Sessions qualified as Session
 import Hindsight.Projection.Matching (ProjectionHandler, ProjectionHandlers (..))
+import Hindsight.Projection.State qualified as ProjectionState
 import Hindsight.Store
   ( BackendHandle,
     Cursor,
@@ -391,21 +392,9 @@ updateProjectionStatement ::
   (ToJSON (Cursor backend)) =>
   Statement (ProjectionState backend) ()
 updateProjectionStatement =
-  [resultlessStatement|
-        insert into projections (
-            id, last_updated, head_position, is_active
-        ) values (
-            $1 :: text,
-            $2 :: timestamptz,
-            $3 :: jsonb,
-            true
-        )
-        on conflict (id) do update set
-            last_updated = excluded.last_updated,
-            head_position = excluded.head_position
-    |]
+  ProjectionState.upsertProjectionCursor
     & dimap
-      (\(ProjectionState (ProjectionId pid) cursor ts) -> (pid, ts, Aeson.toJSON cursor))
+      (\(ProjectionState (ProjectionId pid) cursor _ts) -> (pid, Aeson.toJSON cursor))
       id
 
 --------------------------------------------------------------------------------

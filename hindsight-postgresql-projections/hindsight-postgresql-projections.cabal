@@ -28,7 +28,8 @@ library
     import:           warnings, opts
     exposed-modules:  Hindsight.Projection,
                       Hindsight.Projection.Matching,
-                      Hindsight.Projection.Schema
+                      Hindsight.Projection.Schema,
+                      Hindsight.Projection.State
     build-depends:    base >= 4.20.1 && < 5,
                       aeson >= 2.2.3 && < 2.3,
                       bytestring >= 0.12.2 && < 0.13,
