@@ -77,20 +77,24 @@ Binary caching is configured automatically via ``nixConfig`` in ``flake.nix``. W
 
 - ``nix develop`` (default): **Full development environment**
 
-  - Haskell Language Server (HLS)
-  - ghcid (fast rebuilds)
-  - graphmod (dependency visualization)
-  - weeder (dead code detection)
+  - GHC 9.10.x + Cabal
+  - Haskell Language Server (HLS) for editor integration
+  - fourmolu (code formatter)
+  - jq (JSON processing)
   - Documentation tools (Sphinx, Pandoc)
   - PostgreSQL for testing
-  - R and plotting tools (for benchmarks)
+  - All Hindsight packages provided by Nix
 
 - ``nix develop .#ci``: **Minimal CI environment**
 
-  - Core build tools only
-  - weeder, documentation tools
+  - GHC 9.10.x + Cabal
+  - fourmolu (for formatting checks)
+  - weeder (dead code detection)
+  - Documentation tools (Sphinx, Pandoc)
+  - PostgreSQL for testing
+  - All Hindsight packages provided by Nix
   - Faster to build, used in CI
-  - Good for quick builds or testing CI locally
+  - Good for testing CI locally without HLS overhead
 
 **Without Nix:**
 

@@ -68,6 +68,34 @@ instance MigrateVersion 0 UserRegistered
 
 The event is now registered with the versioning system and ready to use.
 
+Creating Events
+---------------
+
+Hindsight provides two key functions for working with events:
+
+- **mkEvent** - Creates a single event from a type-level name and payload:
+
+  .. code-block:: haskell
+
+     mkEvent :: Event eventName => eventName -> LatestVersion eventName -> SomeLatestEvent
+
+  This wraps your event data in a version-aware container that Hindsight can store and deserialize.
+
+- **multiEvent** - Creates a transaction to insert multiple events into a single stream:
+
+  .. code-block:: haskell
+
+     multiEvent :: StreamId -> ExpectedVersion backend -> [SomeLatestEvent] -> Transaction [] backend
+
+  The ``ExpectedVersion`` parameter controls optimistic concurrency control:
+
+  - ``Any`` - No version check (always succeeds, used for append-only logs)
+  - ``NoStream`` - Stream must not exist (for creating new aggregates)
+  - ``StreamExists`` - Stream must exist (any version acceptable)
+  - ``ExactStreamVersion v`` - Stream must be at exact version ``v`` (for updates)
+
+  In this tutorial we use ``Any`` because we're just appending events without conflict detection.
+
 Storing Events
 --------------
 

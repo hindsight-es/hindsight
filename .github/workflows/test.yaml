@@ -52,6 +52,15 @@ jobs:
           nix develop .#ci --command cabal build all --project-file=cabal.project.ci
           echo "??? Build completed"
 
+      - name: Check code formatting
+        run: |
+          set -e
+          echo "???? Checking code formatting with fourmolu..."
+          nix develop .#ci --command bash -c "
+            fourmolu --mode check \$(find . -name '*.hs' -not -path '*/dist-newstyle/*' -not -path '*/result/*')
+          "
+          echo "??? Code formatting check passed"
+
       - name: Run test suite
         run: |
           set -e

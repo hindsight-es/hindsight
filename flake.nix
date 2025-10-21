@@ -314,23 +314,11 @@
             python3Packages.myst-parser
           ];
 
-          # Full dev tools
+          # Full dev tools (minimal set for daily development)
           devTools = coreBuildInputs ++ docsBuildInputs ++ (with pkgs; [
             haskellPackages.fourmolu
-            haskellPackages.ghcid
-            haskellPackages.graphmod
-            haskellPackages.weeder
-            jq
-            git
-            graphviz
-            R
-            rPackages.ggplot2
-            rPackages.dplyr
-            rPackages.readr
-            rPackages.broom
-            rPackages.gridExtra
-            rPackages.scales
             haskellPackages.haskell-language-server
+            jq
           ]);
 
         in {
@@ -348,13 +336,13 @@
               echo ""
               echo "Available tools:"
               echo "  - Haskell Language Server (HLS)"
-              echo "  - ghcid (fast rebuilds)"
-              echo "  - graphmod (dependency visualization)"
-              echo "  - weeder (dead code detection)"
+              echo "  - fourmolu (code formatter)"
+              echo "  - jq (JSON processing)"
               echo ""
               echo "Dev workflow:"
               echo "  cabal build all              - Build all packages"
               echo "  cabal test                   - Run test suite"
+              echo "  fourmolu --mode inplace \$(find . -name '*.hs') - Format code"
               echo "  cd docs && make html         - Build documentation"
               echo ""
               echo "For CI-like builds, use: nix develop .#ci"
@@ -364,7 +352,10 @@
           # Minimal CI shell
           ci = haskellPackages.shellFor {
             packages = hindsightPackages;
-            buildInputs = coreBuildInputs ++ docsBuildInputs ++ [haskellPackages.weeder];
+            buildInputs = coreBuildInputs ++ docsBuildInputs ++ (with pkgs; [
+              haskellPackages.fourmolu
+              haskellPackages.weeder
+            ]);
 
             shellHook = ''
               export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath [ pkgs.zstd pkgs.zlib ]}"''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
@@ -376,9 +367,10 @@
               echo "CI workflow:"
               echo "  cabal build all --project-file=cabal.project.ci"
               echo "  cabal test all --project-file=cabal.project.ci"
+              echo "  fourmolu --mode check \$(find . -name '*.hs')"
               echo "  weeder"
               echo ""
-              echo "For full dev tools (HLS, ghcid), use: nix develop"
+              echo "For full dev tools (HLS, jq), use: nix develop"
             '';
           };
         });

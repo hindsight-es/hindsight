@@ -42,6 +42,7 @@ module Main where
 
 import Data.Aeson (FromJSON, ToJSON)
 import Data.ByteString.Char8 qualified as BS
+import Data.Functor.Contravariant ((>$<))
 import Data.Map.Strict qualified as Map
 import Data.Proxy (Proxy(..))
 import Data.Text (Text)
@@ -52,6 +53,7 @@ import GHC.Generics (Generic)
 import Hasql.Connection.Setting qualified as ConnectionSetting
 import Hasql.Connection.Setting.Connection qualified as ConnectionSettingConnection
 import Hasql.Decoders qualified as D
+import Hasql.Encoders qualified as E
 import Hasql.Pool qualified as Pool
 import Hasql.Pool.Config qualified as Config
 import Hasql.Session qualified as Session
@@ -115,14 +117,20 @@ customerTotalsProjection =
   where
     handleOrderForTotal eventData = do
       let order = eventData.payload :: OrderInfo
-      -- Use UPSERT to maintain running totals
-      Transaction.sql $
-        "INSERT INTO customer_totals (customer_id, total_spent, order_count) \
-        \VALUES ('" <> BS.pack (show order.customerId) <> "', "
-                    <> BS.pack (show order.amount) <> ", 1) \
-        \ON CONFLICT (customer_id) DO UPDATE SET \
-        \  total_spent = customer_totals.total_spent + EXCLUDED.total_spent, \
-        \  order_count = customer_totals.order_count + 1"
+      -- Use UPSERT with parameterized query (prevents SQL injection)
+      Transaction.statement (order.customerId, order.amount) upsertCustomerTotalStatement
+      where
+        upsertCustomerTotalStatement :: Statement (Text, Double) ()
+        upsertCustomerTotalStatement = Statement sql encoder decoder True
+          where
+            sql = "INSERT INTO customer_totals (customer_id, total_spent, order_count) \
+                  \VALUES ($1, $2, 1) \
+                  \ON CONFLICT (customer_id) DO UPDATE SET \
+                  \  total_spent = customer_totals.total_spent + EXCLUDED.total_spent, \
+                  \  order_count = customer_totals.order_count + 1"
+            encoder = (fst >$< E.param (E.nonNullable E.text))
+                   <> (snd >$< E.param (E.nonNullable E.float8))
+            decoder = D.noResult
 \end{code}
 
 Pattern 2: JOIN Projection
@@ -140,20 +148,31 @@ orderTrackingProjection =
   where
     handleOrderPlacement eventData = do
       let order = eventData.payload :: OrderInfo
-      Transaction.sql $
-        "INSERT INTO orders (order_id, customer_id, amount, paid) \
-        \VALUES ('" <> BS.pack (show order.orderId) <> "', '"
-                    <> BS.pack (show order.customerId) <> "', "
-                    <> BS.pack (show order.amount) <> ", FALSE)"
+      -- Parameterized INSERT (prevents SQL injection)
+      Transaction.statement (order.orderId, order.customerId, order.amount) insertOrderStatement
+      where
+        insertOrderStatement :: Statement (Text, Text, Double) ()
+        insertOrderStatement = Statement sql encoder decoder True
+          where
+            sql = "INSERT INTO orders (order_id, customer_id, amount, paid) \
+                  \VALUES ($1, $2, $3, FALSE)"
+            encoder = ((\(a, _, _) -> a) >$< E.param (E.nonNullable E.text))
+                   <> ((\(_, b, _) -> b) >$< E.param (E.nonNullable E.text))
+                   <> ((\(_, _, c) -> c) >$< E.param (E.nonNullable E.float8))
+            decoder = D.noResult
 
     handleOrderPayment eventData = do
       let payment = eventData.payload :: PaymentInfo
-      -- Update the order to mark it as paid
-      Transaction.sql $
-        "UPDATE orders SET paid = TRUE, payment_method = '"
-          <> BS.pack (show payment.paymentMethod)
-          <> "' WHERE order_id = '"
-          <> BS.pack (show payment.orderId) <> "'"
+      -- Parameterized UPDATE (prevents SQL injection)
+      Transaction.statement (payment.paymentMethod, payment.orderId) updateOrderStatement
+      where
+        updateOrderStatement :: Statement (Text, Text) ()
+        updateOrderStatement = Statement sql encoder decoder True
+          where
+            sql = "UPDATE orders SET paid = TRUE, payment_method = $1 WHERE order_id = $2"
+            encoder = (fst >$< E.param (E.nonNullable E.text))
+                   <> (snd >$< E.param (E.nonNullable E.text))
+            decoder = D.noResult
 \end{code}
 
 Demo: Advanced Queries

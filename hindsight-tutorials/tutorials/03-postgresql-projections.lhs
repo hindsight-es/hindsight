@@ -47,6 +47,7 @@ import Control.Concurrent (forkIO, killThread)
 import Control.Exception (bracket)
 import Data.Aeson (FromJSON, ToJSON)
 import Data.ByteString.Char8 qualified as BS
+import Data.Functor.Contravariant ((>$<))
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text.Encoding (decodeUtf8)
@@ -57,6 +58,7 @@ import Hasql.Connection qualified as Connection
 import Hasql.Connection.Setting qualified as ConnectionSetting
 import Hasql.Connection.Setting.Connection qualified as ConnectionSettingConnection
 import Hasql.Decoders qualified as D
+import Hasql.Encoders qualified as E
 import Hasql.Pool qualified as Pool
 import Hasql.Pool.Config qualified as Config
 import Hasql.Session qualified as Session
@@ -96,7 +98,9 @@ Create a Projection Handler
 ----------------------------
 
 Projection handlers execute SQL in PostgreSQL transactions. The handler logic is the same
-regardless of which backend provides the events:
+regardless of which backend provides the events.
+
+**IMPORTANT**: Always use parameterized queries to prevent SQL injection vulnerabilities.
 
 \begin{code}
 -- Projection handler logic - updates a PostgreSQL table
@@ -104,14 +108,18 @@ regardless of which backend provides the events:
 handleUserRegistration :: EventEnvelope UserRegistered backend -> Transaction.Transaction ()
 handleUserRegistration eventData = do
   let payload = eventData.payload :: UserInfo
-  -- Insert into our users table using raw SQL
-  -- This runs in a PostgreSQL transaction, regardless of event backend
-  Transaction.sql $
-    "INSERT INTO users (user_id, user_name) VALUES ('"
-      <> BS.pack (show payload.userId)
-      <> "', '"
-      <> BS.pack (show payload.userName)
-      <> "')"
+  -- Use parameterized query for security (prevents SQL injection)
+  -- Encoder: (userId, userName) -> SQL parameters
+  -- Decoder: () (no result expected)
+  Transaction.statement (payload.userId, payload.userName) insertUserStatement
+  where
+    insertUserStatement :: Statement (Text, Text) ()
+    insertUserStatement = Statement sql encoder decoder True
+      where
+        sql = "INSERT INTO users (user_id, user_name) VALUES ($1, $2)"
+        encoder = (fst >$< E.param (E.nonNullable E.text))
+               <> (snd >$< E.param (E.nonNullable E.text))
+        decoder = D.noResult
 \end{code}
 
 Demo: Backend-Agnostic PostgreSQL Projections
