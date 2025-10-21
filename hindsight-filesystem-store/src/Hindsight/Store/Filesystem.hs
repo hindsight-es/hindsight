@@ -19,48 +19,90 @@ License     : BSD3
 Maintainer  : maintainer@example.com
 Stability   : experimental
 
-This module provides a filesystem-based implementation of the event store,
-persisting events as JSON files on disk. It's suitable for single-node
-deployments where durability is needed without requiring a database.
+= Overview
 
-= Storage Format
+File-based event store persisting events as JSON on disk. Provides durability without
+requiring a database. Suitable for single-node deployments with moderate event volumes.
 
-Events are stored in an append-only JSON log file (@events.log@). Each line
-contains a complete transaction with its events. All writes are atomic using
-file system primitives and file locking.
+Events stored in append-only @events.log@ file. Multi-process support via file locking
+and fsnotify change detection.
 
-__Note on Indexing__: Currently there are no separate index files on disk.
-Stream indices are maintained purely in-memory and rebuilt on startup by
-replaying the event log. This approach keeps the implementation simple but
-means startup time grows linearly with the total number of events. Future
-versions may add persistent index files (e.g., B-tree indices) to improve
-startup performance for large event logs.
+= Quick Start
 
-= Architecture
+@
+import Hindsight.Store.Filesystem
 
-The filesystem store is implemented as a persistence layer over the memory
-store infrastructure. Events are written to disk and then loaded into the
-same in-memory data structures used by 'MemoryStore'. This design maximizes
-code sharing but means the filesystem store inherits the memory store's
-characteristics: all indices (and some recent event metadata) must fit in
-memory.
+main :: IO ()
+main = do
+  -- Create store with default config
+  config <- mkDefaultConfig "./events"
+  store <- newFilesystemStore config
 
-= Key Features
+  -- Insert events (see Hindsight.Store for details)
+  streamId <- StreamId \<$\> UUID.nextRandom
+  let event = mkEvent MyEvent myData
+  result <- insertEvents store Nothing $ singleEvent streamId NoStream event
 
-The store provides durable, ACID-compliant event storage with multi-process
-support. Writes are serialized using file locks to prevent corruption.
-Subscriptions use fsnotify to detect changes written by other processes,
-enabling multiple readers and writers to safely share the same event log.
-Event reloading is automatic and incremental. Cross-platform file watching
-is supported via fsnotify (macOS FSEvents, Linux inotify, Windows).
+  -- Subscribe to events
+  handle <- subscribe store matcher (EventSelector AllStreams FromBeginning)
+  -- ... process events ...
 
-= Limitations
+  -- Cleanup when done
+  cleanupFilesystemStore store
+@
 
-Performance is limited by disk I/O characteristics. Memory usage is comparable
-to 'MemoryStore' for the working set - all indices and recent metadata must
-fit in RAM. Startup time grows linearly with total event count due to log
-replay. The store is not suitable for distributed systems spanning multiple
-nodes; use the PostgreSQL backend for distributed scenarios.
+= Configuration
+
+'FilesystemStoreConfig' has three parameters:
+
+* @storePath@ - Directory for event log and lock file
+* @syncInterval@ - Disk sync frequency (microseconds, 0 = sync every write)
+* @lockTimeout@ - Max time to wait for file lock (microseconds)
+
+Use 'mkDefaultConfig' for sensible defaults or construct manually for custom settings.
+
+= Use Cases
+
+__When to use Filesystem store:__
+
+* Single-node applications requiring durability
+* Development/staging environments
+* Embedded systems or edge deployments
+* Apps that can't run PostgreSQL (resource constraints, deployment complexity)
+* Multi-process applications on same host
+
+__When NOT to use Filesystem store:__
+
+* Distributed multi-node systems (use PostgreSQL)
+* Very high event throughput (PostgreSQL performs better)
+* Large event volumes (startup replay becomes slow)
+
+= Trade-offs
+
+__Advantages:__
+
+* Events survive process restarts (durable)
+* No database dependency
+* Multi-process support on same host
+* Simple deployment (just a directory)
+* ACID guarantees via file locking
+
+__Limitations:__
+
+* Startup time grows with event count (linear log replay)
+* All indices must fit in memory
+* Single-node only (no distributed support)
+* Performance limited by disk I/O
+* Not suitable for very large datasets
+
+= Implementation
+
+Persistence layer over Memory store infrastructure. Events written to disk then loaded
+into in-memory STM structures. File locking serializes writes. fsnotify detects changes
+from other processes for incremental reloading.
+
+Storage format: Append-only JSON log (@events.log@), one transaction per line.
+Stream indices rebuilt on startup by replaying log.
 -}
 module Hindsight.Store.Filesystem
   ( -- * Store Types

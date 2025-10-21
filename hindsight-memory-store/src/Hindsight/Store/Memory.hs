@@ -18,7 +18,69 @@ License     : BSD3
 Maintainer  : maintainer@example.com
 Stability   : experimental
 
-In-memory implementation using STM. Data is lost on process termination.
+= Overview
+
+In-memory event store using STM (Software Transactional Memory) for fast, concurrent access.
+Ideal for testing, development, and scenarios where events don't need to survive process restarts.
+
+⚠️  __Data is lost on process termination__ - not suitable for production use.
+
+= Quick Start
+
+@
+import Hindsight.Store.Memory (newMemoryStore)
+import Hindsight
+
+main :: IO ()
+main = do
+  -- Create store
+  store <- newMemoryStore
+
+  -- Insert events (see Hindsight.Store for details)
+  streamId <- StreamId \<$\> UUID.nextRandom
+  let event = mkEvent MyEvent myData
+  result <- insertEvents store Nothing $ singleEvent streamId NoStream event
+
+  -- Subscribe to events
+  handle <- subscribe store matcher (EventSelector AllStreams FromBeginning)
+  -- ... process events ...
+@
+
+= Use Cases
+
+__When to use Memory store:__
+
+* Unit and integration tests (fast, isolated)
+* Development and prototyping
+* Temporary event processing pipelines
+* Scenarios where persistence isn't required
+
+__When NOT to use Memory store:__
+
+* Production systems requiring durability
+* Multi-process applications (each process has separate state)
+* Long-running services that can't afford data loss
+
+= Trade-offs
+
+__Advantages:__
+
+* Fastest performance (no I/O)
+* No external dependencies
+* Simple setup (single function call)
+* Thread-safe via STM
+
+__Limitations:__
+
+* Data lost on process termination or crash
+* Memory usage grows with event count
+* Single-process only (no sharing between instances)
+* No built-in persistence or snapshots
+
+= Implementation
+
+Events and stream metadata stored in-memory using STM 'TVar's.
+Subscriptions use 'STM' retry mechanism for efficient event notification.
 -}
 module Hindsight.Store.Memory
   ( -- * Core Types

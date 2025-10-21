@@ -3,17 +3,107 @@
 
 {-|
 Module      : Hindsight.Store.PostgreSQL
-Description : PostgreSQL-backed event store
+Description : PostgreSQL-backed event store with ACID guarantees
 Copyright   : (c) 2024
 License     : BSD3
 Maintainer  : maintainer@example.com
 Stability   : experimental
 
-PostgreSQL backend with ACID guarantees and support for sync/async projections.
+= Overview
 
-Sync projections execute within the event insertion transaction and track
-their state in the 'projections' table. On startup, projections catch up
-from their last processed position.
+PostgreSQL-backed event store providing full ACID guarantees, scalability, and
+production-ready durability. Supports both synchronous and asynchronous projections.
+
+Recommended for production systems, distributed deployments, and applications
+requiring strong consistency guarantees.
+
+= Quick Start
+
+@
+import Hindsight.Store.PostgreSQL
+
+main :: IO ()
+main = do
+  -- Create store
+  let connStr = "postgresql://localhost/events"
+  store <- newSQLStore connStr
+
+  -- Initialize schema (run once)
+  Pool.use (getPool store) createSQLSchema
+
+  -- Insert events (see Hindsight.Store for details)
+  streamId <- StreamId \<$\> UUID.nextRandom
+  let event = mkEvent MyEvent myData
+  result <- insertEvents store Nothing $ singleEvent streamId NoStream event
+
+  -- Subscribe to events
+  handle <- subscribe store matcher (EventSelector AllStreams FromBeginning)
+  -- ... process events ...
+
+  -- Cleanup when done
+  shutdownSQLStore store
+@
+
+= Configuration
+
+Connection via PostgreSQL connection string. Pool size defaults to 300 connections.
+
+For custom configuration, use 'newSQLStoreWithProjections' to register synchronous projections
+that execute within event insertion transactions.
+
+= Use Cases
+
+__When to use PostgreSQL store:__
+
+* Production systems requiring durability and ACID guarantees
+* Distributed multi-node deployments
+* High event throughput scenarios
+* Large event volumes (millions+ events)
+* Applications needing advanced SQL querying
+* Systems requiring synchronous projections (strong consistency)
+
+__When NOT to use PostgreSQL store:__
+
+* Simple testing (use Memory store)
+* Single-node apps without database (use Filesystem store)
+* Environments where PostgreSQL can't be deployed
+* Prototypes and development (unless testing PostgreSQL-specific features)
+
+= Trade-offs
+
+__Advantages:__
+
+* Full ACID guarantees (PostgreSQL transactions)
+* Scales to millions of events
+* Distributed multi-node support
+* Advanced querying via SQL
+* Synchronous projections (consistency within single transaction)
+* LISTEN/NOTIFY for efficient subscriptions
+* Battle-tested PostgreSQL reliability
+
+__Limitations:__
+
+* Requires PostgreSQL database
+* More complex deployment than Memory/Filesystem
+* Higher resource requirements
+* Network latency for remote databases
+
+= Sync vs Async Projections
+
+__Synchronous Projections:__ Execute within event insertion transaction. Changes to events
+and projection state are atomic. Use 'registerSyncProjection' and 'newSQLStoreWithProjections'.
+Guarantees strong consistency but adds latency to writes.
+
+__Asynchronous Projections:__ Run separately using 'runProjection' from hindsight-postgresql-projections.
+Process events after they're committed. Better write performance but eventual consistency.
+
+= Implementation
+
+Events stored in @events@ table with compound key @(transaction_no, seq_no)@ for total ordering.
+Stream metadata in @stream_heads@ table. Projection state in @projections@ table.
+LISTEN/NOTIFY used for efficient subscription updates.
+
+See 'Hindsight.Store.PostgreSQL.Core.Schema' for complete schema DDL.
 -}
 module Hindsight.Store.PostgreSQL
   ( newSQLStore,

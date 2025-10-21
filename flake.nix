@@ -316,6 +316,7 @@
 
           # Full dev tools (minimal set for daily development)
           devTools = coreBuildInputs ++ docsBuildInputs ++ (with pkgs; [
+            git
             haskellPackages.fourmolu
             haskellPackages.haskell-language-server
             jq

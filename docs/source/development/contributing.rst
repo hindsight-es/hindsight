@@ -135,11 +135,17 @@ Pull Request Process
    
       cabal run hindsight-test
 
-5. **Format code** with Ormolu:
+5. **Format code** with Fourmolu:
 
    .. code-block:: bash
-   
-      ormolu --mode inplace $(find . -name '*.hs')
+
+      fourmolu --mode inplace $(find . -name '*.hs')
+
+   **Note:** CI automatically checks code formatting and will reject unformatted code. You can test this locally with:
+
+   .. code-block:: bash
+
+      fourmolu --mode check $(find . -name '*.hs')
 
 6. **Submit a pull request** with:
    - Clear description of changes
@@ -151,7 +157,7 @@ Review Process
 
 All pull requests go through code review:
 
-- **Automated checks**: CI runs tests and formatting checks
+- **Automated checks**: CI runs tests, formatting checks, and weeder
 - **Manual review**: Core maintainers review code and design
 - **Discussion**: Address feedback and questions
 - **Approval**: At least one maintainer approval required
