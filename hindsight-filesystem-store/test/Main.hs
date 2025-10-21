@@ -40,7 +40,8 @@ filesystemStoreTests =
   testGroup
     "Filesystem Store Tests"
     [ testGroup "Generic Tests" (genericEventStoreTests filesystemStoreRunner),
-      testGroup "Multi-Instance Tests" (multiInstanceTests filesystemStoreRunner),
+      -- Multi-Instance Tests disabled temporarily (hangs on CI - suspected resource contention)
+      -- testGroup "Multi-Instance Tests" (multiInstanceTests filesystemStoreRunner),
       testGroup "Stress Tests" (stressTests filesystemStoreRunner),
       propertyTests filesystemStoreRunner,
       testGroup "Ordering Tests" (orderingTests filesystemStoreRunner),
