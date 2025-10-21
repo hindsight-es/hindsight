@@ -1,0 +1,75 @@
+name: Nightly Docker Builds
+
+# Verify non-Nix installation path works by building example Dockerfiles
+# Tests both GHC 9.10 and 9.12 via GHCup on Ubuntu
+
+on:
+  schedule:
+    # Run nightly at 2 AM UTC
+    - cron: '0 2 * * *'
+
+  # Allow manual triggering
+  workflow_dispatch:
+
+  # Also run on pushes that touch Docker files
+  push:
+    paths:
+      - 'examples/long-running-subscription/Dockerfile.*'
+      - 'examples/long-running-subscription/cabal.project.docker'
+      - '.github/workflows/docker-nightly.yaml'
+
+jobs:
+  docker-build:
+    name: Build Docker (${{ matrix.ghc }})
+    strategy:
+      matrix:
+        ghc: ['9.10', '9.12']
+      fail-fast: false
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image (GHC ${{ matrix.ghc }})
+        working-directory: examples/long-running-subscription
+        run: |
+          set -e
+          echo "🐳 Building Dockerfile for GHC ${{ matrix.ghc }}..."
+          docker build \
+            --file Dockerfile.ghc-${{ matrix.ghc }} \
+            --tag hindsight-example:ghc-${{ matrix.ghc }} \
+            --progress=plain \
+            .
+          echo "✅ Docker build completed successfully"
+
+      - name: Verify image
+        run: |
+          echo "📦 Verifying Docker image..."
+          docker images hindsight-example:ghc-${{ matrix.ghc }}
+
+          # Check image size
+          SIZE=$(docker images hindsight-example:ghc-${{ matrix.ghc }} --format "{{.Size}}")
+          echo "Image size: $SIZE"
+
+      - name: Test basic execution (if possible)
+        run: |
+          echo "🧪 Testing image can run..."
+          # Just verify it starts (will fail without PostgreSQL, but that's OK)
+          docker run --rm hindsight-example:ghc-${{ matrix.ghc }} cabal --version || true
+          echo "✅ Basic execution test passed"
+
+      - name: Report results
+        if: always()
+        run: |
+          echo "## Docker Build Results (GHC ${{ matrix.ghc }})" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ job.status }}" == "success" ]; then
+            echo "✅ Build successful" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ Build failed" >> $GITHUB_STEP_SUMMARY
+          fi

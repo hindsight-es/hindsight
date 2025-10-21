@@ -1,6 +1,17 @@
 {
   description = "Hindsight - Type-safe event sourcing system";
 
+  # Automatic binary cache configuration
+  # Users with Nix flakes enabled will automatically use hindsight-es cachix
+  nixConfig = {
+    extra-substituters = [
+      "https://hindsight-es.cachix.org"
+    ];
+    extra-trusted-public-keys = [
+      "hindsight-es.cachix.org-1:2UQwF1OeL+6JQqIEhPXRivkNIRuO5dNcBrWYZ3vbpWk="
+    ];
+  };
+
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
   };
@@ -274,6 +285,17 @@
             }
           );
 
+          # All Hindsight packages (shared between dev shells)
+          hindsightPackages = p: [
+            p.hindsight-core
+            p.hindsight-memory-store
+            p.hindsight-filesystem-store
+            p.hindsight-postgresql-store
+            p.hindsight-postgresql-projections
+            p.hindsight-tutorials
+            p.hindsight-website
+          ];
+
           # Core dependencies
           coreBuildInputs = with pkgs; [
             haskellPackages.cabal-install
@@ -294,6 +316,7 @@
 
           # Full dev tools
           devTools = coreBuildInputs ++ docsBuildInputs ++ (with pkgs; [
+            haskellPackages.fourmolu
             haskellPackages.ghcid
             haskellPackages.graphmod
             haskellPackages.weeder
@@ -313,47 +336,49 @@
         in {
           # Full development shell
           default = haskellPackages.shellFor {
-            packages = p: [ ];
+            packages = hindsightPackages;
             buildInputs = devTools;
 
             shellHook = ''
               export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath [ pkgs.zstd pkgs.zlib ]}"''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
 
-              echo "🚀 Hindsight development environment"
+              echo "🚀 Hindsight development environment (full)"
               echo "Using GHC: $(ghc --version)"
               echo "Using Cabal: $(cabal --version)"
+              echo ""
+              echo "Available tools:"
+              echo "  - Haskell Language Server (HLS)"
+              echo "  - ghcid (fast rebuilds)"
+              echo "  - graphmod (dependency visualization)"
+              echo "  - weeder (dead code detection)"
               echo ""
               echo "Dev workflow:"
               echo "  cabal build all              - Build all packages"
               echo "  cabal test                   - Run test suite"
               echo "  cd docs && make html         - Build documentation"
               echo ""
-              echo "Nix build:"
-              echo "  nix build .#hindsight-website  - Build website generator (for hindsight.events)"
+              echo "For CI-like builds, use: nix develop .#ci"
             '';
           };
 
           # Minimal CI shell
           ci = haskellPackages.shellFor {
-            packages = p: [
-              p.hindsight-core
-              p.hindsight-memory-store
-              p.hindsight-filesystem-store
-              p.hindsight-postgresql-store
-              p.hindsight-postgresql-projections
-              p.hindsight-tutorials
-              p.hindsight-website
-
-            ];
+            packages = hindsightPackages;
             buildInputs = coreBuildInputs ++ docsBuildInputs ++ [haskellPackages.weeder];
 
             shellHook = ''
               export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath [ pkgs.zstd pkgs.zlib ]}"''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
 
-              echo "📦 Hindsight CI environment"
+              echo "📦 Hindsight CI environment (minimal)"
               echo "Using GHC: $(ghc --version)"
               echo "Using Cabal: $(cabal --version)"
               echo ""
+              echo "CI workflow:"
+              echo "  cabal build all --project-file=cabal.project.ci"
+              echo "  cabal test all --project-file=cabal.project.ci"
+              echo "  weeder"
+              echo ""
+              echo "For full dev tools (HLS, ghcid), use: nix develop"
             '';
           };
         });

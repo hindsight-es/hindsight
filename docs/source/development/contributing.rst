@@ -6,19 +6,36 @@ We welcome contributions to Hindsight! This guide will help you get started.
 Development Setup
 -----------------
 
-1. Clone the repository
-2. Set up the development environment using devenv:
+1. **Clone the repository**
 
 .. code-block:: bash
 
-   devenv shell
+   git clone https://github.com/hindsight-es/hindsight.git
+   cd hindsight
 
-3. Build and test to ensure everything works:
+2. **Enter Development Environment**
+
+Binary caching is configured automatically in ``flake.nix``:
+
+.. code-block:: bash
+
+   # Full development environment (recommended for contributors)
+   nix develop
+
+   # OR: Use direnv for automatic activation
+   echo "use flake" > .envrc
+   direnv allow
+
+The development environment includes HLS, ghcid, weeder, and all necessary tools. Hindsight's cachix cache will be used automatically for pre-built binaries.
+
+3. **Verify Setup**
 
 .. code-block:: bash
 
    cabal build all
    cabal run hindsight-test
+
+If tests pass, you're ready to contribute!
 
 Code Style
 ----------
@@ -27,9 +44,10 @@ Hindsight follows these coding conventions:
 
 Formatting
 ~~~~~~~~~~
-- Use Ormolu for automatic code formatting
-- Pre-commit hooks enforce formatting
+- Use Fourmolu for automatic code formatting (more flexible than Ormolu)
+- Run ``fourmolu --mode inplace $(find . -name '*.hs')`` before committing
 - Line length: 80 characters preferred, 100 maximum
+- Fourmolu is provided in the Nix development environment
 
 Haskell Style
 ~~~~~~~~~~~~~
