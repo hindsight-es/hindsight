@@ -26,6 +26,7 @@ import Hasql.Statement (Statement)
 import Hasql.TH
 import Hasql.Transaction qualified as HasqlTransaction
 import Hindsight.Projection (ProjectionId (..))
+import Hindsight.Projection.State qualified as ProjectionState
 import Hindsight.Store.PostgreSQL.Core.Types (SQLCursor (..))
 
 -- | State of a sync projection in the database
@@ -42,41 +43,24 @@ data SyncProjectionState = SyncProjectionState
 
 
 -- | Update sync projection state after successful processing
+--
+-- Uses the shared upsert operation from Hindsight.Projection.State
+-- which handles cursor updates and error clearing.
 updateSyncProjectionState :: ProjectionId -> SQLCursor -> HasqlTransaction.Transaction ()
 updateSyncProjectionState (ProjectionId projId) cursor = do
   HasqlTransaction.statement
     (projId, Aeson.toJSON cursor)
-    updateStateStmt
-  where
-    updateStateStmt :: Statement (Text, Aeson.Value) ()
-    updateStateStmt =
-      [resultlessStatement|
-        UPDATE projections
-        SET head_position = $2 :: jsonb,
-            last_updated = NOW(),
-            is_active = true,
-            error_message = NULL,
-            error_timestamp = NULL
-        WHERE id = $1 :: text
-      |]
+    ProjectionState.upsertProjectionCursor
 
 
 -- | Register a sync projection in the database if it doesn't exist
+--
+-- Uses the shared registration operation from Hindsight.Projection.State.
 registerSyncProjectionInDb :: ProjectionId -> HasqlTransaction.Transaction ()
 registerSyncProjectionInDb (ProjectionId projId) = do
   HasqlTransaction.statement
     projId
-    registerStmt
-  where
-    registerStmt :: Statement Text ()
-    registerStmt =
-      [resultlessStatement|
-        INSERT INTO projections 
-          (id, last_updated, is_active)
-        VALUES 
-          ($1 :: text, NOW(), true)
-        ON CONFLICT (id) DO NOTHING
-      |]
+    ProjectionState.registerProjection
 
 -- | Get all active sync projections from the database
 getActiveProjections :: HasqlTransaction.Transaction [SyncProjectionState]
