@@ -44,3 +44,33 @@ library
     hs-source-dirs:   src
     default-language: GHC2021
     default-extensions: OverloadedRecordDot, DataKinds, DuplicateRecordFields, StrictData, Strict, RequiredTypeArguments
+
+test-suite hindsight-postgresql-projections-test
+    import:           warnings, opts
+    default-language: GHC2021
+    type:             exitcode-stdio-1.0
+    ghc-options:      -threaded -rtsopts
+    hs-source-dirs:   test
+    main-is:          Main.hs
+    other-modules:    Test.Hindsight.Projection
+    build-depends:
+        base,
+        aeson,
+        bytestring,
+        containers,
+        hasql,
+        hasql-pool,
+        hasql-th,
+        hasql-transaction,
+        hindsight-core,
+        hindsight-core:event-testing,
+        hindsight-core:store-testing,
+        hindsight-memory-store,
+        hindsight-postgresql-projections,
+        stm,
+        tasty,
+        tasty-hunit,
+        text,
+        tmp-postgres,
+        unliftio,
+        uuid
