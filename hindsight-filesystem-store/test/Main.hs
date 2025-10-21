@@ -29,7 +29,7 @@ filesystemStoreRunner =
         dir <- mkdtemp "/tmp/store-path-multi"
         let config = mkDefaultConfig dir
         bracket
-          (replicateM n (openFilesystemStore config))
+          (replicateM n (newFilesystemStore config))
           (\stores -> mapM_ cleanupFilesystemStore stores)
           (void . action)
     }

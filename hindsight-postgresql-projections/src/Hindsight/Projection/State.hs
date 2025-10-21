@@ -36,17 +36,13 @@ module Hindsight.Projection.State
   ( -- * State Update Operations
     upsertProjectionCursor,
     registerProjection,
-
-    -- * State Query Operations
-    getProjectionCursor,
   )
 where
 
 import Data.Aeson qualified as Aeson
 import Data.Text (Text)
-import Data.Time (UTCTime)
 import Hasql.Statement (Statement (..))
-import Hasql.TH (maybeStatement, resultlessStatement)
+import Hasql.TH (resultlessStatement)
 
 -- | Update or insert projection cursor position with error clearing.
 --
@@ -85,13 +81,3 @@ registerProjection =
     ON CONFLICT (id) DO NOTHING
   |]
 
--- | Fetch current cursor position for a projection.
---
--- Returns Nothing if the projection has never been run or has no cursor stored.
-getProjectionCursor :: Statement Text (Maybe Aeson.Value)
-getProjectionCursor =
-  [maybeStatement|
-    SELECT head_position :: jsonb
-    FROM projections
-    WHERE id = $1 :: text AND head_position IS NOT NULL
-  |]

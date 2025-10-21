@@ -111,8 +111,8 @@ testStoreReload = testCase "Store Reload" $ do
     case result1 of
       FailedInsertion err -> assertFailure $ "Failed to insert events: " ++ show err
       SuccessfulInsertion _ -> do
-        -- Create new store instance pointing to same directory
-        store2 <- openFilesystemStore (getStoreConfig store)
+        -- Create new store instance pointing to same directory (will auto-reload)
+        store2 <- newFilesystemStore (getStoreConfig store)
 
         -- Try to write with NoStream - should fail if state was properly reloaded
         result2 <-
@@ -143,8 +143,8 @@ testLogFileCorruption = testCase "Log File Corruption Throws Exception" $ do
     -- Corrupt the log file by appending invalid JSON
     BL.appendFile paths.eventLogPath "invalid json\n"
 
-    -- Try to open new store instance - should throw CorruptEventLog
-    result <- try @StoreException $ openFilesystemStore (getStoreConfig store)
+    -- Try to open new store instance - should throw CorruptEventLog during auto-reload
+    result <- try @StoreException $ newFilesystemStore (getStoreConfig store)
 
     case result of
       Left (CorruptEventLog path reason) -> do
@@ -154,7 +154,7 @@ testLogFileCorruption = testCase "Log File Corruption Throws Exception" $ do
       Left (LockTimeout _) ->
         assertFailure "Got LockTimeout instead of CorruptEventLog"
       Right _ ->
-        assertFailure "Expected CorruptEventLog exception but openFilesystemStore succeeded"
+        assertFailure "Expected CorruptEventLog exception but newFilesystemStore succeeded"
 
 -- | Run concurrent stream updates in parallel and check that all succeed
 -- This tests the success case for concurrent writes to independent streams
@@ -270,8 +270,8 @@ testCrossInstanceSequenceNumbering = testCase "Cross-Instance Sequence Numbering
   testDir <- createTempDirectory tmpDir "event-store-seq-test"
   let config = mkDefaultConfig testDir
 
-  store1 <- openFilesystemStore config
-  store2 <- openFilesystemStore config
+  store1 <- newFilesystemStore config
+  store2 <- newFilesystemStore config
 
   streamId1 <- StreamId <$> UUID.nextRandom
   streamId2 <- StreamId <$> UUID.nextRandom

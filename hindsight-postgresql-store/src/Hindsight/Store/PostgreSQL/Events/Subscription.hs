@@ -37,14 +37,12 @@ module Hindsight.Store.PostgreSQL.Events.Subscription
   ( startNotifier
   , shutdownNotifier
   , subscribe
-  , subscribeWithRetryAndAsync
   , RetryPolicy(..)
   , RetryConfig(..)
-  , conservativeRetryConfig
   ) where
 
 import Control.Concurrent (threadDelay)
-import Control.Concurrent.Async (async, cancel, wait, Async)
+import Control.Concurrent.Async (async, cancel, wait)
 import Control.Concurrent.STM
   ( TChan,
     atomically,
@@ -68,7 +66,6 @@ import Data.Text.Encoding (decodeUtf8)
 import Data.Time (UTCTime)
 import Data.UUID (UUID)
 import GHC.Generics (Generic)
-import System.Random (randomRIO)
 import Hasql.Connection qualified as Connection
 import Hasql.Connection.Setting qualified as ConnectionSetting
 import Hasql.Connection.Setting.Connection qualified as ConnectionSettingConnection
@@ -116,62 +113,6 @@ data RetryConfig = RetryConfig
   , sessionRetryPolicy :: Maybe RetryPolicy       -- For session/query errors
   , timeoutRetryPolicy :: Maybe RetryPolicy       -- For timeout errors
   } deriving (Show, Eq, Generic)
-
--- | Conservative retry config - only retry connection issues
-conservativeRetryConfig :: RetryConfig
-conservativeRetryConfig = RetryConfig
-  { connectionRetryPolicy = Just $ RetryPolicy 
-      { maxRetries = 20
-      , baseDelayMs = 100
-      , maxDelayMs = 5000
-      , backoffMultiplier = 2.0
-      , jitterPercent = 0.1
-      }
-  , sessionRetryPolicy = Nothing      -- Don't retry query errors
-  , timeoutRetryPolicy = Just $ RetryPolicy
-      { maxRetries = 2
-      , baseDelayMs = 50
-      , maxDelayMs = 1000
-      , backoffMultiplier = 1.5
-      , jitterPercent = 0.2
-      }
-  }
-
--- | Get retry policy for a specific error type
-getRetryPolicyForError :: RetryConfig -> UsageError -> Maybe RetryPolicy
-getRetryPolicyForError config err = case err of
-  ConnectionUsageError _ -> config.connectionRetryPolicy
-  SessionUsageError _ -> config.sessionRetryPolicy
-  AcquisitionTimeoutUsageError -> config.timeoutRetryPolicy
-
--- | Calculate delay with exponential backoff and jitter
-calculateRetryDelay :: RetryPolicy -> Int -> IO Int
-calculateRetryDelay policy attemptNumber = do
-  let baseDelay = fromIntegral policy.baseDelayMs
-      exponential = baseDelay * (policy.backoffMultiplier ** fromIntegral attemptNumber)
-      capped = min exponential (fromIntegral policy.maxDelayMs)
-      jitterAmount = capped * policy.jitterPercent
-  
-  -- Add random jitter to avoid thundering herd
-  jitter <- randomRIO (-jitterAmount, jitterAmount)
-  pure $ round (capped + jitter)
-
--- | Retry an action with exponential backoff
-retryWithBackoff :: RetryPolicy -> IO (Either UsageError a) -> IO (Either UsageError a)
-retryWithBackoff policy action = go 0
-  where
-    go attemptNumber
-      | attemptNumber >= policy.maxRetries = action  -- Final attempt
-      | otherwise = do
-          result <- action
-          case result of
-            Right success -> pure $ Right success
-            Left err -> do
-              delay <- calculateRetryDelay policy attemptNumber
-              putStrLn $ "Retry attempt " <> show (attemptNumber + 1) <> "/" <> show policy.maxRetries <> 
-                        " in " <> show delay <> "ms: " <> show err
-              threadDelay (delay * 1000)  -- Convert ms to microseconds
-              go (attemptNumber + 1)
 
 -- | Determines if a Pool usage error should cause immediate crash (no retry)
 shouldCrashImmediately :: UsageError -> Bool
@@ -269,36 +210,6 @@ subscribe handle matcher selector = do
         wait = wait workerThread
       }
 
-
--- | Subscribe with retry configuration and async handle access
-subscribeWithRetryAndAsync ::
-  forall m ts.
-  (MonadUnliftIO m) =>
-  SQLStoreHandle ->
-  EventMatcher ts SQLStore m ->
-  EventSelector SQLStore ->
-  RetryConfig ->
-  m (Store.SubscriptionHandle SQLStore, Async ())
-subscribeWithRetryAndAsync handle matcher selector retryConfig = do
-  runInIO <- askRunInIO
-  liftIO $ do
-    -- Get a personal channel from the notifier's broadcast
-    tickChannel <- atomically $ dupTChan (notifierChannel (notifier handle))
-
-    let initialCursor = case selector.startupPosition of
-          FromBeginning -> SQLCursor (-1) (-1)
-          FromLastProcessed cursor -> cursor
-
-    -- Spawn an independent worker thread with retry support
-    workerThread <- async $ runInIO $ workerLoopWithRetry (pool handle) tickChannel initialCursor matcher selector retryConfig
-
-    -- Return both the handle and the async
-    let subscriptionHandle = Store.SubscriptionHandle
-          { cancel = cancel workerThread,
-            wait = wait workerThread
-          }
-    pure (subscriptionHandle, workerThread)
-
 -- | The main loop for an individual subscriber worker.
 workerLoop ::
   (MonadUnliftIO m) =>
@@ -315,40 +226,6 @@ workerLoop pool tickChannel initialCursor matcher selector = do
   let loop = do
         cursor <- readIORef cursorRef
         batch <- fetchEventBatch pool cursor batchSize selector
-
-        if null batch
-          then do
-            -- No events available, wait for notification
-            liftIO $ atomically $ readTChan tickChannel
-            loop  -- Continue loop
-          else do
-            -- Process the batch of events
-            (newCursor, shouldContinue) <- processEventBatch matcher batch
-            writeIORef cursorRef newCursor
-            -- Only continue if handler didn't return Stop
-            if shouldContinue
-              then loop
-              else pure ()  -- Exit loop on Stop
-
-  loop
-
--- | Worker loop with retry support for resilient error handling
-workerLoopWithRetry ::
-  (MonadUnliftIO m) =>
-  Pool ->
-  TChan () ->
-  SQLCursor ->
-  EventMatcher ts SQLStore m ->
-  EventSelector SQLStore ->
-  RetryConfig ->
-  m ()
-workerLoopWithRetry pool tickChannel initialCursor matcher selector retryConfig = do
-  cursorRef <- newIORef initialCursor
-  let batchSize = 1000 -- A configurable batch size would be better
-
-  let loop = do
-        cursor <- readIORef cursorRef
-        batch <- fetchEventBatchWithRetry pool cursor batchSize selector retryConfig
 
         if null batch
           then do
@@ -403,62 +280,6 @@ fetchEventBatch pool cursor limit selector = liftIO $ do
       if shouldCrashImmediately err
         then throwIO (createSubscriptionFailure err)
         else pure []  -- Could add retry logic here for recoverable errors
-  where
-    decoder = D.rowList $ EventData
-        <$> D.column (D.nonNullable D.int8)
-        <*> D.column (D.nonNullable D.int4)
-        <*> D.column (D.nonNullable D.uuid)
-        <*> D.column (D.nonNullable D.uuid)
-        <*> D.column (D.nullable D.uuid)
-        <*> D.column (D.nonNullable D.timestamptz)
-        <*> D.column (D.nonNullable D.text)
-        <*> D.column (D.nonNullable D.int4)
-        <*> D.column (D.nonNullable D.jsonb)
-        <*> D.column (D.nonNullable D.int8)
-
-
--- | Fetches a batch of events with retry logic for resilient error handling
-fetchEventBatchWithRetry ::
-  (MonadIO m) =>
-  Pool ->
-  SQLCursor ->
-  Int ->
-  EventSelector SQLStore ->
-  RetryConfig ->
-  m [EventData]
-fetchEventBatchWithRetry pool cursor limit selector retryConfig = liftIO $ do
-  let (sql, params) = case selector.streamId of
-        AllStreams -> (allStreamsSql, allStreamsEncoder)
-        SingleStream _ -> (singleStreamSql, singleStreamEncoder)
-
-      statement = Statement sql params decoder True
-      runSession = Session.statement (cursor, limit, selector) statement
-
-      -- Action to retry
-      fetchAction = Pool.use pool runSession
-
-  -- First attempt
-  firstAttempt <- fetchAction
-  case firstAttempt of
-    Right events -> pure events
-    Left err -> do
-      -- Check if we should crash immediately
-      if shouldCrashImmediately err
-        then throwIO (createSubscriptionFailure err)
-        else case getRetryPolicyForError retryConfig err of
-          Nothing -> do
-            -- No retry policy for this error type - crash
-            putStrLn $ "No retry policy for error: " <> show err
-            throwIO (createSubscriptionFailure err)
-          Just retryPolicy -> do
-            -- Retry with backoff
-            putStrLn $ "Starting retry sequence for error: " <> show err
-            retryResult <- retryWithBackoff retryPolicy fetchAction
-            case retryResult of
-              Right events -> pure events
-              Left finalErr -> do
-                putStrLn $ "All retry attempts failed, crashing: " <> show finalErr
-                throwIO (createSubscriptionFailure finalErr)
   where
     decoder = D.rowList $ EventData
         <$> D.column (D.nonNullable D.int8)
