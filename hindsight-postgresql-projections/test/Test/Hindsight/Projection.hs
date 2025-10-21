@@ -7,17 +7,16 @@
 
 module Test.Hindsight.Projection (projectionTests) where
 
-import Control.Concurrent (forkIO, killThread, threadDelay)
+import Control.Concurrent (forkIO, killThread)
 import Control.Exception (bracket)
 import Data.Aeson qualified as Aeson
-import Data.Aeson (FromJSON)
 import Data.ByteString (ByteString)
 import Data.Map.Strict qualified as Map
 import Data.Proxy (Proxy (..))
-import Data.Text (Text)
 import Data.Text.Encoding (decodeUtf8)
 import Data.UUID.V4 qualified as UUID
 import Database.Postgres.Temp qualified as Temp
+import Hasql.Connection qualified as Connection
 import Hasql.Connection.Setting qualified as ConnectionSetting
 import Hasql.Connection.Setting.Connection qualified as ConnectionSettingConnection
 import Hasql.Pool (Pool)
@@ -107,59 +106,33 @@ withProjectionTest (EventStoreTestRunner{withStore}) testAction =
       testAction store pool connStr
 
 --------------------------------------------------------------------------------
--- Helper: Wait for projection to reach cursor
+-- Helper: Wait for projection to reach cursor using LISTEN/NOTIFY
 --------------------------------------------------------------------------------
 
--- | Wait for projection to process up to target cursor by polling the projections table
+-- | Wait for projection to process up to target cursor using PostgreSQL LISTEN/NOTIFY
 --
--- This is a simple polling-based approach for tests. Production code should use
--- waitForEvent with LISTEN/NOTIFY.
+-- This uses the production waitForEvent function which efficiently waits for
+-- projection progress without polling.
 waitForProjectionCursor ::
   forall backend.
-  (Ord (Cursor backend), FromJSON (Cursor backend)) =>
-  Pool ->
+  (Ord (Cursor backend), Aeson.FromJSON (Cursor backend)) =>
+  ByteString ->          -- Connection string
   ProjectionId ->
   Cursor backend ->
   IO ()
-waitForProjectionCursor pool (ProjectionId pid) targetCursor = go (0 :: Int)
-  where
-    go attempts
-      | attempts > 100 = assertFailure "Projection did not reach target cursor after 100 attempts"
-      | otherwise = do
-          mbState <- Pool.use pool (getProjectionCursorFromDB pid)
-          case mbState of
-            Left err -> assertFailure $ "Failed to query projection state: " <> show err
-            Right Nothing -> do
-              -- Projection hasn't processed anything yet
-              threadDelay 10000  -- 10ms
-              go (attempts + 1)
-            Right (Just cursor)
-              | cursor >= targetCursor -> pure ()  -- Done!
-              | otherwise -> do
-                  threadDelay 10000  -- 10ms
-                  go (attempts + 1)
+waitForProjectionCursor connStr projId targetCursor = do
+  -- Create connection settings
+  let connectionSettings = [ConnectionSetting.connection $ ConnectionSettingConnection.string (decodeUtf8 connStr)]
 
--- | Query projection cursor from database
-getProjectionCursorFromDB ::
-  (FromJSON (Cursor backend)) =>
-  Text ->
-  Session.Session (Maybe (Cursor backend))
-getProjectionCursorFromDB pid =
-  Session.statement
-    pid
-    [maybeStatement|
-      select head_position :: jsonb?
-      from projections
-      where id = $1 :: text
-    |]
-    >>= \case
-      Nothing -> pure Nothing
-      Just Nothing -> pure Nothing  -- No cursor yet
-      Just (Just cursorJson) ->
-        case Aeson.fromJSON cursorJson of
-          Aeson.Success cursor -> pure (Just cursor)
-          Aeson.Error err ->
-            error $ "Failed to parse cursor JSON: " <> err
+  -- Acquire a dedicated connection for LISTEN/NOTIFY
+  connResult <- Connection.acquire connectionSettings
+  case connResult of
+    Left err -> assertFailure $ "Failed to acquire connection: " <> show err
+    Right conn ->
+      bracket
+        (pure conn)
+        Connection.release
+        (\c -> waitForEvent projId targetCursor c)
 
 --------------------------------------------------------------------------------
 -- Test cases
@@ -171,9 +144,10 @@ getProjectionCursorFromDB pid =
 -- - Events come from Memory store (fast!)
 -- - Projections execute in PostgreSQL
 -- - Projection state tracked in PostgreSQL
+-- - Uses LISTEN/NOTIFY for efficient waiting
 testBasicProjection :: IO ()
 testBasicProjection =
-  withProjectionTest memoryStoreRunner $ \store pool _connStr -> do
+  withProjectionTest memoryStoreRunner $ \store pool connStr -> do
     -- Create test table for projection results
     Pool.use pool createTestTable >>= \case
       Left err -> assertFailure $ "Failed to create test table: " <> show err
@@ -217,8 +191,8 @@ testBasicProjection =
           forkIO $
             runProjection projId pool (Just tvar) store handlers
 
-        -- Wait for projection to process the event
-        waitForProjectionCursor pool projId finalCursor
+        -- Wait for projection to process the event using LISTEN/NOTIFY
+        waitForProjectionCursor connStr projId finalCursor
 
         -- Kill projection thread
         killThread projectionThread
