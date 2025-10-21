@@ -30,6 +30,7 @@ jobs:
           - hindsight-postgresql-store
           - hindsight-postgresql-projections
           - hindsight-tutorials
+          - hindsight-website
       # Don't cancel other matrix jobs if one fails
       fail-fast: false
 

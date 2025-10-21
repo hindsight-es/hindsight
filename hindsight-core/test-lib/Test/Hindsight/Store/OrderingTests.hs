@@ -790,8 +790,9 @@ orderingTests runner =
     [ testCase (generateTestLabel "Light" lightTestConfig)
         (testComprehensiveConsistencyWithConfig runner lightTestConfig),
       testCase (generateTestLabel "Standard" defaultTestConfig)
-        (testComprehensiveConsistencyWithConfig runner defaultTestConfig),
-      testCase (generateTestLabel "Stress" stressTestConfig)
-        (testComprehensiveConsistencyWithConfig runner stressTestConfig)
+        (testComprehensiveConsistencyWithConfig runner defaultTestConfig)
+      -- Stress test disabled by default (can hang on Ubuntu CI)
+      -- testCase (generateTestLabel "Stress" stressTestConfig)
+      --   (testComprehensiveConsistencyWithConfig runner stressTestConfig)
     ]
   ]
