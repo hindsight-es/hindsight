@@ -29,6 +29,7 @@ import Hasql.Transaction qualified as Transaction
 import Hindsight.Events
 import Hindsight.Projection
 import Hindsight.Projection.Matching (ProjectionHandler, ProjectionHandlers (..))
+import Hindsight.Projection.Schema (createProjectionSchema)
 import Hindsight.Store
 import Hindsight.Store.Memory
 import Test.Hindsight.Examples (UserCreated, UserInformation2 (..))
@@ -79,25 +80,14 @@ withTempPostgresAndPool action = do
       )
       Pool.release
       $ \pool -> do
-        -- Initialize schema (create projections table)
-        Pool.use pool createProjectionsSchema >>= \case
+        -- Initialize schema (create projections table and trigger)
+        Pool.use pool createProjectionSchema >>= \case
           Left err -> assertFailure $ "Failed to initialize schema: " <> show err
           Right () -> action pool connStr
 
   case result of
     Left err -> error $ "Failed to start temporary database: " ++ show err
     Right val -> pure val
-
--- | Create the projections table schema
-createProjectionsSchema :: Session.Session ()
-createProjectionsSchema = do
-  Session.sql $
-    "CREATE TABLE IF NOT EXISTS projections (\n\
-    \  id text PRIMARY KEY,\n\
-    \  last_updated timestamptz NOT NULL,\n\
-    \  head_position jsonb,\n\
-    \  is_active boolean NOT NULL DEFAULT true\n\
-    \)"
 
 --------------------------------------------------------------------------------
 -- Helper: Combine temp PostgreSQL + EventStoreTestRunner
