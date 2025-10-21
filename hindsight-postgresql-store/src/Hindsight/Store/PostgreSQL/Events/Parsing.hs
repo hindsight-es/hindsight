@@ -1,14 +1,14 @@
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE ExistentialQuantification #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
-{-|
+{- |
 Module      : Hindsight.Store.PostgreSQL.Events.TypedDispatcher
 Description : Type-safe event parsing and distribution
 Copyright   : (c) 2025
@@ -34,4 +34,3 @@ The key innovation is using indexed TypeRep for heterogeneous event storage
 while maintaining type safety through runtime type checking.
 -}
 module Hindsight.Store.PostgreSQL.Events.Parsing () where
-

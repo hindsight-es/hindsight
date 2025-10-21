@@ -6,7 +6,7 @@ packages: ./*.cabal
 source-repository-package
     type: git
     location: https://github.com/hindsight-es/hindsight.git
-    tag: 93ad4a2529598a82a28f98aa55374314e5212a80
+    tag: d67673b044c7cca0626c64fce517b867fd69e113
     subdir:
       hindsight-core
       hindsight-postgresql-store

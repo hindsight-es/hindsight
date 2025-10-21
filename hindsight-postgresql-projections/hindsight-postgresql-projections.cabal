@@ -17,6 +17,7 @@ author:             Gaël Deest
 maintainer:         gael.deest@franbec.org
 category:           Web
 build-type:         Simple
+extra-source-files: sql/projection-schema.sql
 
 common warnings
     ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -Wunused-packages

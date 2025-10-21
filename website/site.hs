@@ -3,21 +3,22 @@
 module Main where
 
 import Hakyll
-import System.FilePath ((</>), takeBaseName)
+import System.FilePath (takeBaseName, (</>))
 import Text.Pandoc.Highlighting (pygments)
-import Text.Pandoc.Options (WriterOptions(..))
+import Text.Pandoc.Options (WriterOptions (..))
 
 --------------------------------------------------------------------------------
 -- Configuration
 --------------------------------------------------------------------------------
 
 config :: Configuration
-config = defaultConfiguration
-    { destinationDirectory = "_site"
-    , storeDirectory       = "_cache"
-    , tmpDirectory         = "_cache/tmp"
-    , providerDirectory    = "."
-    }
+config =
+    defaultConfiguration
+        { destinationDirectory = "_site"
+        , storeDirectory = "_cache"
+        , tmpDirectory = "_cache/tmp"
+        , providerDirectory = "."
+        }
 
 --------------------------------------------------------------------------------
 -- Main
@@ -25,7 +26,6 @@ config = defaultConfiguration
 
 main :: IO ()
 main = hakyllWith config $ do
-
     -- Templates (must be first so they can be loaded by other rules)
     match "templates/*" $ compile templateBodyCompiler
 
@@ -62,7 +62,7 @@ main = hakyllWith config $ do
     match "content/about.md" $ do
         route $ customRoute $ \ident ->
             let base = takeBaseName (toFilePath ident)
-            in base ++ ".html"
+             in base ++ ".html"
         compile $ do
             pandocCompiler
                 >>= loadAndApplyTemplate "templates/default.html" defaultContext
@@ -83,9 +83,9 @@ main = hakyllWith config $ do
         compile $ do
             posts <- recentFirst =<< loadAll "content/posts/*"
             let archiveCtx =
-                    listField "posts" postCtx (return posts) `mappend`
-                    constField "title" "Blog"            `mappend`
-                    defaultContext
+                    listField "posts" postCtx (return posts)
+                        `mappend` constField "title" "Blog"
+                        `mappend` defaultContext
 
             makeItem ""
                 >>= loadAndApplyTemplate "templates/post-list.html" archiveCtx
@@ -97,9 +97,10 @@ main = hakyllWith config $ do
 --------------------------------------------------------------------------------
 
 writerOptions :: WriterOptions
-writerOptions = defaultHakyllWriterOptions
-    { writerHighlightStyle = Just pygments
-    }
+writerOptions =
+    defaultHakyllWriterOptions
+        { writerHighlightStyle = Just pygments
+        }
 
 --------------------------------------------------------------------------------
 -- Contexts
@@ -107,5 +108,5 @@ writerOptions = defaultHakyllWriterOptions
 
 postCtx :: Context String
 postCtx =
-    dateField "date" "%B %e, %Y" `mappend`
-    defaultContext
+    dateField "date" "%B %e, %Y"
+        `mappend` defaultContext
