@@ -31,8 +31,7 @@ EventVersions PeanoZero (PeanoSucc (PeanoSucc PeanoZero))
   ≈ [PayloadV0, PayloadV1]
 @
 
-The 'FirstVersion', '(:>>)', and '(:>|)' operators provide a nice syntax
-for building these vectors.
+Use 'FromList' to build version vectors from type-level lists.
 
 = Constraint Management
 
@@ -51,9 +50,6 @@ module Hindsight.Events.Internal.Versioning
   ( -- * Version Vectors
     EventVersions (..),
     FromList,
-    FirstVersion,
-    (:>>),
-    (:>|),
 
     -- * Version Vector Queries
     FinalVersionType,
@@ -102,42 +98,6 @@ data EventVersions (startsAt :: PeanoNat) (finalCount :: PeanoNat) where
   -- | Prepend an earlier version
   Then :: Type -> EventVersions ('PeanoSucc startsAt) finalCount -> EventVersions startsAt finalCount
 
--- | Alias for a single-version vector.
---
--- Use this for events that have never been migrated:
---
--- @
--- type instance Versions \"user_created\" = FirstVersion UserCreated
--- @
-type FirstVersion :: Type -> EventVersions 'PeanoZero ('PeanoSucc 'PeanoZero)
-type FirstVersion t = 'Final t
-
--- | Operator for combining the last two versions in a vector.
---
--- Use this to build a 2-version vector. Precedence 7 (binds tightly).
---
--- @
--- PayloadV0 :>| PayloadV1
---   ≈ Then PayloadV0 (Final PayloadV1)
--- @
-infixr 7 :>|
-
-type (:>|) :: Type -> Type -> EventVersions n ('PeanoSucc ('PeanoSucc n))
-type t1 :>| t2 = 'Then t1 ('Final t2)
-
--- | Operator for prepending earlier versions to a vector.
---
--- Use this to build vectors with 3+ versions. Precedence 6.
---
--- @
--- PayloadV0 :>> PayloadV1 :>| PayloadV2
---   ≈ Then PayloadV0 (Then PayloadV1 (Final PayloadV2))
--- @
-infixr 6 :>>
-
-type (:>>) :: Type -> EventVersions ('PeanoSucc s) f -> EventVersions s f
-type t :>> v = 'Then t v
-
 -- | Convert a type-level list to an EventVersions GADT
 --
 -- This has a polymorphic kind to allow recursive usage at different indices.
@@ -153,12 +113,7 @@ type family FromList payloadList where
 
 -- | Extract the final (most recent) type from a version vector.
 --
--- This traverses the vector structure to find the 'Final' constructor:
---
--- @
--- FinalVersionType (FirstVersion T) = T
--- FinalVersionType (T0 :>> T1 :>| T2) = T2
--- @
+-- This traverses the vector structure to find the 'Final' constructor.
 type FinalVersionType :: EventVersions startsAt finalCount -> Type
 type family FinalVersionType vec where
   FinalVersionType ('Final t) = t
@@ -167,12 +122,6 @@ type family FinalVersionType vec where
 -- | Extract the type at a specific version index.
 --
 -- Returns a compile error if the index is out of bounds.
---
--- @
--- PayloadAtVersion PeanoZero (FirstVersion T) = T
--- PayloadAtVersion PeanoZero (T0 :>| T1) = T0
--- PayloadAtVersion (PeanoSucc PeanoZero) (T0 :>| T1) = T1
--- @
 type PayloadAtVersion ::
   forall (startsAt :: PeanoNat) (finalCount :: PeanoNat).
   PeanoNat ->

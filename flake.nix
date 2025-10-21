@@ -345,7 +345,7 @@
               p.hindsight-website
 
             ];
-            buildInputs = coreBuildInputs ++ docsBuildInputs;
+            buildInputs = coreBuildInputs ++ docsBuildInputs ++ [haskellPackages.weeder];
 
             shellHook = ''
               export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath [ pkgs.zstd pkgs.zlib ]}"''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}

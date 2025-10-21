@@ -75,7 +75,6 @@ module Hindsight.Store.Filesystem
 
     -- * Store Operations
     newFilesystemStore,
-    openFilesystemStore,
     cleanupFilesystemStore,
 
     -- * Exceptions
@@ -244,11 +243,12 @@ mkDefaultConfig path =
 
 -- | Get the configuration from a store handle.
 --
--- Useful for accessing the store path during cleanup or debugging.
+-- Useful for accessing the store path during cleanup or creating additional instances.
 getStoreConfig ::
   FilesystemStoreHandle ->      -- ^ Store handle
   FilesystemStoreConfig         -- ^ Store configuration
 getStoreConfig = (.config)
+
 -- | Creates required directories
 ensureDirectories :: FilePath -> IO ()
 ensureDirectories path = do
@@ -275,11 +275,14 @@ withStoreLockDirect config action = do
 withStoreLock :: FilesystemStoreHandle -> IO a -> IO a
 withStoreLock handle = withStoreLockDirect handle.config
 
--- | Initialize a new filesystem store.
+-- | Initialize or open a filesystem store.
 --
--- Creates the store directory and event log file if they don't exist,
--- initializes in-memory state, and starts file watchers for cross-process
--- event notifications.
+-- Creates the store directory and event log file if they don't exist.
+-- If the event log exists and contains events, automatically reloads them
+-- into memory. Starts file watchers for cross-process event notifications.
+--
+-- This function handles both fresh stores and reopening existing stores,
+-- making it suitable for process restarts and multi-instance deployments.
 newFilesystemStore ::
   FilesystemStoreConfig ->       -- ^ Store configuration
   IO FilesystemStoreHandle       -- ^ Initialized store handle
@@ -309,7 +312,36 @@ newFilesystemStore config = do
   -- Start the file watcher notifier with central reload thread
   notifier <- startNotifier paths.eventLogPath stateVar config
 
-  pure FilesystemStoreHandle {..}
+  let handle = FilesystemStoreHandle {..}
+
+  -- Reload existing events if the log file has content
+  -- If lock is held by another process, skip reload - the notifier will catch up
+  reloadResult <- try @StoreException $ do
+    logExists <- doesFileExist paths.eventLogPath
+    when logExists $ do
+      entries <- readLogEntries handle
+      let completedEvents = Map.elems $ processLogEntries entries
+          maxSeqNo = maximum $ 0 : [e.seqNo | es <- completedEvents, e <- es]
+
+      when (not $ null completedEvents) $ atomically $ do
+        -- Update store state with completed events
+        modifyTVar' stateVar $ \state ->
+          foldr
+            (flip (foldr updateState))
+            state { nextSequence = maxSeqNo + 1 }
+            completedEvents
+
+        -- Get the state to access its globalNotification TVar
+        state <- readTVar stateVar
+        -- Update the global notification to match the last event
+        writeTVar state.globalNotification maxSeqNo
+
+  case reloadResult of
+    Right () -> pure ()
+    Left (LockTimeout _) -> pure ()  -- Skip reload, notifier will catch up later
+    Left (CorruptEventLog path reason) -> throwIO $ CorruptEventLog path reason  -- Fatal error
+
+  pure handle
 
 -- | Decode log entries strictly, throwing CorruptEventLog on parse failures.
 --
@@ -349,42 +381,6 @@ readLogEntries handle =
     let paths = getPaths handle.config.storePath
     contents <- BL.readFile paths.eventLogPath
     decodeLogEntriesStrict paths.eventLogPath contents
-
--- | Open an existing filesystem store and load all events into memory.
---
--- Creates a new store handle and replays the entire event log to rebuild
--- in-memory indices. Use this for production deployments where you want to
--- restore state from disk.
-openFilesystemStore ::
-  FilesystemStoreConfig ->       -- ^ Store configuration
-  IO FilesystemStoreHandle       -- ^ Store handle with loaded state
-openFilesystemStore config = do
-  -- Note: newFilesystemStore already starts the notifier
-  handle <- newFilesystemStore config
-
-  let paths = getPaths config.storePath
-  exists <- doesFileExist paths.eventLogPath
-  when exists $ do
-    entries <- readLogEntries handle
-    let completedEvents = Map.elems $ processLogEntries entries
-        maxSeqNo = maximum $ 0 : [e.seqNo | es <- completedEvents, e <- es]
-
-    atomically $ do
-      -- Update store state with completed events
-      modifyTVar' handle.stateVar $ \state ->
-        foldr
-          (flip (foldr updateState))
-          state
-            { nextSequence = maxSeqNo + 1
-            }
-          completedEvents
-
-      -- Get the state to access its globalNotification TVar
-      state <- readTVar handle.stateVar
-      -- Update the global notification to match the last event
-      writeTVar state.globalNotification maxSeqNo
-
-  pure handle
 
 -- | Start the file watcher notifier thread
 -- Watches the event log for modifications and broadcasts to subscribers
