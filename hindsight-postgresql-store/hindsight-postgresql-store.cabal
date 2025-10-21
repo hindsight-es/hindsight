@@ -4,7 +4,7 @@ version:            0.1.0.0
 synopsis:           PostgreSQL event store for Hindsight
 description:        Production-ready PostgreSQL backend with ACID guarantees and scalability. Event storage implementation only - projections are in hindsight-postgresql-projections.
 license:            BSD-3-Clause
-license-file:       ../LICENSE
+license-file:       LICENSE
 author:             Gaël Deest
 maintainer:         gael.deest@franbec.org
 copyright:          (c) 2025 Gaël Deest

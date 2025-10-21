@@ -7,7 +7,7 @@ description:
     for event sourcing applications. Covers getting started, projections, versioning,
     consistency patterns, and backend-agnostic design.
 license:            BSD-3-Clause
-license-file:       ../LICENSE
+license-file:       LICENSE
 author:             Gaël Deest
 maintainer:         gael.deest@franbec.org
 copyright:          (c) 2025 Gaël Deest

@@ -4,7 +4,7 @@ version:            0.1.0.0
 synopsis:           Filesystem event store for Hindsight
 description:        File-based persistent event store with multi-process support. Suitable for single-node deployments where durability is needed without a database dependency.
 license:            BSD-3-Clause
-license-file:       ../LICENSE
+license-file:       LICENSE
 author:             Gaël Deest
 maintainer:         gael.deest@franbec.org
 copyright:          (c) 2025 Gaël Deest

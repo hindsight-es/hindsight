@@ -13,7 +13,7 @@ description:
     - Single-node: Filesystem store + PostgreSQL projections
     - Production: PostgreSQL store + PostgreSQL projections
 license:            BSD-3-Clause
-license-file:       ../LICENSE
+license-file:       LICENSE
 author:             Gaël Deest
 maintainer:         gael.deest@franbec.org
 copyright:          (c) 2025 Gaël Deest

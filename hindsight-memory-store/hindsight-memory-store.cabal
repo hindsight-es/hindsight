@@ -4,7 +4,7 @@ version:            0.1.0.0
 synopsis:           In-memory event store for Hindsight
 description:        In-memory implementation of event store using STM. Data is lost on process termination. Suitable for testing and development.
 license:            BSD-3-Clause
-license-file:       ../LICENSE
+license-file:       LICENSE
 author:             Gaël Deest
 maintainer:         gael.deest@franbec.org
 copyright:          (c) 2025 Gaël Deest
