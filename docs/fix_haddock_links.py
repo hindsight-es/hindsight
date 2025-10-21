@@ -13,7 +13,7 @@ from pathlib import Path
 
 # Our local packages that should use relative links
 LOCAL_PACKAGES = {
-    'hindsight',
+    'hindsight-core',
     'hindsight-memory-store',
     'hindsight-filesystem-store',
     'hindsight-postgresql-store',
