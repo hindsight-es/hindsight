@@ -15,7 +15,7 @@ executable site
     build-depends:    base >= 4.20.1 && < 5,
                       filepath >= 1.5.4 && < 1.6,
                       hakyll >= 4.16.7 && < 4.17,
-                      pandoc >= 3.7 && < 3.9
+                      pandoc >= 3.7 && < 3.8
     hs-source-dirs:   .
     default-language: GHC2021
     ghc-options:      -Wall -threaded -O2
