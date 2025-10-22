@@ -11,7 +11,9 @@ copyright:          (c) 2025 Gaël Deest
 category:           Web
 build-type:         Simple
 extra-doc-files:    CHANGELOG.md
--- extra-source-files:
+extra-source-files:
+    golden/**/*.json
+    test/golden/**/*.json
 
 common warnings
     ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -Wunused-packages
