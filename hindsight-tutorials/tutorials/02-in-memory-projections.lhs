@@ -1,20 +1,13 @@
 In-Memory Projections
 =====================
 
-Now that you can store and read events, let's build something useful: **read models**.
-Projections transform event streams into queryable views using STM (Software Transactional Memory).
+Reading the entire event log whenever you want to figure out the state of your system is
+usually not practical. That's why you may want to build **projections** to serve as **read models**
+and speed up information retrieval. Projections are essentially built by continuously mutating a state
+while reading a sequence of events.
 
-What Are Projections?
----------------------
-
-Events tell you **what happened**. Projections answer **questions about the current state**.
-
-For example:
-
-- Events: "UserRegistered", "UserDeactivated", "UserReactivated"
-- Projection: "How many active users are there right now?"
-
-Projections are **derived data** - you can always rebuild them from events.
+Projections can be easily built on top of Hindsight's subscription mechanism. In this tutorial, we will do just that, 
+using STM to store the state of our system in-memory.
 
 Prerequisites
 -------------
@@ -134,10 +127,9 @@ demoUserCount = do
 
   -- Subscribe to events and update the model
   handle <- subscribe store
-    ( match UserRegistered (handleRegistration countModel)
-    :? match UserDeactivated (handleDeactivation countModel)
-    :? MatchEnd
-    )
+    ( match UserRegistered (handleRegistration countModel) :?
+      match UserDeactivated (handleDeactivation countModel) :?
+      MatchEnd )
     (EventSelector AllStreams FromBeginning)
 
   -- Insert some events
@@ -160,6 +152,29 @@ demoUserCount = do
   handle.cancel
   threadDelay 10000
 \end{code}
+
+Note that there is no new Hindsight concept here: everything is based on the subscription mechanism you already read about
+in the first tutorial. However, when we first presented subscriptions, we glimpsed over a rather subtle point which is
+more apparent here. Subscription handlers are defined using a custom `match` syntax instead of standard pattern-matching:
+
+```
+  match UserRegistered (handleRegistration countModel) :?
+  match UserDeactivated (handleDeactivation countModel) :?
+  MatchEnd
+```
+
+The reason for this is that events in Hindsight form an **extensible sum type**. In this terms, we are not defining
+user events like this:
+
+```haskell
+data UserEvents = UserRegistered | UserDeactivated
+```
+
+Defining event payloads as normal sum types is perfectly possible if you so want
+(and maybe a practical choice in many situations). However, there is a key benefit in having an 
+open universe of events: loose-coupling. Each service can define its own events, without preventing
+another service to aggregate information from multiple services in the same subscription. 
+
 
 Building a Richer Projection
 -----------------------------
@@ -255,24 +270,15 @@ main = do
   putStrLn "Tutorial complete!"
 \end{code}
 
+
 Summary
 -------
 
 Key concepts:
 
-- **Projections** transform events into queryable state
-- **TVar** provides transactional updates (STM)
-- **Handlers** process events and update the projection
-- **Queries** read from the projection (not from events directly)
-
-Why STM?
---------
-
-STM (Software Transactional Memory) ensures:
-
-- **Atomicity**: Updates happen completely or not at all
-- **Consistency**: Your read model stays consistent
-- **Isolation**: Concurrent updates don't interfere
+- **Projections** continuously transform events into queryable state
+- **STM** (`TVar`, `atomically`) provides thread-safe in-memory storage
+- **Handlers** return `Continue` to keep processing or `Stop` to halt the subscription
 
 Next Steps
 ----------

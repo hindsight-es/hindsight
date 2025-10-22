@@ -4,7 +4,34 @@ Type-safe event sourcing for Haskell with strong compile-time guarantees.
 
 ## What is Hindsight?
 
-Hindsight is an event sourcing library for Haskell that makes schema evolution a compile-time concern. Event versioning leverages the type system to provide strong safety guarantees, and the testing toolkit generates roundtrip and golden tests automatically to ensure you never accidentally break compatibility with stored events.
+Hindsight is an opinionated event sourcing library for Haskell. A defining feature of Hindsight is to
+make event versioning a compile-time concern, by separating the definition of an event (identifed by a typelevel `Symbol`)
+from that of its successive payloads. By default, migrations are handled automatically through upcasting of successive versions
+(but you can opt-out of that mechanism when you see fit).
+
+The **testing toolkit** generates roundtrip and golden tests automatically to ensure you never accidentally break compatibility with stored events.
+
+Moreover, Hindsight defines an event store interface featuring:
+
+- Multi-stream event transactions with fine-grained version expectations à la KurrentDB
+- Real-time, multi-stream subscriptions with exactly-once delivery semantics
+- Strong (total) event ordering guarantees
+
+These primitives allow you to implement arbitrary optimistic-concurrency control mechanisms, as well as common event
+sourcing patterns (sagas, process managers, etc.)
+
+Three store implementations are provided:
+
+- An *in-memory* implementation for quick testing and prototyping ;
+- A *filesystem* store that persists your events to your disk ;
+- A scalable *PostgreSQL* implementation. 
+
+Finally, a PostgreSQL-based (but store-agnostic) projection system is provided. As a store-specific feature, the PostgreSQL
+store supports synchronous projections (called _inline projections_ in Marten DB). Synchronous projections are particularly
+useful to:
+
+- Eschew the pains of eventual consistency ;
+- Implement PostgreSQL-backed validations.
 
 ## Quick Example
 
@@ -47,13 +74,15 @@ example = do
   store <- newMemoryStore
   streamId <- StreamId <$> UUID.nextRandom
 
-  let event = mkEvent UserRegistered (UserInfo "U001" "Alice")
+  let event = mkEvent "user_registered" (UserInfo "U001" "Alice")
   result <- insertEvents store Nothing $
-    multiEvent streamId Any [event]
+    singleEvent streamId Any [event]
 
   handle <- subscribe store
-    (match UserRegistered handleEvent :? MatchEnd)
+    (match "user_registered" handleEvent :? MatchEnd)
     (EventSelector AllStreams FromBeginning)
+  
+  ...
 
   where
     handleEvent envelope = do
@@ -77,10 +106,10 @@ example = do
 
 ## Documentation
 
-- [Introduction](https://hindsight.events/introduction.html) - Why event sourcing? Why type-safe versioning?
-- [Tutorials](https://hindsight.events/tutorials/) - Hands-on learning from basics to advanced patterns
-- [API Reference](https://hindsight.events/api/) - Complete Haddock documentation
-- [Development Guide](https://hindsight.events/development/building.html) - Building and contributing
+- [Index](https://hindsight.events/docs/) - Documentation entry point
+- [Tutorials](https://hindsight.events/docs/tutorials/) - Hands-on learning from basics to advanced patterns
+- [API Reference](https://hindsight.events/docs/api/) - Complete Haddock documentation
+- [Development Guide](https://hindsight.events/docs/development/building.html) - Building and contributing
 
 ## License
 

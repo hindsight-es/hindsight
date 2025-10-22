@@ -4,25 +4,10 @@ PostgreSQL Projections
 PostgreSQL projections provide **durable, database-native** read models with ACID guarantees.
 Unlike in-memory projections, these survive application restarts and leverage SQL's full power.
 
-The key insight: **projections are backend-agnostic**. You can subscribe to events from ANY
-backend (Memory, Filesystem, PostgreSQL) while storing projection state in PostgreSQL.
+Hindsight's PostgreSQL projections are backend-agnostic. For example, you can perfectly use
+PostgreSQL read models while using the filesystem event store.
 
-What Makes PostgreSQL Projections Different?
---------------------------------------------
-
-**In-Memory Projections** (Tutorial 02):
-
-- Fast but ephemeral (lost on restart)
-- Good for transient state
-- Use STM for concurrency
-
-**PostgreSQL Projections** (this tutorial):
-
-- Durable (survive restarts)
-- Good for persistent read models
-- Use SQL transactions for consistency
-- Can query with full SQL power
-- Work with ANY event store backend
+The SQL projection mechanism is based on Hasql.
 
 Prerequisites
 -------------
@@ -73,6 +58,8 @@ import Hindsight.Store.PostgreSQL.Core.Schema qualified as Schema
 Define Events
 -------------
 
+As usual, let us start by defining our events:
+
 \begin{code}
 type UserRegistered = "user_registered"
 
@@ -96,10 +83,9 @@ registerUser uid name =
 Create a Projection Handler
 ----------------------------
 
-Projection handlers execute SQL in PostgreSQL transactions. The handler logic is the same
-regardless of which backend provides the events.
-
-**IMPORTANT**: Always use parameterized queries to prevent SQL injection vulnerabilities.
+Similar to subscription handlers, projection handlers take an event envelope (payload + metadata)
+as their first argument. However, they must return a Hasql transaction object to be run by the projection
+engine.
 
 \begin{code}
 -- Projection handler logic - updates a PostgreSQL table
@@ -107,7 +93,7 @@ regardless of which backend provides the events.
 handleUserRegistration :: EventEnvelope UserRegistered backend -> Transaction.Transaction ()
 handleUserRegistration eventData = do
   let payload = eventData.payload :: UserInfo
-  -- Use parameterized query for security (prevents SQL injection)
+  -- Use parameterized Hasql query
   -- Encoder: (userId, userName) -> SQL parameters
   -- Decoder: () (no result expected)
   Transaction.statement (payload.userId, payload.userName) insertUserStatement
@@ -236,36 +222,6 @@ demoPostgreSQLProjection = do
     Right () -> putStrLn "\n✓ Demo complete (database cleaned up)"
 \end{code}
 
-Key Concepts
------------
-
-**Backend-Agnostic Projections**:
-
-- Projection handlers are generic: `ProjectionHandlers ts backend`
-- Events can come from ANY backend (Memory, Filesystem, PostgreSQL)
-- Projection state and execution always use PostgreSQL
-- Same projection code works with different event stores
-
-**Asynchronous Execution**:
-
-- Projections run in a **separate thread**
-- Subscribe to events and process them independently
-- Use `waitForEvent` to synchronize when needed
-- Eventually consistent (not synchronous with inserts)
-
-**Transaction.sql**:
-
-- Executes SQL within PostgreSQL transactions
-- Can INSERT, UPDATE, DELETE
-- Failures are handled by projection system
-- Each event is processed in its own transaction
-
-**Why This Matters**:
-
-- Test with fast MemoryStore
-- Deploy with durable PostgreSQL events
-- Mix and match: Memory events + SQL projections for development
-- Deployment: PostgreSQL events + SQL projections
 
 Running the Example
 -------------------
@@ -285,24 +241,11 @@ main = do
 Summary
 -------
 
-PostgreSQL projections offer:
+Key concepts:
 
-- **Durability**: Survive application restarts
-- **Backend-agnostic**: Work with any event store
-- **SQL power**: Full database features (joins, indexes, etc.)
-- **Flexibility**: Test with Memory, deploy with PostgreSQL
-
-Architecture:
-
-- **Event storage**: ANY backend (Memory/Filesystem/PostgreSQL)
-- **Projection state**: Always PostgreSQL
-- **Projection execution**: Always PostgreSQL transactions
-- **Consistency**: Eventually consistent (asynchronous)
-
-When to use:
-
-- **PostgreSQL projections**: Persistent read models
-- **In-memory projections**: Transient state, caches, temporary aggregations
+- **Backend-agnostic projections**: events can come from any store (Memory, Filesystem, PostgreSQL), while projections always run in PostgreSQL
+- **Hasql transactions** provide ACID guarantees for projection state updates
+- **Durable projections** survive application restarts, unlike in-memory models
 
 Next Steps
 ----------
