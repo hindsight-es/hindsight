@@ -53,6 +53,7 @@ import Hindsight.Projection (runProjection, waitForEvent, ProjectionId(..))
 import Hindsight.Projection.Matching (ProjectionHandlers(..))
 import Hindsight.Store.Memory (newMemoryStore)
 import Hindsight.Store.PostgreSQL.Core.Schema qualified as Schema
+import GHC.RTS.Flags (MiscFlags(disableDelayedOsMemoryReturn))
 \end{code}
 
 Define Events
@@ -87,6 +88,8 @@ Similar to subscription handlers, projection handlers take an event envelope (pa
 as their first argument. However, they must return a Hasql transaction object to be run by the projection
 engine.
 
+Projection handlers are not tied to a particular backend and can be backend agnostic (as exemplified here).
+
 \begin{code}
 -- Projection handler logic - updates a PostgreSQL table
 -- This same logic works whether events come from Memory, Filesystem, or PostgreSQL
@@ -107,12 +110,15 @@ handleUserRegistration eventData = do
         decoder = D.noResult
 \end{code}
 
-Demo: Backend-Agnostic PostgreSQL Projections
-----------------------------------------------
+Complete Demo
+-------------
 
-This demo shows the power of backend-agnostic projections:
-- Events are stored in **MemoryStore** (fast, ephemeral)
-- Projections execute and persist in **PostgreSQL** (durable, queryable)
+This demo creates a store, inserts events, and creates a projection that persists a read model in a SQL database.
+
+
+The key function is `runProjection`, which subscribes to events from any backend and runs
+handlers as PostgreSQL transactions. We run it in a background thread using `forkIO`, then use
+`waitForEvent` to block until the projection catches up to a specific event cursor.
 
 \begin{code}
 demoPostgreSQLProjection :: IO ()

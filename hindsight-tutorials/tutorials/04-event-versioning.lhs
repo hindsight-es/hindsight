@@ -2,20 +2,8 @@ Event Versioning
 ================
 
 Event schemas evolve over time. This tutorial shows how to add fields to events
-while maintaining backward compatibility with old data.
-
-The Versioning Challenge
-------------------------
-
-Imagine you store these events:
-
-- `{ userId: 1, userName: "Alice" }`
-- `{ userId: 2, userName: "Bob" }`
-
-Later, you need to add an email field. But you can't change the old events!
-Event sourcing systems are **append-only** - you never modify historical data.
-
-Hindsight's solution: **version upgrades**.
+while maintaining backward compatibility with old data through Hindsight's
+automatic version upgrade mechanism.
 
 Prerequisites
 -------------
@@ -71,47 +59,100 @@ data UserInfoV1 = UserInfoV1
   } deriving (Show, Eq, Generic, FromJSON, ToJSON)
 \end{code}
 
-Defining the Upgrade
---------------------
+Version 2: Adding User Status
+------------------------------
 
-Hindsight uses **consecutive upcasts** - you only define how to upgrade from
-one version to the next. The system automatically composes these to handle
-any version gap!
+Even later, we need to track user account status:
 
 \begin{code}
--- Define the upgrade: V0 → V1
+-- User account status
+data UserStatus = Active | Suspended
+  deriving (Show, Eq, Generic, FromJSON, ToJSON)
+
+-- Version 2: Now with status!
+data UserInfoV2 = UserInfoV2
+  { userId :: Int
+  , userName :: Text
+  , userEmail :: Maybe Text
+  , userStatus :: UserStatus  -- New field (default to Active for old users)
+  } deriving (Show, Eq, Generic, FromJSON, ToJSON)
+\end{code}
+
+Defining the Upgrades
+-----------------------
+
+Define each consecutive upgrade (V0 → V1, V1 → V2):
+
+\begin{code}
+-- Upgrade V0 → V1
 instance Upcast 0 UserCreated where
   upcast old = UserInfoV1
     { userId = old.userId
     , userName = old.userName
-    , userEmail = Nothing  -- Old events don't have email, so use Nothing
+    , userEmail = Nothing  -- Old events don't have email
+    }
+
+-- Upgrade V1 → V2
+instance Upcast 1 UserCreated where
+  upcast old = UserInfoV2
+    { userId = old.userId
+    , userName = old.userName
+    , userEmail = old.userEmail
+    , userStatus = Active  -- Default to Active for existing users
     }
 \end{code}
 
 Wiring It Up
 ------------
 
-Tell Hindsight about both versions:
+Tell Hindsight about all versions:
 
 \begin{code}
--- MaxVersion says "version 1 is the latest"
-type instance MaxVersion UserCreated = 1
+-- MaxVersion says "version 2 is the latest"
+type instance MaxVersion UserCreated = 2
 
 -- Versions lists all versions in order
-type instance Versions UserCreated = '[UserInfoV0, UserInfoV1]
+type instance Versions UserCreated = '[UserInfoV0, UserInfoV1, UserInfoV2]
 
 -- Event instance (required for all events)
 instance Event UserCreated
 
--- Migration instances - the system automatically uses consecutive upcasts!
-instance MigrateVersion 0 UserCreated  -- Automatic: V0 → V1 (via Upcast 0)
-instance MigrateVersion 1 UserCreated  -- Automatic: V1 → V1 (identity)
+-- Migration instances - automatically derived from consecutive upcasts
+instance MigrateVersion 0 UserCreated  -- V0 → V2 via V0 → V1 → V2 (composed!)
+instance MigrateVersion 1 UserCreated  -- V1 → V2 via V1 → V2
+instance MigrateVersion 2 UserCreated  -- V2 → V2 (identity)
 \end{code}
+
+How Migration Works
+-------------------
+
+The magic happens through the interplay of `Upcast` and `MigrateVersion`:
+
+- **`Upcast n`** defines a single upgrade step: version `n` → version `n+1`
+- **`MigrateVersion n`** upgrades version `n` to the latest version (MaxVersion)
+
+When you define `instance MigrateVersion n`, Hindsight automatically derives the full upgrade
+path by composing consecutive `Upcast` instances:
+
+- `MigrateVersion 0`: V0 → V1 (via `Upcast 0`) → V2 (via `Upcast 1`)
+- `MigrateVersion 1`: V1 → V2 (via `Upcast 1`)
+- `MigrateVersion 2`: V2 → V2 (identity, already latest)
+
+**Opt-out**: If you need custom upgrade logic that bypasses consecutive composition,
+define an explicit `MigrateVersion` instance with your own implementation (e.g. for performance). If 
+you do so, it is for now your responsibility to maintain the consistency of the system
+and make sure your manual upgrade matches the composition of consecutive upcasts.
 
 Using Versioned Events
 ----------------------
 
-Now you can work with both old and new events:
+Handlers always receive the latest version. Old V0/V1 events stored in the system
+are automatically upgraded to V2 when read.
+
+The following demo only inserts V2 events (since we can't easily insert old versions into
+an in-memory store). To see real upgrades in action, try this exercise: use a persistent
+store (Filesystem or PostgreSQL), insert V0 events, restart the application with V2 code,
+and watch them automatically upgrade when read.
 
 \begin{code}
 demoVersioning :: IO ()
@@ -121,19 +162,19 @@ demoVersioning = do
   store <- newMemoryStore
   streamId <- StreamId <$> UUID.nextRandom
 
-  -- Insert events using the LATEST version (V1)
+  -- Insert events using the LATEST version (V2)
   let event1 = mkEvent UserCreated $
-        UserInfoV1 1 "Alice" (Just "alice@example.com")
+        UserInfoV2 1 "Alice" (Just "alice@example.com") Active
 
       event2 = mkEvent UserCreated $
-        UserInfoV1 2 "Bob" Nothing  -- Old user without email
+        UserInfoV2 2 "Bob" Nothing Suspended
 
   void $ insertEvents store Nothing $
     multiEvent streamId Any [event1, event2]
 
-  putStrLn "✓ Inserted events (V1 format)"
+  putStrLn "✓ Inserted events (V2 format)"
 
-  -- Read them back - both will be V1!
+  -- Read them back - all events arrive as V2
   handle <- subscribe store
     (match UserCreated handleUser :? MatchEnd)
     (EventSelector AllStreams FromBeginning)
@@ -142,37 +183,16 @@ demoVersioning = do
   handle.cancel
   threadDelay 10000
 
-  putStrLn "\n✓ All events are V1 (latest version)"
+  putStrLn "\n✓ All events received as V2 (latest version)"
 
 handleUser :: EventHandler UserCreated IO MemoryStore
 handleUser envelope = do
-  let user = envelope.payload :: UserInfoV1  -- Always receives latest version!
+  let user = envelope.payload :: UserInfoV2  -- Always receives latest version!
   putStrLn $ "  → User: " <> show user.userName
            <> ", Email: " <> show user.userEmail
+           <> ", Status: " <> show user.userStatus
   return Continue
 \end{code}
-
-Key Concepts
-------------
-
-**Version List**: `'[UserInfoV0, UserInfoV1]`
-- Simple type-level list of all payload versions in order
-- For many versions: `'[V0, V1, V2, V3]`
-
-**Consecutive Upcasts**: Define only direct version transitions
-- `Upcast 0 UserCreated`: V0 → V1
-- For V2, just add `Upcast 1 UserCreated`: V1 → V2
-- System automatically composes: V0 → V1 → V2
-
-**MigrateVersion**: Automatic migration via composition
-- V0 → Latest: Uses consecutive upcasts (V0 → V1)
-- V1 → Latest: Identity (already latest)
-- No manual upgrade functions needed!
-
-**Automatic Upgrades**: When you read events, Hindsight automatically upgrades them
-- Store V0, read as V1 ✓
-- Store V1, read as V1 ✓
-- Your handlers always get the latest version!
 
 Running the Example
 -------------------
@@ -189,39 +209,15 @@ main = do
   putStrLn "Tutorial complete!"
 \end{code}
 
-Best Practices
---------------
-
-**Adding Fields**:
-
-- Use `Maybe` for new optional fields
-- Provide sensible defaults in `Upcast` instances
-- Document why fields were added
-- Only define V(n) → V(n+1) transitions
-
-**Breaking Changes**:
-
-- Never remove fields from old versions
-- Create a new version instead
-- Old events must always be readable
-
-**Testing**:
-
-- Test that old events upgrade correctly
-- Test that new events work without upgrade
-- Verify `Upcast` instances preserve semantics
-- Test composition: V0 → V2 via V0 → V1 → V2
-
 Summary
 -------
 
-Event versioning lets you:
+Key concepts:
 
-- Evolve schemas over time
-- Keep historical data intact
-- Define only consecutive version transitions
-- Get automatic composition for free
-- Work with the latest version everywhere
+- **Consecutive upcasts** (`Upcast n`): define single-step upgrades (V_n → V_{n+1})
+- **Automatic composition**: `MigrateVersion n` composes upcasts to reach latest version
+- **Handlers always receive latest version**: V0/V1 events automatically upgrade to V2 when read
+- **Opt-out available**: define custom `MigrateVersion` instance for non-standard upgrade logic
 
 Next Steps
 ----------
