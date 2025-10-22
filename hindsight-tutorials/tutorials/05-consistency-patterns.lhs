@@ -202,8 +202,14 @@ demoConsistency = do
     (EventSelector AllStreams FromBeginning)
 
   -- Create account
+  putStrLn "\n--- Creating account ACC001 ---"
   mbVersion <- createAccount store streamId "ACC001" 100
   threadDelay 100000  -- Wait for projection
+
+  -- Try to create same account again - should fail
+  putStrLn "\n--- Attempting duplicate account creation ---"
+  _ <- createAccount store streamId "ACC001" 100
+  threadDelay 100000
 
   case mbVersion of
     Nothing -> putStrLn "Account creation failed"
@@ -213,11 +219,11 @@ demoConsistency = do
       case mbState1 of
         Nothing -> putStrLn "Projection not ready"
         Just state1 -> do
-          putStrLn $ "\n📊 Current state: balance=" <> show state1.balance
+          putStrLn $ "\nCurrent state: balance=" <> show state1.balance
                     <> ", version=" <> show state1.lastVersion
 
           -- Withdraw using correct version - should succeed
-          putStrLn "\n💰 Attempting withdrawal with correct version..."
+          putStrLn "\n--- Attempting withdrawal with correct version ---"
           success1 <- withdrawMoney store streamId "ACC001" 30 state1.lastVersion
           threadDelay 100000
 
@@ -225,11 +231,11 @@ demoConsistency = do
             then do
               -- Query updated state
               Just state2 <- queryAccount projection
-              putStrLn $ "📊 New state: balance=" <> show state2.balance
+              putStrLn $ "New state: balance=" <> show state2.balance
                         <> ", version=" <> show state2.lastVersion
 
               -- Try to withdraw using OLD version - should fail
-              putStrLn "\n💰 Attempting withdrawal with STALE version..."
+              putStrLn "\n--- Attempting withdrawal with STALE version ---"
               _success2 <- withdrawMoney store streamId "ACC001" 20 state1.lastVersion  -- Using old version!
               putStrLn "   (This prevents overdraft based on stale projection)"
 
