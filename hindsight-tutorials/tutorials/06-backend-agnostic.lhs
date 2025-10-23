@@ -1,22 +1,9 @@
 Backend-Agnostic Code
 =====================
 
-Write once, run anywhere. This tutorial shows how to write application code
-that works with **any** Hindsight backend (Memory, Filesystem, PostgreSQL).
-
-The Goal
---------
-
-You want code like this to work with ANY backend:
-
-```haskell
-myApp :: BackendHandle backend -> IO ()
-myApp store = do
-  -- Insert events
-  -- Subscribe to events
-  -- Query projections
-  -- Everything works regardless of backend!
-```
+Whenever possible, write code that depends on **interfaces** rather than concrete implementations.
+This enables switching backends: use PostgreSQL in production for durability, but the blazing-fast
+Memory backend for tests. Here's how to do it.
 
 Prerequisites
 -------------
@@ -79,104 +66,75 @@ createTask tid name =
 Write Backend-Agnostic Functions
 ---------------------------------
 
-The key is to use `Backend` constraint:
+Use the `EventStore` constraint to write functions that work with any backend:
 
 \begin{code}
--- This works with ANY backend!
-insertTaskGeneric :: forall backend. (EventStore backend, StoreConstraints backend IO)
-                  => BackendHandle backend
-                  -> Text
-                  -> Text
-                  -> IO (InsertionResult backend)
-insertTaskGeneric store taskId taskName = do
+-- Works with Memory, Filesystem, PostgreSQL - any EventStore backend
+processTask :: forall backend. (EventStore backend, StoreConstraints backend IO)
+            => BackendHandle backend
+            -> Text  -- Task ID
+            -> Text  -- Task name
+            -> IO Int  -- Returns count of all tasks
+processTask store taskId taskName = do
   streamId <- StreamId <$> UUID.nextRandom
 
-  let event = createTask taskId taskName
+  -- Insert the task event
+  void $ insertEvents store Nothing $
+    singleEvent streamId Any (createTask taskId taskName)
 
-  insertEvents store Nothing $
-    singleEvent streamId Any event
-
--- This also works with ANY backend!
-countTasksGeneric :: forall backend. (EventStore backend, StoreConstraints backend IO)
-                  => BackendHandle backend
-                  -> IO Int
-countTasksGeneric store = do
+  -- Count all tasks by subscribing to events
   countVar <- newTVarIO (0 :: Int)
-
   handle <- subscribe store
-    (match TaskCreated (countTaskHandler countVar) :? MatchEnd)
+    (match TaskCreated (countHandler countVar) :? MatchEnd)
     (EventSelector AllStreams FromBeginning)
 
-  threadDelay 100000
+  threadDelay 100000  -- Wait for subscription
   handle.cancel
-  threadDelay 10000
 
   readTVarIO countVar
   where
-    countTaskHandler countVar _envelope = do
+    countHandler countVar _envelope = do
       atomically $ modifyTVar' countVar (+1)
       return Continue
 \end{code}
 
-Demo with Different Backends
------------------------------
+Use with Different Backends
+----------------------------
 
-Now use these generic functions with different backends:
+The same function works with any backend:
 
 \begin{code}
 demoWithMemory :: IO ()
 demoWithMemory = do
   putStrLn "=== Using Memory Backend ==="
-
   store <- newMemoryStore
 
-  -- Use generic function
-  void $ insertTaskGeneric  store "T1" "Learn Haskell"
-  void $ insertTaskGeneric  store "T2" "Write docs"
+  count1 <- processTask store "T1" "Learn Haskell"
+  putStrLn $ "  After task 1: " <> show count1 <> " tasks"
 
-  count <- countTasksGeneric  store
-  putStrLn $ "  Tasks created: " <> show count <> "\n"
+  count2 <- processTask store "T2" "Write docs"
+  putStrLn $ "  After task 2: " <> show count2 <> " tasks\n"
 
 demoWithFilesystem :: IO ()
 demoWithFilesystem = do
   putStrLn "=== Using Filesystem Backend ==="
 
-  -- Create temporary directory
   tmpDir <- getCanonicalTemporaryDirectory
-  storePath <- createTempDirectory tmpDir "hindsight-agnostic"
+  storePath <- createTempDirectory tmpDir "hindsight-tutorial"
 
   bracket
     (newFilesystemStore $ mkDefaultConfig storePath)
     cleanupFilesystemStore
     $ \store -> do
-      -- Same generic functions work!
-      void $ insertTaskGeneric  store "T3" "Fix bug"
-      void $ insertTaskGeneric  store "T4" "Deploy"
+      count1 <- processTask store "T3" "Fix bug"
+      putStrLn $ "  After task 1: " <> show count1 <> " tasks"
 
-      count <- countTasksGeneric  store
-      putStrLn $ "  Tasks created: " <> show count
+      count2 <- processTask store "T4" "Deploy"
+      putStrLn $ "  After task 2: " <> show count2 <> " tasks"
 
-  -- Cleanup
   removeDirectoryRecursive storePath
-  putStrLn "  (Cleaned up temp directory)\n"
+  putStrLn "  (Cleaned up)\n"
 \end{code}
-
-Key Concepts
------------
-
-**EventStore Constraint**: `EventStore backend =>`
-- Makes functions work with any backend
-- No hardcoded backend choice
-
-**Type Application**: `@MemoryStore`, `@FilesystemStore`
-- Explicitly specify which backend to use
-- Required when calling generic functions
-
-**Same Logic, Different Storage**:
-
-- Write business logic once
-- Test with Memory backend
-- Deploy with PostgreSQL backend
 
 Running the Examples
 -------------------
@@ -191,44 +149,16 @@ main = do
   demoWithFilesystem
 
   putStrLn "Tutorial complete!"
-  putStrLn "\nNote: The same functions work with PostgreSQL too!"
-  putStrLn "Just use: insertTaskGeneric  store ..."
 \end{code}
-
-Best Practices
---------------
-
-**Separate Backend Choice from Logic**:
-```haskell
--- Good: Generic business logic
-processOrder :: EventStore b => BackendHandle b -> Order -> IO ()
-
--- Bad: Hardcoded backend
-processOrder :: BackendHandle MemoryStore -> Order -> IO ()
-```
-
-**Test with Memory, Deploy with PostgreSQL**:
-```haskell
--- Tests
-testOrderProcessing = do
-  store <- newMemoryStore
-  processOrder  store testOrder
-
--- Deployment
-main = do
-  store <- newSQLStore "postgresql://..."
-  processOrder  store realOrder
-```
 
 Summary
 -------
 
-Backend-agnostic code:
+Key concepts:
 
-- Uses `Backend` constraint
-- Works with any storage backend
-- Same logic everywhere
-- Test fast (Memory), deploy robust (PostgreSQL)
+- **EventStore constraint**: Makes functions work with any backend
+- **Same logic, different storage**: Write once, test with Memory, deploy with PostgreSQL
+- **Type inference**: Haskell figures out the backend type from usage
 
 Next Steps
 ----------
