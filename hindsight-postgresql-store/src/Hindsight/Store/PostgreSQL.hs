@@ -46,7 +46,7 @@ main = do
 
 = Configuration
 
-Connection via PostgreSQL connection string. Pool size defaults to 300 connections.
+Connection via PostgreSQL connection string. Pool size defaults to 10 connections.
 
 For custom configuration, use 'newSQLStoreWithProjections' to register synchronous projections
 that execute within event insertion transactions.
@@ -184,7 +184,10 @@ On startup, this function will:
 newSQLStoreWithProjections :: ByteString -> SyncProjectionRegistry -> IO SQLStoreHandle
 newSQLStoreWithProjections connectionString syncProjRegistry = do
     let connectionSettings = [ConnectionSetting.connection $ ConnectionSettingConnection.string (decodeUtf8 connectionString)]
-        hasqlConfig = Config.settings [Config.size 300, Config.staticConnectionSettings connectionSettings]
+        -- Pool size set to 10 (conservative default for typical event store workloads)
+        -- Leaves ample headroom below PostgreSQL max_connections (~100)
+        -- Pool queues excess requests rather than overwhelming the database
+        hasqlConfig = Config.settings [Config.size 10, Config.staticConnectionSettings connectionSettings]
     pool <- Pool.acquire hasqlConfig
 
     -- Run catch-up for sync projections
