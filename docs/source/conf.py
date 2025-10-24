@@ -7,8 +7,8 @@
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
 project = 'Hindsight'
-copyright = '2024, Hindsight Contributors'
-author = 'Hindsight Contributors'
+copyright = '2025, Gaël Deest'
+author = 'Gaël Deest'
 release = '0.1.0'
 
 # -- General configuration ---------------------------------------------------
