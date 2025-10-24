@@ -64,7 +64,7 @@ streamExistsStatement :: Statement.Statement UUID Bool
 streamExistsStatement =
     [singletonStatement|
     select exists (
-      select 1 
+      select 1
       from stream_heads
       where stream_id = $1 :: uuid
     ) :: bool
