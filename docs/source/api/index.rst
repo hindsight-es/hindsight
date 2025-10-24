@@ -11,6 +11,11 @@ Hindsight is organized into focused packages with clean dependency boundaries:
 **Core Library**
   📚 `hindsight-core <../haddock/hindsight-core/index.html>`_ - Type-safe event system with versioning
 
+**Testing Libraries** (in hindsight-core)
+  📚 `event-testing <../haddock/hindsight-core/event-testing/index.html>`_ - Test utilities for event generation
+
+  📚 `store-testing <../haddock/hindsight-core/store-testing/index.html>`_ - Store testing utilities and property tests
+
 **Storage Backends**
   📚 `hindsight-memory-store <../haddock/hindsight-memory-store/index.html>`_ - In-memory event store (testing/development)
 
@@ -57,6 +62,15 @@ Key API Modules by Package
   - ``Hindsight.Store.Parsing`` - Event parsing utilities
   - ``Hindsight.TH`` - Template Haskell helpers for event definitions
   - ``Hindsight.Tracing`` - OpenTelemetry observability integration
+
+**hindsight-core:event-testing** (Testing)
+  - ``Test.Hindsight.Generate`` - Event generation utilities
+  - ``Test.Hindsight.Examples`` - Example events for testing
+
+**hindsight-core:store-testing** (Testing)
+  - ``Test.Hindsight.Store.Common`` - Store-agnostic test suite
+  - ``Test.Hindsight.Store.TestRunner`` - Test execution framework
+  - ``Test.Hindsight.Store.StressTests`` - Stress testing utilities
 
 **hindsight-memory-store**
   - ``Hindsight.Store.Memory`` - In-memory event storage implementation

@@ -27,7 +27,7 @@ Hindsight is currently in **public beta**, and bugs are to be expected. Bug repo
 Quick Start
 -----------
 
-**Learning**: Check out the :doc:`tutorials` for a step-by-step introduction.
+**Learning**: Check out the :doc:`tutorials/index` for a step-by-step introduction.
 Visit the `Hindsight example <https://github.com/hindsight-es/hindsight-example.git>`_ repository for a quick demonstration.
 
 **Using Hindsight in my project**: See :doc:`installation`.
