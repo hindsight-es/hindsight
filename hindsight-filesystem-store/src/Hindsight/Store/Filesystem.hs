@@ -131,6 +131,7 @@ where
 
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (Async, async, cancel)
+import UnliftIO.Async (race_)
 import Control.Concurrent.STM (
     TChan,
     TVar,
@@ -154,7 +155,7 @@ import Data.ByteString.Lazy qualified as BL
 import Data.ByteString.Lazy.Char8 qualified as BL8
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (listToMaybe)
+import Data.Maybe (catMaybes, listToMaybe)
 import Data.Text (pack)
 import Data.Time (UTCTime, getCurrentTime)
 import Data.UUID (UUID)
@@ -299,7 +300,7 @@ mkDefaultConfig path =
     FilesystemStoreConfig
         { storePath = path
         , syncInterval = 1 -- Sync every write by default
-        , lockTimeout = 5000000 -- 5 seconds (allows ~25 instances @ 200ms each)
+        , lockTimeout = 5000000 -- 5 seconds (only used for writes now)
         }
 
 {- | Get the configuration from a store handle.
@@ -377,17 +378,16 @@ newFilesystemStore config = do
                 , globalNotification = globalVar
                 }
 
-    -- Start the file watcher notifier with central reload thread
-    notifier <- startNotifier paths.eventLogPath stateVar config
-
-    let handle = FilesystemStoreHandle{..}
-
-    -- Reload existing events if the log file has content
-    -- If lock is held by another process, skip reload - the notifier will catch up
+    -- CRITICAL: Initial load MUST happen BEFORE starting reload thread to avoid data race
+    -- Use LOCKED read (strict mode) - corruption at startup is fatal, no concurrent access yet
     reloadResult <- try @StoreException $ do
         logExists <- doesFileExist paths.eventLogPath
         when logExists $ do
-            entries <- readLogEntries handle
+            -- Use withStoreLockDirect for locked, atomic snapshot
+            entries <- withStoreLockDirect config $ do
+                contents <- BL.readFile paths.eventLogPath
+                decodeLogEntriesStrict paths.eventLogPath contents True  -- strict=True
+
             let completedEvents = Map.elems $ processLogEntries entries
                 maxSeqNo = maximum $ 0 : [e.seqNo | es <- completedEvents, e <- es]
 
@@ -406,34 +406,52 @@ newFilesystemStore config = do
 
     case reloadResult of
         Right () -> pure ()
-        Left (LockTimeout _) -> pure () -- Skip reload, notifier will catch up later
+        Left (LockTimeout _) -> pure () -- Should not happen during startup, but handle it
         Left (CorruptEventLog path reason) -> throwIO $ CorruptEventLog path reason -- Fatal error
+
+    -- Start the file watcher notifier with central reload thread
+    -- Now safe: initial load complete, stateVar populated, no data race
+    notifier <- startNotifier paths.eventLogPath stateVar config
+
+    let handle = FilesystemStoreHandle{..}
     pure handle
 
-{- | Decode log entries strictly, throwing CorruptEventLog on parse failures.
+{- | Decode log entries with configurable strictness.
 
 Empty lines are skipped (normal for newline-delimited JSON format).
-Non-empty unparseable lines are FATAL and throw CorruptEventLog.
+Non-empty unparseable lines in the MIDDLE of the file are ALWAYS FATAL (CorruptEventLog).
 
-This ensures we fail fast on corruption rather than silently losing data.
+Behavior for unparseable FINAL line depends on strictness:
+- Strict mode (initial load): FATAL - corruption detected immediately
+- Lenient mode (incremental reload): Skip gracefully - assumes partial write in progress
+
+This enables lock-free concurrent reads while maintaining corruption detection at startup.
 -}
-decodeLogEntriesStrict :: FilePath -> BL.ByteString -> IO [EventLogEntry]
-decodeLogEntriesStrict path contents = do
+decodeLogEntriesStrict :: FilePath -> BL.ByteString -> Bool -> IO [EventLogEntry]
+decodeLogEntriesStrict path contents strictMode = do
     let lines' = BL8.split '\n' contents
         nonEmptyLines = filter (not . BL.null) lines'
-    mapM decodeOne (zip [1 ..] nonEmptyLines)
+        totalLines = length nonEmptyLines
+    catMaybes <$> mapM (decodeOne totalLines) (zip [1 ..] nonEmptyLines)
   where
-    decodeOne :: (Integer, BL.ByteString) -> IO EventLogEntry
-    decodeOne (lineNum, line) =
+    decodeOne :: Int -> (Integer, BL.ByteString) -> IO (Maybe EventLogEntry)
+    decodeOne totalLines (lineNum, line) =
         case decode line of
-            Just entry -> pure entry
-            Nothing ->
-                throwIO $
-                    CorruptEventLog path $
-                        "Failed to parse JSON at line "
-                            ++ show lineNum
-                            ++ ": "
-                            ++ take 100 (BL8.unpack line)
+            Just entry -> pure (Just entry)
+            Nothing
+                | lineNum == fromIntegral totalLines && not strictMode ->
+                    -- Last line unparseable in lenient mode - likely partial write, skip it
+                    pure Nothing
+                | otherwise ->
+                    -- Corrupted line - fatal error
+                    throwIO $
+                        CorruptEventLog path $
+                            "Failed to parse JSON at line "
+                                ++ show lineNum
+                                ++ " of "
+                                ++ show totalLines
+                                ++ ": "
+                                ++ take 100 (BL8.unpack line)
 
 -- | Process log entries and return completed transactions
 processLogEntries :: [EventLogEntry] -> Map UUID [StoredEvent]
@@ -442,14 +460,14 @@ processLogEntries entries = Map.fromList [(e.transactionId, e.events) | e <- ent
 {- | Read and parse all entries from the event log
 
 Throws CorruptEventLog if any entry fails to parse.
-This ensures corruption is detected immediately rather than silently lost.
+Uses STRICT mode - corruption is always fatal in this context.
 -}
 readLogEntries :: FilesystemStoreHandle -> IO [EventLogEntry]
 readLogEntries handle =
     withStoreLock handle $ do
         let paths = getPaths handle.config.storePath
         contents <- BL.readFile paths.eventLogPath
-        decodeLogEntriesStrict paths.eventLogPath contents
+        decodeLogEntriesStrict paths.eventLogPath contents True  -- strict=True
 
 {- | Start the file watcher notifier thread
 Watches the event log for modifications and broadcasts to subscribers
@@ -462,13 +480,14 @@ startNotifier eventLogPath stateVar config = do
     -- File watcher thread - broadcasts when file changes
     notifyThread <- async $ notifierLoop eventLogPath chan
 
-    -- Central reload thread - responds to broadcasts by reloading events
-    -- This replaces per-subscription reload threads, reducing lock contention
-    -- CRITICAL: Must handle LockTimeout exceptions and retry, otherwise
-    -- subscriptions will block forever waiting for updates that never come
+    -- Central reload thread - responds to broadcasts OR periodic polling
+    -- Lock-free reads mean contention is no longer an issue, but we keep
+    -- periodic polling (10s) as a fallback in case fsnotify misses events
     reloadChan <- atomically $ dupTChan chan
     reloadThread <- async $ forever $ do
-        atomically $ readTChan reloadChan
+        race_
+            (atomically $ readTChan reloadChan)  -- Wait for fsnotify
+            (threadDelay 10000000)                -- OR 10-second timeout
         reloadEventsFromDiskCentralWithRetry stateVar config 0
 
     pure $ Notifier notifyThread reloadThread
@@ -498,32 +517,16 @@ notifierLoop eventLogPath chan = do
         -- Keep thread alive
         forever $ threadDelay maxBound
 
-{- | Retry wrapper for reloadEventsFromDiskCentral with exponential backoff
+{- | Wrapper for reloadEventsFromDiskCentral that handles CorruptEventLog
 
-Handles two types of exceptions differently:
-
-* LockTimeout: Retryable - uses exponential backoff (5 retries max)
-* CorruptEventLog: FATAL - logs error and re-throws (no retry, no swallow)
-
-Max retries for LockTimeout: 5, with exponential backoff: 10ms, 20ms, 40ms, 80ms, 160ms
+Since reads are now lock-free, LockTimeout can't happen here.
+Only CorruptEventLog needs handling (FATAL - terminates reload thread).
 -}
 reloadEventsFromDiskCentralWithRetry :: TVar (StoreState FilesystemStore) -> FilesystemStoreConfig -> Int -> IO ()
-reloadEventsFromDiskCentralWithRetry stateVar config retryCount = do
-    result <- try $ reloadEventsFromDiskCentral stateVar config
+reloadEventsFromDiskCentralWithRetry stateVar config _retryCount = do
+    result <- try @StoreException $ reloadEventsFromDiskCentral stateVar config
     case result of
-        Right () -> pure () -- Success, done
-        Left (LockTimeout path) -> do
-            if retryCount >= 5
-                then do
-                    -- Max retries exceeded - log warning and give up on this reload
-                    -- This is NOT fatal - the next file change will trigger another reload
-                    putStrLn $ "WARNING: Failed to reload events after 5 retries due to lock contention on " ++ path
-                    pure ()
-                else do
-                    -- Exponential backoff: 10ms * 2^retryCount
-                    let delayMicros = 10000 * (2 ^ retryCount)
-                    threadDelay delayMicros
-                    reloadEventsFromDiskCentralWithRetry stateVar config (retryCount + 1)
+        Right () -> pure ()
         Left (CorruptEventLog path reason) -> do
             -- FATAL ERROR: Event log corruption indicates either a serious bug or external tampering
             -- DO NOT retry, DO NOT swallow - this requires operator intervention
@@ -532,23 +535,26 @@ reloadEventsFromDiskCentralWithRetry stateVar config retryCount = do
             putStrLn "This indicates either a serious bug in the event store or external process tampering."
             putStrLn "The reload thread will now terminate. Manual intervention is required."
             throwIO $ CorruptEventLog path reason
+        Left (LockTimeout path) ->
+            -- Should never happen since reads are lock-free now, but handle it anyway
+            putStrLn $ "UNEXPECTED: LockTimeout during lock-free read on " ++ path
 
 {- | Reload new events from disk into the in-memory store state
 Called by the notifier's reload thread when file changes are detected
-Uses locking to coordinate with writes and avoid "resource busy" errors
-Uses STRICT ByteString to ensure file handle is closed immediately
 
-Throws CorruptEventLog if parsing fails - this is FATAL and will terminate the reload thread.
+LOCK-FREE: Reads file without locking for zero contention.
+Partial writes at EOF are gracefully skipped by decodeLogEntriesStrict.
+
+Uses STRICT ByteString to ensure file handle is closed immediately.
+Throws CorruptEventLog if middle-of-file corruption detected (FATAL).
 -}
 reloadEventsFromDiskCentral :: TVar (StoreState FilesystemStore) -> FilesystemStoreConfig -> IO ()
 reloadEventsFromDiskCentral stateVar config = do
-    -- Acquire lock to coordinate with writes and avoid concurrent file access issues
-    -- Use strict ByteString to ensure file is closed immediately (no lazy handle leak)
-    entries <- withStoreLockDirect config $ do
-        let paths = getPaths config.storePath
-        contents <- BS.readFile paths.eventLogPath
-        -- Convert strict ByteString to lazy for decoding
-        decodeLogEntriesStrict paths.eventLogPath (BL.fromStrict contents)
+    -- LOCK-FREE READ: No withStoreLock here!
+    -- Concurrent reads are safe on Unix. Partial writes handled by parser.
+    let paths = getPaths config.storePath
+    contents <- BS.readFile paths.eventLogPath
+    entries <- decodeLogEntriesStrict paths.eventLogPath (BL.fromStrict contents) False  -- strict=False (lenient)
 
     let completedEvents = Map.elems $ processLogEntries entries
 
