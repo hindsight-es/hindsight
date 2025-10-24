@@ -40,12 +40,6 @@ main = do
     (EventSelector AllStreams FromBeginning)
 ```
 
-## Documentation
-
-- [Getting Started Tutorial](https://hindsight.events/tutorials/01-getting-started.html)
-- [Backend-Agnostic Code](https://hindsight.events/tutorials/06-backend-agnostic.html)
-- [API Reference](https://hindsight.events/haddock/hindsight-filesystem-store/)
-
 ## License
 
 BSD-3-Clause. See [LICENSE](../LICENSE) for details.
