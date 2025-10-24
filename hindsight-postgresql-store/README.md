@@ -54,7 +54,7 @@ main = do
 - [Introduction](https://hindsight.events/introduction.html)
 - [Getting Started](https://hindsight.events/tutorials/01-getting-started.html)
 - [PostgreSQL Projections](https://hindsight.events/tutorials/03-postgresql-projections.html)
-- [Advanced PostgreSQL](https://hindsight.events/tutorials/07-advanced-postgresql.html)
+- [Synchronous Projections](https://hindsight.events/tutorials/07-synchronous-projections.html)
 - [API Reference](https://hindsight.events/haddock/hindsight-postgresql-store/)
 
 ## License

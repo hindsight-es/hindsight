@@ -20,16 +20,27 @@ Hindsight provides type-safe event sourcing with:
 - Backend-agnostic projections for building read models
 - Real-time event subscriptions with pattern matching
 
-See :doc:`introduction` for detailed feature descriptions.
+All with strong event ordering guarantees, multi-stream consistency features and a polished API.
+
+Hindsight is currently in **public beta**, and bugs are to be expected. Bug reports, critics
+
+Quick Start
+-----------
+
+**Learning**: Check out the :doc:`tutorials` for a step-by-step introduction.
+Visit the `Hindsight example <https://github.com/hindsight-es/hindsight-example.git>`_ repository for a quick demonstration.
+
+**Using Hindsight in my project**: See :doc:`installation`.
+
+**Contributing**: For development setup, see :doc:`development`.
 
 Documentation Contents
 ----------------------
 
 .. toctree::
    :maxdepth: 2
-   :caption: Introduction
+   :caption: Getting Started
 
-   introduction
    installation
 
 .. toctree::
@@ -47,24 +58,9 @@ Documentation Contents
 .. toctree::
    :maxdepth: 1
    :caption: Development
-   
-   development/building
-   development/testing
-   development/contributing
 
-Quick Start
------------
+   development
 
-Check out our :doc:`tutorials/01-getting-started` to begin using Hindsight in your project.
-
-For installation instructions and development setup, see :doc:`development/building`.
-
-Community
----------
-
-- **Issues**: Report bugs and request features on our issue tracker
-- **Discussions**: Join the community discussions
-- **Contributing**: See our :doc:`development/contributing` guide
 
 Indices and tables
 ==================

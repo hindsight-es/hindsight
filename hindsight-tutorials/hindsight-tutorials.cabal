@@ -1,4 +1,4 @@
-cabal-version:      3.4
+cabal-version:      3.8
 name:               hindsight-tutorials
 version:            0.1.0.0
 synopsis:           Tutorials for the Hindsight event sourcing library
@@ -117,7 +117,7 @@ executable tutorial-06
 executable tutorial-07
     import:           warnings, opts
     default-language: GHC2021
-    main-is:          tutorials/07-advanced-postgresql.lhs
+    main-is:          tutorials/07-synchronous-projections.lhs
     hs-source-dirs:   .
     ghc-options:      -threaded
     build-depends:

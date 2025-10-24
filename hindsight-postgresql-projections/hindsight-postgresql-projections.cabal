@@ -1,4 +1,4 @@
-cabal-version:      3.4
+cabal-version:      3.8
 name:               hindsight-postgresql-projections
 version:            0.1.0.0
 synopsis:           Backend-agnostic PostgreSQL projections for Hindsight

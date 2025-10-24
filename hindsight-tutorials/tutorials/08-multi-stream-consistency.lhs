@@ -1,42 +1,9 @@
-Multi-Stream Consistency
+Cross-Stream Consistency
 ========================
 
-Cross-aggregate invariants present a real challenge in event sourcing.
-
-Traditional aggregate-based event sourcing excels at enforcing consistency
-*within* a single entity (one stream = one aggregate). But real applications
-need invariants that span multiple entities:
-
-**Common Cross-Aggregate Invariants:**
-
-1. **Uniqueness constraints**: No two users can have the same email address
-2. **Resource limits**: Course enrollment can't exceed capacity
-3. **Foreign key-like rules**: Can't enroll a student in a deleted course
-4. **Multi-entity transactions**: Transfer funds between two accounts atomically
-
-**The Problem:**
-
-```
-Thread 1: Check email not taken → Insert UserCreated
-Thread 2:                          Check email not taken → Insert UserCreated
-
-Result: Two users with same email (race condition!)
-```
-
-**Hindsight's Solution:**
-
-Two complementary mechanisms working together:
-
-1. **SQL constraints** (UNIQUE, CHECK, etc.) - Enforced atomically by PostgreSQL
-2. **Multi-stream atomic transactions** - Insert to multiple streams with version expectations
-
-Synchronous projections run within the event insertion transaction, allowing
-SQL constraints to protect against invariant violations. Multi-stream version
-expectations prevent concurrent modifications to coordinated entities.
-
-This pattern is sometimes called "Dynamic Consistency Boundaries" in other
-frameworks. In Hindsight, it's implemented using ACID transactions
-across multiple event streams with database constraint enforcement.
+Event sourcing with multiple streams creates challenges for invariants that span aggregates
+(e.g., email uniqueness, capacity limits). Two patterns solve this: **SQL constraints** for
+simple invariants, and **multi-stream transactions** for coordinated updates.
 
 Prerequisites
 -------------
@@ -87,22 +54,11 @@ import Data.Int (Int32)
 import Data.Proxy (Proxy (..))
 \end{code}
 
-The Classic Problem: Unique Email Addresses
---------------------------------------------
+Pattern 1: SQL Constraints for Uniqueness
+------------------------------------------
 
-Let's start with a canonical example: user registration with unique emails.
-
-**The Aggregate Trap**:
-
-In traditional aggregate-based event sourcing, each User is a separate aggregate
-with its own stream. But email uniqueness is a **cross-aggregate invariant**:
-
-```
-UserStream-123: [UserCreated "alice@example.com"]
-UserStream-456: [UserCreated "alice@example.com"]  ← CONFLICT!
-```
-
-How do we prevent this?
+Email uniqueness is a cross-stream invariant: no two users can share an email.
+Use synchronous projections with SQL UNIQUE constraints.
 
 Define Events
 -------------
@@ -170,14 +126,11 @@ enrollStudent cid sid =
   mkEvent StudentEnrolled (EnrollmentInfo cid sid)
 \end{code}
 
-Solution 1: Synchronous Projections with SQL Constraints
----------------------------------------------------------
+Synchronous Projection with UNIQUE Constraint
+----------------------------------------------
 
-The most elegant solution: let PostgreSQL enforce uniqueness.
-
-**Key Insight**: With synchronous projections, event insertion and projection
-updates happen in the **same transaction**. This means SQL constraints can
-reject events that violate business rules.
+The projection runs in the same transaction as event insertion. SQL constraints
+reject events that violate business rules:
 
 \begin{code}
 -- Projection schema with UNIQUE constraint
@@ -207,23 +160,12 @@ userProjection =
           INSERT INTO users (user_id, email, name)
           VALUES ($1 :: uuid, $2 :: text, $3 :: text)
         |]
-        -- If email exists → constraint violation → transaction rollback → event rejected
 \end{code}
 
-**What Just Happened?**
+If the email already exists, the UNIQUE constraint causes a transaction rollback,
+and the event is rejected.
 
-1. User tries to register with email "alice@example.com"
-2. Event `UserRegistered` is created
-3. `insertEvents` begins PostgreSQL transaction
-4. Synchronous projection handler executes (in same TX)
-5. `INSERT` attempts to add user
-6. If email exists: **UNIQUE constraint violation**
-7. Transaction **rolls back**
-8. `insertEvents` returns `FailedInsertion (BackendError ...)`
-
-**The event never makes it to the store** if the invariant is violated.
-
-Demo: Email Uniqueness Enforcement
+Demonstration
 -----------------------------------
 
 \begin{code}
@@ -306,23 +248,11 @@ demoEmailUniqueness = do
       void $ Temp.stop db
 \end{code}
 
-**Key Takeaway**: SQL constraints give you **zero-overhead** invariant checking.
-No queries, no version expectations, just pure database guarantees.
+Pattern 2: Multi-Stream Transactions
+-------------------------------------
 
-Solution 2: Multi-Stream Version Expectations
-----------------------------------------------
-
-For more complex invariants that can't be expressed as SQL constraints, use
-**multi-stream atomic transactions** with version expectations.
-
-**The Pattern**:
-
-1. Read current state from projections
-2. Check business invariants
-3. Insert events to **multiple streams** with version expectations
-4. If any stream changed → entire transaction fails
-
-Example: Course Enrollment with Capacity Limits
+For complex invariants, combine SQL CHECK constraints with multi-stream atomic inserts.
+Example: course enrollment with capacity limits.
 ------------------------------------------------
 
 \begin{code}
@@ -488,153 +418,25 @@ demoMultiStreamEnrollment = do
       void $ Temp.stop db
 \end{code}
 
-**The Pattern**:
-
-```haskell
--- Multi-stream atomic insert with version expectations
-result <- insertEvents store Nothing $
-  Map.fromList
-    [ (courseStream, StreamWrite (ExactVersion lastCourseCursor) [enrollment])
-    , (studentStream, StreamWrite NoStream [studentData])
-    ]
-
--- If capacity exceeded, synchronous projection fails → entire transaction rolls back
--- If course stream changed concurrently, ExactVersion check fails → retry
-```
-
-**What Happens Inside the Transaction**:
-
-1. Event inserted to course stream (with version check)
-2. Event inserted to student stream
-3. Synchronous projection runs: `UPDATE courses SET enrollment_count = enrollment_count + 1`
-4. CHECK constraint validates: `enrollment_count <= max_capacity`
-5. If constraint fails → entire transaction rolls back, no events persisted
-6. If version expectation fails → entire transaction rolls back, retry with new cursor
-
-Concurrency Protection: Why CHECK Constraints Matter
------------------------------------------------------
-
-**Without CHECK constraint** (race condition):
-
-```
-Thread 1                          Thread 2
---------                          --------
-Query capacity: 1 slot free
-                                  Query capacity: 1 slot free
-Insert enrollment (slot 2/2)
-                                  Insert enrollment (slot 3/2) ← OVERBOOKING!
-```
-
-Both threads see available capacity, both insert, exceeding limit.
-
-**With CHECK constraint** (atomic enforcement):
-
-```
-Thread 1                          Thread 2
---------                          --------
-Query capacity: 1 slot free
-                                  Query capacity: 1 slot free
-BEGIN TRANSACTION                 BEGIN TRANSACTION
-  Update count to 2
-  CHECK passes (2 <= 2)
-COMMIT
-                                    Update count to 3
-                                    CHECK FAILS (3 > 2) ← REJECTED
-                                  ROLLBACK
-```
-
-The CHECK constraint enforces the invariant **atomically within the transaction**.
-Even if both threads see available capacity, only one can commit.
-
-**Two Distinct Responsibilities**:
-
-In our course enrollment demo, we use **both mechanisms together** for different purposes:
-
-1. **Version expectations** → **Concurrency control**: Serializes access to course stream
-   - Prevents lost updates when two threads modify the same stream concurrently
-   - Does NOT know anything about capacity - just prevents stale cursor writes
-
-2. **CHECK constraint** → **Invariant enforcement**: Actually enforces capacity rule
-   - Validates business rule: `enrollment_count <= max_capacity`
-   - Protects against ALL violations: bugs, manual inserts, missing version checks
-
-**They are NOT redundant**:
-
-- Version expectations prevent race conditions (serialization)
-- CHECK constraint enforces business rule (capacity limit)
-
-Without CHECK: Could insert with `Any` version expectation and violate capacity
-Without version expectations: Could have concurrent inserts that both pass CHECK but create race
-
-**When to Use What**:
-
-- **SQL constraints alone**: Simple invariants (uniqueness, value ranges) - Example 1
-- **Version expectations alone**: Coordinating multiple streams without invariants
-- **Both together**: Critical invariants + multi-stream coordination - Example 2
-
-Hindsight's Approach to Cross-Aggregate Invariants
-----------------------------------------------------
-
-Different event sourcing frameworks handle cross-aggregate invariants differently. Hindsight uses database capabilities directly:
-
-**For Simple Invariants** (uniqueness, value ranges, foreign keys):
-- SQL constraints (UNIQUE, CHECK, FOREIGN KEY)
-- Enforced atomically within synchronous projection transactions
-- Zero additional query overhead
-
-**For Complex Invariants** (capacity limits, multi-entity rules):
-- Multi-stream atomic transactions with version expectations
-- Read current state from projections
-- Insert events to multiple streams with version checks
-- Entire transaction fails if any stream changed concurrently
-
-**Hindsight's Design Principles**:
-
-- Leverage PostgreSQL's transactional guarantees rather than rebuilding them
-- Use SQL constraints for invariants when possible (fastest, simplest)
-- Use version expectations for coordination between streams
-- Combine both mechanisms when you need strong guarantees with multi-stream coordination
-
 Running the Examples
 --------------------
 
 \begin{code}
 main :: IO ()
 main = do
-  putStrLn "=== Hindsight Tutorial 08: Multi-Stream Consistency ==="
+  putStrLn "=== Hindsight Tutorial 08: Cross-Stream Consistency ==="
 
   demoEmailUniqueness
   demoMultiStreamEnrollment
 
   putStrLn "\n✓ Tutorial complete!"
-  putStrLn "\nKey Insights:"
-  putStrLn "  • Use SQL constraints for simple invariants (best performance)"
-  putStrLn "  • Use multi-stream version expectations for complex coordination"
-  putStrLn "  • Combine both for maximum flexibility"
-  putStrLn "  • Synchronous projections = consistency + simplicity"
 \end{code}
 
 Summary
 -------
 
-**Two mechanisms for cross-aggregate consistency**:
+Key concepts:
 
-1. **SQL constraints** (UNIQUE, CHECK, FOREIGN KEY) - Simple, fast, reliable
-2. **Multi-stream atomic transactions** - Coordinate multiple streams with version expectations
-
-**Use SQL constraints when**:
-- Enforcing simple invariants (uniqueness, value ranges, foreign keys)
-- You want maximum performance
-- The invariant maps directly to a database constraint
-
-**Use multi-stream transactions when**:
-- Coordinating events across multiple aggregates
-- Building sagas or process managers
-- You need to track causality across streams
-
-**Use both when**:
-- You need strong consistency guarantees for critical invariants
-- Defense in depth is required
-- Combining stream coordination with invariant enforcement
-
-Hindsight handles cross-aggregate consistency using ACID transactions with synchronous projections.
+- **SQL constraints** enforce simple invariants (UNIQUE, CHECK) within sync projection transactions
+- **Multi-stream transactions** coordinate events across multiple streams with version expectations
+- **Combine both** for complex invariants that require multi-stream coordination
