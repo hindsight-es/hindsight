@@ -4,17 +4,12 @@ Getting Started with Hindsight
 This tutorial introduces Hindsight, a type-safe event sourcing library for Haskell.
 We'll learn the basics by building a simple working example.
 
-What is Event Sourcing?
------------------------
+In this tutorial, we will:
 
-Event sourcing stores changes to your application as a sequence of events.
-Instead of storing just the current state, we keep a log of everything that happened.
-
-Hindsight provides:
-
-- Type-safe event definitions
-- Multiple storage backends
-- Tools for reading and processing events
+- Define an event with a single version ;
+- Instantiate an in-memory event store ;
+- Insert a few events ;
+- Read those events back through a subscription.
 
 Let's Start Coding
 ------------------
@@ -61,40 +56,15 @@ data UserInfo = UserInfo
 
 -- Tell Hindsight about this event (version 0)
 type instance MaxVersion UserRegistered = 0
+-- Define all our versions (only one for now)
 type instance Versions UserRegistered = '[UserInfo]
+-- Declare this symbol as an event
 instance Event UserRegistered
+-- Register this event with the event upgrade mechanism
 instance MigrateVersion 0 UserRegistered
 \end{code}
 
-The event is now registered with the versioning system and ready to use.
-
-Creating Events
----------------
-
-Hindsight provides two key functions for working with events:
-
-- **mkEvent** - Creates a single event from a type-level name and payload:
-
-  .. code-block:: haskell
-
-     mkEvent :: Event eventName => eventName -> LatestVersion eventName -> SomeLatestEvent
-
-  This wraps your event data in a version-aware container that Hindsight can store and deserialize.
-
-- **multiEvent** - Creates a transaction to insert multiple events into a single stream:
-
-  .. code-block:: haskell
-
-     multiEvent :: StreamId -> ExpectedVersion backend -> [SomeLatestEvent] -> Transaction [] backend
-
-  The ``ExpectedVersion`` parameter controls optimistic concurrency control:
-
-  - ``Any`` - No version check (always succeeds, used for append-only logs)
-  - ``NoStream`` - Stream must not exist (for creating new aggregates)
-  - ``StreamExists`` - Stream must exist (any version acceptable)
-  - ``ExactStreamVersion v`` - Stream must be at exact version ``v`` (for updates)
-
-  In this tutorial we use ``Any`` because we're just appending events without conflict detection.
+The event is now ready to use.
 
 Storing Events
 --------------
@@ -129,6 +99,64 @@ example = do
       putStrLn $ "✗ Failed to insert: " <> show err
 \end{code}
 
+Let's break this down:
+
+- Events are organized into streams identified by an unique identifier (`UUID`).
+  Streams are a low-level primitive and Hindsight does not make assumptions regarding how they are used.
+  Typically, event sourcing applications use streams to store events associated to an aggregate, 
+  but you can also forgo the concept of streams almost entirely and insert all of your events into a single stream,
+  as we do here.
+- Storeable events are created with the `mkEvent` function:
+
+  ```haskell
+    mkEvent ::
+      forall (event :: Symbol) ->
+      -- ^ Event name (type-level string)
+      (Event event) =>
+      -- | Event payload at current version
+      CurrentPayloadType event ->
+      -- | Wrapped event for storage
+      SomeLatestEvent
+  ````
+  
+  The first argument to `mkEvent` is a **required** type argument
+  (note the `forall event ->` instead of `forall event.` syntax).
+
+- We must define an **event transaction** with the `multiEvent` helper. This function is adequate to
+  define a transaction inserting multiple events into a single stream:
+
+  ```haskell
+    multiEvent ::
+      -- | Target stream identifier
+      StreamId ->
+      -- | Version expectation for concurrency control
+      ExpectedVersion backend ->
+      -- | Collection of events to insert (typically a list)
+      t SomeLatestEvent ->
+      -- | Transaction with multiple events
+      Transaction t backend 
+  ```
+
+  The ``ExpectedVersion`` parameter controls optimistic concurrency control:
+
+  - ``Any`` - No version check (always succeeds, used for append-only logs)
+  - ``NoStream`` - Stream must not exist (for creating new aggregates)
+  - ``StreamExists`` - Stream must exist (any version acceptable)
+  - ``ExactStreamVersion v`` - Stream must be at exact version ``v`` (for updates)
+
+  In this tutorial we use ``Any`` because we're just appending events without conflict detection.
+
+- Finally we insert events into the store with the `insertEvents` method of the event store interface:
+
+  ```haskell
+    insertEvents ::
+      (Traversable t, StoreConstraints backend m) =>
+      BackendHandle backend ->
+      Maybe CorrelationId ->
+      Transaction t backend ->
+      m (InsertionResult backend)
+  ```
+
 Reading Events Back
 -------------------
 
@@ -158,6 +186,10 @@ handleUserEvent envelope = do
   return Continue
 \end{code}
 
+Let us break this down again:
+
+- We use the `subscribe` method from the event store interface to define a subscription
+
 Running the Example
 -------------------
 
@@ -176,16 +208,13 @@ Summary
 
 Key concepts:
 
-- **Events** are defined with a type-level name and a payload
-- **Stores** persist events (we used MemoryStore for simplicity)
-- **Streams** group related events together
+- **Events** are identified by a typelevel symbol
+- **Event versioning** must be explicitly declared through a typelevel DSL
+- **Stores**, well, store and dispatch events (we used `MemoryStore` for simplicity)
+- **Streams** are a fundamental storage primitive to group events
 - **Subscriptions** let you process events as they arrive
 
 Next Steps
-----------
+-------------
 
-In the next tutorials, we'll explore:
-
-- Different storage backends (filesystem, PostgreSQL)
-- Event versioning and migrations
-- Advanced subscription patterns
+In the next tutorial, we will put our subscriptions to good use by building in-memory projections.
