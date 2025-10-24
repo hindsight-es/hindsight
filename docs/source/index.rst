@@ -22,7 +22,8 @@ Hindsight provides type-safe event sourcing with:
 
 All with strong event ordering guarantees, multi-stream consistency features and a polished API.
 
-Hindsight is currently in **public beta**, and bugs are to be expected. Bug reports, critics
+Hindsight is currently **experimental**, and bugs are to be expected. Bug reports, critics, suggestions
+are all welcome on our `issue tracker <https://github.com/hindsight-es/hindsight/issues/new>`_.
 
 Quick Start
 -----------

@@ -119,26 +119,18 @@ insertEvents sqlStore  Nothing batch
 
 ## Key Features
 
-- **Type-safe events** with automatic versioning using DataKinds
-- **Multiple backends**: Memory, Filesystem, and PostgreSQL
+- **Type-safe events** with automatic upcasts and golden test generation
 - **Real-time subscriptions** for event stream processing
+- **Multiple backends**: Memory, Filesystem, and PostgreSQL
 - **Projection system** for building read models
-- **Strong consistency** guarantees across all operations
+- **Strong consistency** and **ordering** guarantees
 
 ## Get Started
 
-Ready to dive in? Check out our comprehensive documentation:
+Check out our documentation
 
 <div class="cta-buttons">
   <a href="/docs/" class="btn btn-primary">Read Documentation</a>
   <a href="/docs/tutorials/01-getting-started.html" class="btn btn-secondary">Quick Start Guide</a>
 </div>
-
-## Why Hindsight?
-
-Event sourcing provides powerful guarantees for distributed systems, but implementing it correctly is challenging. Hindsight leverages Haskell's type system to catch common mistakes at compile time:
-
-- **No version mismatches**: The type system ensures events can always be deserialized
-- **No ordering bugs**: Causal consistency is enforced through the API
-- **No silent failures**: All error cases are explicit and handled
 
