@@ -84,14 +84,17 @@ data SQLStoreHandle = SQLStoreHandle
 
 {- | Position cursor for PostgreSQL event store.
 
-Uses a compound key of (transactionNo, sequenceNo) to provide
+Uses a compound key of (transactionXid8, sequenceNo) to provide
 total ordering across all events. The Ord instance uses
 lexicographical ordering, so events are ordered first by
-transaction number, then by sequence within transaction.
+transaction xid8, then by sequence within transaction.
+
+transactionXid8 is PostgreSQL's native 64-bit transaction ID that
+never wraps and integrates with MVCC for consistent ordering.
 -}
 data SQLCursor = SQLCursor
-    { transactionNo :: !Int64
-    -- ^ Transaction number (globally increasing)
+    { transactionXid8 :: !Int64
+    -- ^ PostgreSQL transaction ID (xid8 - globally monotonic, never wraps)
     , sequenceNo :: !Int32
     -- ^ Sequence within transaction (1, 2, 3...)
     }

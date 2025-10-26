@@ -32,7 +32,7 @@ import Hindsight.Store.PostgreSQL.Core.Types (SQLCursor (..))
 -- | State of a sync projection in the database
 data SyncProjectionState = SyncProjectionState
     { projectionId :: ProjectionId
-    , lastProcessedTransactionNo :: Int64
+    , lastProcessedTransactionXid8 :: Int64
     , lastProcessedSeqNo :: Int32
     , lastUpdated :: UTCTime
     , isActive :: Bool
@@ -91,7 +91,7 @@ getActiveProjections = do
                     Aeson.Error _ -> (-1, -1) -- Failed to parse, treat as never processed
          in SyncProjectionState
                 { projectionId = ProjectionId projId
-                , lastProcessedTransactionNo = txNo
+                , lastProcessedTransactionXid8 = txNo
                 , lastProcessedSeqNo = seqNo
                 , lastUpdated = updated
                 , isActive = active

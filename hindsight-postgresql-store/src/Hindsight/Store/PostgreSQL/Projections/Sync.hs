@@ -84,7 +84,7 @@ instance Exception CatchUpError
 
 -- | Stored event data from database
 data StoredEvent = StoredEvent
-    { transactionNo :: Int64
+    { transactionXid8 :: Int64
     , seqNo :: Int32
     , streamId :: StreamId
     , eventId :: EventId
@@ -246,7 +246,7 @@ catchUpTransaction registry@(SyncProjectionRegistry regMap) = do
             results <- forM activeProjections $ \projState -> do
                 let cursor =
                         SQLCursor
-                            projState.lastProcessedTransactionNo
+                            projState.lastProcessedTransactionXid8
                             projState.lastProcessedSeqNo
                 catchUpProjection registry projState.projectionId cursor
 
@@ -278,7 +278,7 @@ catchUpProjection (SyncProjectionRegistry regMap) projId cursor = do
                 processStoredEvent handlers storedEvent
 
                 -- Update projection state after successful processing
-                let eventCursor = SQLCursor storedEvent.transactionNo storedEvent.seqNo
+                let eventCursor = SQLCursor storedEvent.transactionXid8 storedEvent.seqNo
                 updateSyncProjectionState projId eventCursor
 
             pure $ Right ()
@@ -300,7 +300,7 @@ processStoredEvent handlers storedEvent = do
             eventProxy
             storedEvent.eventId
             storedEvent.streamId
-            (SQLCursor storedEvent.transactionNo storedEvent.seqNo)
+            (SQLCursor storedEvent.transactionXid8 storedEvent.seqNo)
             (StreamVersion storedEvent.streamVersion)
             (CorrelationId <$> storedEvent.correlationId)
             storedEvent.createdAt
@@ -321,7 +321,7 @@ getUnprocessedEvents (SQLCursor lastTxNo lastSeqNo) = do
     getEventsStmt =
         [vectorStatement|
         SELECT
-          e.transaction_no :: int8,
+          e.transaction_xid8::text::bigint :: int8,
           e.seq_no :: int4,
           e.stream_id :: uuid,
           e.event_id :: uuid,
@@ -332,15 +332,15 @@ getUnprocessedEvents (SQLCursor lastTxNo lastSeqNo) = do
           e.payload :: jsonb,
           e.stream_version :: int8
         FROM events e
-        WHERE (e.transaction_no > $1 :: int8)
-           OR (e.transaction_no = $1 :: int8 AND e.seq_no > $2 :: int4)
-        ORDER BY e.transaction_no, e.seq_no
+        WHERE (e.transaction_xid8::text::bigint > $1 :: int8)
+           OR (e.transaction_xid8::text::bigint = $1 :: int8 AND e.seq_no > $2 :: int4)
+        ORDER BY e.transaction_xid8, e.seq_no
         LIMIT 1000
       |]
 
     toStoredEvent (txNo, seqNo, streamId, eventId, createdAt, corrId, eventName, eventVersion, payload, streamVer) =
         StoredEvent
-            { transactionNo = txNo
+            { transactionXid8 = txNo
             , seqNo = seqNo
             , streamId = StreamId streamId
             , eventId = EventId eventId

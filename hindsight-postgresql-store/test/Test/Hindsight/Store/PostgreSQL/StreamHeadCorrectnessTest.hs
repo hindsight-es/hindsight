@@ -47,7 +47,7 @@ data EventRow = EventRow
 getStreamHeadsStmt :: Statement [UUID] [StreamHead]
 getStreamHeadsStmt =
     Statement
-        "SELECT stream_id, last_event_id, latest_transaction_no, latest_seq_no, stream_version \
+        "SELECT stream_id, last_event_id, latest_transaction_xid8::text::bigint, latest_seq_no, stream_version \
         \FROM stream_heads \
         \WHERE stream_id = ANY($1)"
         (E.param (E.nonNullable (E.foldableArray (E.nonNullable E.uuid))))
@@ -58,7 +58,7 @@ getStreamHeadsStmt =
         StreamHead
             <$> D.column (D.nonNullable D.uuid) -- stream_id
             <*> D.column (D.nonNullable D.uuid) -- last_event_id
-            <*> D.column (D.nonNullable D.int8) -- latest_transaction_no
+            <*> D.column (D.nonNullable D.int8) -- latest_transaction_xid8
             <*> D.column (D.nonNullable D.int4) -- latest_seq_no
             <*> D.column (D.nonNullable D.int8) -- stream_version
 
@@ -66,10 +66,10 @@ getStreamHeadsStmt =
 getActualLastEventsStmt :: Statement [UUID] [EventRow]
 getActualLastEventsStmt =
     Statement
-        "SELECT DISTINCT ON (stream_id) stream_id, event_id, transaction_no, seq_no \
+        "SELECT DISTINCT ON (stream_id) stream_id, event_id, transaction_xid8::text::bigint, seq_no \
         \FROM events \
         \WHERE stream_id = ANY($1) \
-        \ORDER BY stream_id, transaction_no DESC, seq_no DESC"
+        \ORDER BY stream_id, transaction_xid8 DESC, seq_no DESC"
         (E.param (E.nonNullable (E.foldableArray (E.nonNullable E.uuid))))
         (D.rowList eventRowDecoder)
         True
@@ -78,7 +78,7 @@ getActualLastEventsStmt =
         EventRow
             <$> D.column (D.nonNullable D.uuid) -- stream_id
             <*> D.column (D.nonNullable D.uuid) -- event_id
-            <*> D.column (D.nonNullable D.int8) -- transaction_no
+            <*> D.column (D.nonNullable D.int8) -- transaction_xid8
             <*> D.column (D.nonNullable D.int4) -- seq_no
 
 {- | Test that stream heads correctly point to the last event in each stream

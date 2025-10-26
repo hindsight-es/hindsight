@@ -41,8 +41,8 @@ getCurrentVersionStatement :: Statement.Statement UUID (Maybe (Cursor SQLStore))
 getCurrentVersionStatement =
     dimap id (fmap (uncurry SQLCursor)) $
         [maybeStatement|
-    select 
-      latest_transaction_no :: int8,
+    select
+      latest_transaction_xid8::text::bigint :: int8,
       latest_seq_no :: int4
     from stream_heads
     where stream_id = $1 :: uuid
@@ -198,7 +198,7 @@ checkVersions batches = do
 getStreamCursorStatement :: Statement.Statement UUID (Maybe SQLCursor)
 getStreamCursorStatement = Statement.Statement sql encoder decoder True
   where
-    sql = "SELECT latest_transaction_no, latest_seq_no FROM stream_heads WHERE stream_id = $1"
+    sql = "SELECT latest_transaction_xid8::text::bigint, latest_seq_no FROM stream_heads WHERE stream_id = $1"
     encoder = E.param (E.nonNullable E.uuid)
     decoder = D.rowMaybe $ do
         txNo <- D.column $ D.nonNullable D.int8

@@ -64,18 +64,19 @@ data InsertedEvents = InsertedEvents
 
 -- * Database statements
 
--- | Get next transaction number from sequence
-getTransactionNumber :: Statement () Int64
-getTransactionNumber = Statement sql E.noParams decoder True
+-- | Get current transaction's xid8 from PostgreSQL
+-- This uses PostgreSQL's native transaction ID which integrates with MVCC
+getTransactionXid8 :: Statement () Int64
+getTransactionXid8 = Statement sql E.noParams decoder True
   where
-    sql = "select nextval('transaction_seq')"
+    sql = "SELECT pg_current_xact_id()::text::bigint"
     decoder = D.singleRow $ D.column $ D.nonNullable D.int8
 
--- | Insert transaction number into event_transactions table
-insertTransactionNumber :: Statement Int64 ()
-insertTransactionNumber = Statement sql encoder D.noResult True
+-- | Insert transaction xid8 into event_transactions table
+insertTransactionXid8 :: Statement Int64 ()
+insertTransactionXid8 = Statement sql encoder D.noResult True
   where
-    sql = "INSERT INTO event_transactions (transaction_no) VALUES ($1)"
+    sql = "INSERT INTO event_transactions (transaction_xid8) VALUES ($1::text::xid8)"
     encoder = E.param (E.nonNullable E.int8)
 
 -- | Insert a single event into the events table
@@ -84,9 +85,9 @@ insertEventStatement = Statement sql encoder D.noResult True
   where
     sql =
         "INSERT INTO events (\
-        \    transaction_no, seq_no, event_id, stream_id,\
+        \    transaction_xid8, seq_no, event_id, stream_id,\
         \    correlation_id, created_at, event_name, event_version, payload, stream_version\
-        \) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)"
+        \) VALUES ($1::text::xid8, $2, $3, $4, $5, $6, $7, $8, $9, $10)"
 
     encoder =
         ((\(a, _, _, _, _, _, _, _, _, _) -> a) >$< E.param (E.nonNullable E.int8))
@@ -106,10 +107,10 @@ updateStreamHeadStatement = Statement sql encoder D.noResult True
   where
     sql =
         "INSERT INTO stream_heads (\
-        \    stream_id, latest_transaction_no, latest_seq_no, last_event_id, stream_version\
-        \) VALUES ($1, $2, $3, $4, $5)\
+        \    stream_id, latest_transaction_xid8, latest_seq_no, last_event_id, stream_version\
+        \) VALUES ($1, $2::text::xid8, $3, $4, $5)\
         \  ON CONFLICT (stream_id) DO UPDATE SET\
-        \    latest_transaction_no = excluded.latest_transaction_no,\
+        \    latest_transaction_xid8 = excluded.latest_transaction_xid8,\
         \    latest_seq_no = excluded.latest_seq_no,\
         \    last_event_id = excluded.last_event_id,\
         \    stream_version = excluded.stream_version"
@@ -175,12 +176,12 @@ insertEventsWithSyncProjections syncRegistry correlationId eventBatches = do
     createdAt <- getCurrentTime
 
     pure $ do
-        -- Get transaction number first (single round-trip)
-        -- MVCC handles transaction visibility automatically
-        txNo <- HasqlTransaction.statement () getTransactionNumber
+        -- Get current transaction's xid8 from PostgreSQL
+        -- This integrates with MVCC for consistent ordering across subscribers
+        txXid8 <- HasqlTransaction.statement () getTransactionXid8
 
-        -- Insert transaction number into event_transactions table
-        HasqlTransaction.statement txNo insertTransactionNumber
+        -- Insert transaction xid8 into event_transactions table
+        HasqlTransaction.statement txXid8 insertTransactionXid8
 
         -- Calculate current stream versions and determine next versions
         currentVersions <- calculateStreamVersions eventBatches
@@ -188,12 +189,12 @@ insertEventsWithSyncProjections syncRegistry correlationId eventBatches = do
 
         -- Process all events in a single traversal, generating EventWithMetadata for each
         -- Sync projections receive identical metadata to what's persisted
-        streamHeadMetadata <- processEventsWithUnifiedMetadata syncRegistry correlationId eventIds createdAt streamVersionMap txNo eventBatches
+        streamHeadMetadata <- processEventsWithUnifiedMetadata syncRegistry correlationId eventIds createdAt streamVersionMap txXid8 eventBatches
 
         -- Compute per-stream cursors from stream head metadata
         let perStreamCursors =
                 Map.mapWithKey
-                    (\_ (_lastEventId, lastSeqNo) -> SQLCursor txNo lastSeqNo)
+                    (\_ (_lastEventId, lastSeqNo) -> SQLCursor txXid8 lastSeqNo)
                     streamHeadMetadata
 
         -- Return final cursor and updated streams
@@ -201,7 +202,7 @@ insertEventsWithSyncProjections syncRegistry correlationId eventBatches = do
             InsertedEvents
                 { finalCursor =
                     SQLCursor
-                        { transactionNo = txNo
+                        { transactionXid8 = txXid8
                         , sequenceNo = fromIntegral totalEventCount - 1
                         }
                 , streamCursors = perStreamCursors
