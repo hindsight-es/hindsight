@@ -51,12 +51,13 @@ import Data.UUID.V4 qualified as UUID
 import Data.Word (Word8)
 import Hindsight.Events (SomeLatestEvent)
 import Hindsight.Store
+import System.Random (randomRIO)
 import System.Timeout (timeout)
 import Test.Hindsight.Examples (UserCreated, UserInformation2 (..))
 import Test.Hindsight.Store.Common
 import Test.Tasty
 import Test.Tasty.HUnit
-import UnliftIO.Async (async, concurrently, wait)
+import UnliftIO.Async (async, concurrently, forConcurrently, forConcurrently_, wait)
 import UnliftIO.Exception (fromException, throwIO, tryAny)
 
 -- | Test runner for event store tests
@@ -1457,9 +1458,12 @@ testMultiInstanceEventOrdering_AllStreams numEventsPerInstance numInstances stor
     -- Completion tracking
     completionVars <- replicateM (2 * numInstances) newEmptyMVar
 
-    -- Phase 1: Start "before" subscriptions (one per instance)
-    beforeHandles <- forM (zip3 stores (take numInstances hashRefs) (take numInstances completionVars)) $
-        \(store, hashRef, doneVar) ->
+    -- Phase 1: Start "before" subscriptions (one per instance) with jitter
+    beforeHandles <- forConcurrently (zip3 stores (take numInstances hashRefs) (take numInstances completionVars)) $
+        \(store, hashRef, doneVar) -> do
+            -- Random jitter 0-200ms to simulate subscriptions starting at different times
+            jitter <- randomRIO (0, 200_000)
+            threadDelay jitter
             subscribe
                 store
                 ( match UserCreated (hashEventHandler hashRef)
@@ -1468,17 +1472,23 @@ testMultiInstanceEventOrdering_AllStreams numEventsPerInstance numInstances stor
                 )
                 EventSelector{streamId = AllStreams, startupPosition = FromBeginning}
 
-    -- Phase 2: Each instance writes M events to its own stream
-    forM_ (zip stores streamIds) $ \(store, streamId) -> do
+    -- Phase 2: Each instance writes M events to its own stream with jitter
+    forConcurrently_ (zip stores streamIds) $ \(store, streamId) -> do
+        -- Random jitter 0-50ms to simulate concurrent writers with scheduling variance
+        jitter <- randomRIO (0, 50_000)
+        threadDelay jitter
         let events = map makeUserEvent [1 .. numEventsPerInstance]
         result <- insertEvents store Nothing (multiEvent streamId Any events)
         case result of
             FailedInsertion err -> assertFailure $ "Failed to insert events: " ++ show err
             SuccessfulInsertion _ -> pure ()
 
-    -- Phase 3: Start "after" subscriptions (one per instance)
-    afterHandles <- forM (zip3 stores (drop numInstances hashRefs) (drop numInstances completionVars)) $
-        \(store, hashRef, doneVar) ->
+    -- Phase 3: Start "after" subscriptions (one per instance) with jitter
+    afterHandles <- forConcurrently (zip3 stores (drop numInstances hashRefs) (drop numInstances completionVars)) $
+        \(store, hashRef, doneVar) -> do
+            -- Random jitter 0-200ms to simulate staggered catch-up subscriptions
+            jitter <- randomRIO (0, 200_000)
+            threadDelay jitter
             subscribe
                 store
                 ( match UserCreated (hashEventHandler hashRef)
@@ -1619,9 +1629,12 @@ testMultiInstanceEventOrdering_SingleStream numEventsPerInstance numInstances st
     -- Completion tracking
     completionVars <- replicateM (2 * numInstances) newEmptyMVar
 
-    -- Phase 1: Start "before" subscriptions (one per instance)
-    beforeHandles <- forM (zip3 stores (take numInstances hashRefs) (take numInstances completionVars)) $
-        \(store, hashRef, doneVar) ->
+    -- Phase 1: Start "before" subscriptions (one per instance) with jitter
+    beforeHandles <- forConcurrently (zip3 stores (take numInstances hashRefs) (take numInstances completionVars)) $
+        \(store, hashRef, doneVar) -> do
+            -- Random jitter 0-200ms to simulate subscriptions starting at different times
+            jitter <- randomRIO (0, 200_000)
+            threadDelay jitter
             subscribe
                 store
                 ( match UserCreated (hashEventHandler hashRef)
@@ -1630,17 +1643,23 @@ testMultiInstanceEventOrdering_SingleStream numEventsPerInstance numInstances st
                 )
                 EventSelector{streamId = SingleStream sharedStream, startupPosition = FromBeginning}
 
-    -- Phase 2: Each instance writes M events to the SHARED stream
-    forM_ stores $ \store -> do
+    -- Phase 2: Each instance writes M events to the SHARED stream with jitter
+    forConcurrently_ stores $ \store -> do
+        -- Random jitter 0-50ms to simulate concurrent writers with scheduling variance
+        jitter <- randomRIO (0, 50_000)
+        threadDelay jitter
         let events = map makeUserEvent [1 .. numEventsPerInstance]
         result <- insertEvents store Nothing (multiEvent sharedStream Any events)
         case result of
             FailedInsertion err -> assertFailure $ "Failed to insert events: " ++ show err
             SuccessfulInsertion _ -> pure ()
 
-    -- Phase 3: Start "after" subscriptions (one per instance)
-    afterHandles <- forM (zip3 stores (drop numInstances hashRefs) (drop numInstances completionVars)) $
-        \(store, hashRef, doneVar) ->
+    -- Phase 3: Start "after" subscriptions (one per instance) with jitter
+    afterHandles <- forConcurrently (zip3 stores (drop numInstances hashRefs) (drop numInstances completionVars)) $
+        \(store, hashRef, doneVar) -> do
+            -- Random jitter 0-200ms to simulate staggered catch-up subscriptions
+            jitter <- randomRIO (0, 200_000)
+            threadDelay jitter
             subscribe
                 store
                 ( match UserCreated (hashEventHandler hashRef)
