@@ -1474,14 +1474,19 @@ testMultiInstanceEventOrdering_AllStreams numEventsPerInstance numInstances stor
 
     -- Phase 2: Each instance writes M events to its own stream with jitter
     forConcurrently_ (zip stores streamIds) $ \(store, streamId) -> do
-        -- Random jitter 0-50ms to simulate concurrent writers with scheduling variance
+        -- Random jitter 0-50ms before starting to write (instance-level variance)
         jitter <- randomRIO (0, 50_000)
         threadDelay jitter
-        let events = map makeUserEvent [1 .. numEventsPerInstance]
-        result <- insertEvents store Nothing (multiEvent streamId Any events)
-        case result of
-            FailedInsertion err -> assertFailure $ "Failed to insert events: " ++ show err
-            SuccessfulInsertion _ -> pure ()
+        -- Write each event individually with jitter between them
+        forM_ [1 .. numEventsPerInstance] $ \eventNum -> do
+            -- Random jitter 0-25ms between events (simulates network/processing delays)
+            eventJitter <- randomRIO (0, 25_000)
+            threadDelay eventJitter
+            let event = makeUserEvent eventNum
+            result <- insertEvents store Nothing (singleEvent streamId Any event)
+            case result of
+                FailedInsertion err -> assertFailure $ "Failed to insert event: " ++ show err
+                SuccessfulInsertion _ -> pure ()
 
     -- Phase 3: Start "after" subscriptions (one per instance) with jitter
     afterHandles <- forConcurrently (zip3 stores (drop numInstances hashRefs) (drop numInstances completionVars)) $
@@ -1645,14 +1650,19 @@ testMultiInstanceEventOrdering_SingleStream numEventsPerInstance numInstances st
 
     -- Phase 2: Each instance writes M events to the SHARED stream with jitter
     forConcurrently_ stores $ \store -> do
-        -- Random jitter 0-50ms to simulate concurrent writers with scheduling variance
+        -- Random jitter 0-50ms before starting to write (instance-level variance)
         jitter <- randomRIO (0, 50_000)
         threadDelay jitter
-        let events = map makeUserEvent [1 .. numEventsPerInstance]
-        result <- insertEvents store Nothing (multiEvent sharedStream Any events)
-        case result of
-            FailedInsertion err -> assertFailure $ "Failed to insert events: " ++ show err
-            SuccessfulInsertion _ -> pure ()
+        -- Write each event individually with jitter between them
+        forM_ [1 .. numEventsPerInstance] $ \eventNum -> do
+            -- Random jitter 0-25ms between events (simulates network/processing delays)
+            eventJitter <- randomRIO (0, 25_000)
+            threadDelay eventJitter
+            let event = makeUserEvent eventNum
+            result <- insertEvents store Nothing (singleEvent sharedStream Any event)
+            case result of
+                FailedInsertion err -> assertFailure $ "Failed to insert event: " ++ show err
+                SuccessfulInsertion _ -> pure ()
 
     -- Phase 3: Start "after" subscriptions (one per instance) with jitter
     afterHandles <- forConcurrently (zip3 stores (drop numInstances hashRefs) (drop numInstances completionVars)) $
