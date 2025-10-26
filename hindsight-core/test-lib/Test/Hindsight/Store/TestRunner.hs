@@ -34,13 +34,13 @@ where
 import Control.Concurrent (MVar, newEmptyMVar, putMVar, takeMVar, threadDelay)
 import Control.Monad (forM, forM_, replicateM, replicateM_, when)
 import Crypto.Hash (Digest, SHA256, hash)
-import Data.ByteArray qualified as BA
 import Data.Bits (shiftR)
+import Data.ByteArray qualified as BA
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BSL
-import Data.Int (Int64)
 import Data.IORef
+import Data.Int (Int64)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (mapMaybe)
 import Data.Proxy (Proxy (..))
@@ -1433,10 +1433,10 @@ Why this is strong:
 testMultiInstanceEventOrdering_AllStreams ::
     forall backend.
     (EventStore backend, StoreConstraints backend IO, Show (Cursor backend)) =>
+    -- | Number of events each instance writes
     Int ->
-    -- ^ Number of events each instance writes
+    -- | Number of instances
     Int ->
-    -- ^ Number of instances
     [BackendHandle backend] ->
     IO ()
 testMultiInstanceEventOrdering_AllStreams numEventsPerInstance numInstances stores = do
@@ -1612,10 +1612,10 @@ Key difference from AllStreams test:
 testMultiInstanceEventOrdering_SingleStream ::
     forall backend.
     (EventStore backend, StoreConstraints backend IO, Show (Cursor backend)) =>
+    -- | Number of events each instance writes
     Int ->
-    -- ^ Number of events each instance writes
+    -- | Number of instances
     Int ->
-    -- ^ Number of instances
     [BackendHandle backend] ->
     IO ()
 testMultiInstanceEventOrdering_SingleStream numEventsPerInstance numInstances stores = do

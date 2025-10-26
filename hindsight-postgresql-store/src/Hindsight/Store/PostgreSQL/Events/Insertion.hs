@@ -64,8 +64,9 @@ data InsertedEvents = InsertedEvents
 
 -- * Database statements
 
--- | Get current transaction's xid8 from PostgreSQL
--- This uses PostgreSQL's native transaction ID which integrates with MVCC
+{- | Get current transaction's xid8 from PostgreSQL
+This uses PostgreSQL's native transaction ID which integrates with MVCC
+-}
 getTransactionXid8 :: Statement () Int64
 getTransactionXid8 = Statement sql E.noParams decoder True
   where
