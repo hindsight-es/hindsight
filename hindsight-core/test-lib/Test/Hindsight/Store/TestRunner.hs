@@ -1415,20 +1415,25 @@ in the same global order.
 
 Test design:
   - N instances (separate store handles to same backend)
-  - Each instance writes M events to its own stream
+  - Each instance writes M events total to its own stream, split into:
+    * Phase 1: M/2 events written SEQUENTIALLY (no concurrency) for setup
+    * Phase 2: Remaining M/2 events written CONCURRENTLY with jitter
   - Each instance runs 2 subscriptions:
-    1. Started BEFORE its writes (sees all events from all instances)
-    2. Started AFTER its writes (sees events from other instances)
+    1. "Before" subscriptions: FromBeginning (see ALL events)
+    2. "After" subscriptions: FromLastProcessed <cursor> (see only Phase 2 events)
   - All subscriptions watch AllStreams
   - Each subscription computes a blockchain-style hash chain:
       hash_n = SHA256(hash_{n-1} || eventId || streamId || streamVersion)
-  - All subscriptions MUST produce the same final hash (proves same ordering)
+  - Verification:
+    * All "before" subscriptions produce the same hash
+    * All "after" subscriptions produce the same hash (different from "before")
+    * This proves ordering is consistent regardless of startup position
 
 Why this is strong:
   - Hash chaining makes ordering violations detectable
-  - EventId is stable across subscriptions
+  - Tests BOTH FromBeginning and FromLastProcessed code paths
   - Multiple subscriptions per instance catch notification bugs
-  - Different start positions catch catch-up vs live bugs
+  - Different start positions validate cursor-based resumption
 -}
 testMultiInstanceEventOrdering_AllStreams ::
     forall backend.
@@ -1445,6 +1450,10 @@ testMultiInstanceEventOrdering_AllStreams numEventsPerInstance numInstances stor
         assertFailure $
             "Expected " <> show numInstances <> " store handles, got " <> show (length stores)
 
+    -- Split events into setup (sequential) and concurrent phases
+    let setupEvents = numEventsPerInstance `div` 2
+        concurrentEvents = numEventsPerInstance - setupEvents
+
     -- Each instance gets a unique stream
     streamIds <- replicateM numInstances (StreamId <$> UUID.nextRandom)
 
@@ -1458,7 +1467,25 @@ testMultiInstanceEventOrdering_AllStreams numEventsPerInstance numInstances stor
     -- Completion tracking
     completionVars <- replicateM (2 * numInstances) newEmptyMVar
 
-    -- Phase 1: Start "before" subscriptions (one per instance) with jitter
+    -- Phase 1 (Setup): Write setupEvents SEQUENTIALLY (no concurrency, no jitter) to establish checkpoint
+    -- This creates a stable cursor that all "after" subscriptions can use
+    setupCursor <- forM (zip stores streamIds) $ \(store, streamId) -> do
+        forM [1 .. setupEvents] $ \eventNum -> do
+            let event = makeUserEvent eventNum
+            result <- insertEvents store Nothing (singleEvent streamId Any event)
+            case result of
+                FailedInsertion err -> assertFailure $ "Failed to insert setup event: " ++ show err
+                SuccessfulInsertion success -> pure success.finalCursor
+
+    -- Capture the final cursor from the last setup write
+    let checkpointCursor = case setupCursor of
+            [] -> error "No setup writes completed"
+            writes -> case last writes of
+                [] -> error "No events in last setup write"
+                cursors -> last cursors
+
+    -- Phase 2: Start "before" subscriptions (one per instance) with jitter
+    -- These use FromBeginning and will see ALL events (setup + concurrent + tombstone)
     beforeHandles <- forConcurrently (zip3 stores (take numInstances hashRefs) (take numInstances completionVars)) $
         \(store, hashRef, doneVar) -> do
             -- Random jitter 0-200ms to simulate subscriptions starting at different times
@@ -1472,23 +1499,8 @@ testMultiInstanceEventOrdering_AllStreams numEventsPerInstance numInstances stor
                 )
                 EventSelector{streamId = AllStreams, startupPosition = FromBeginning}
 
-    -- Phase 2: Each instance writes M events to its own stream with jitter
-    forConcurrently_ (zip stores streamIds) $ \(store, streamId) -> do
-        -- Random jitter 0-50ms before starting to write (instance-level variance)
-        jitter <- randomRIO (0, 50_000)
-        threadDelay jitter
-        -- Write each event individually with jitter between them
-        forM_ [1 .. numEventsPerInstance] $ \eventNum -> do
-            -- Random jitter 0-25ms between events (simulates network/processing delays)
-            eventJitter <- randomRIO (0, 25_000)
-            threadDelay eventJitter
-            let event = makeUserEvent eventNum
-            result <- insertEvents store Nothing (singleEvent streamId Any event)
-            case result of
-                FailedInsertion err -> assertFailure $ "Failed to insert event: " ++ show err
-                SuccessfulInsertion _ -> pure ()
-
     -- Phase 3: Start "after" subscriptions (one per instance) with jitter
+    -- These use FromLastProcessed and will see ONLY events after the checkpoint (concurrent + tombstone)
     afterHandles <- forConcurrently (zip3 stores (drop numInstances hashRefs) (drop numInstances completionVars)) $
         \(store, hashRef, doneVar) -> do
             -- Random jitter 0-200ms to simulate staggered catch-up subscriptions
@@ -1500,9 +1512,25 @@ testMultiInstanceEventOrdering_AllStreams numEventsPerInstance numInstances stor
                     :? match Tombstone (handleTombstone doneVar)
                     :? MatchEnd
                 )
-                EventSelector{streamId = AllStreams, startupPosition = FromBeginning}
+                EventSelector{streamId = AllStreams, startupPosition = FromLastProcessed checkpointCursor}
 
-    -- Phase 4: Write tombstone to signal end of test
+    -- Phase 4 (Concurrent): Write remaining events with jitter (the actual multi-instance stress test)
+    forConcurrently_ (zip stores streamIds) $ \(store, streamId) -> do
+        -- Random jitter 0-50ms before starting to write (instance-level variance)
+        jitter <- randomRIO (0, 50_000)
+        threadDelay jitter
+        -- Write each remaining event individually with jitter between them
+        forM_ [(setupEvents + 1) .. numEventsPerInstance] $ \eventNum -> do
+            -- Random jitter 0-25ms between events (simulates network/processing delays)
+            eventJitter <- randomRIO (0, 25_000)
+            threadDelay eventJitter
+            let event = makeUserEvent eventNum
+            result <- insertEvents store Nothing (singleEvent streamId Any event)
+            case result of
+                FailedInsertion err -> assertFailure $ "Failed to insert concurrent event: " ++ show err
+                SuccessfulInsertion _ -> pure ()
+
+    -- Phase 5: Write tombstone to signal end of test
     result <-
         insertEvents
             (head stores)
@@ -1525,23 +1553,47 @@ testMultiInstanceEventOrdering_AllStreams numEventsPerInstance numInstances stor
             case timeoutResult of
                 Nothing -> assertFailure "Test timed out waiting for subscriptions"
                 Just _ -> do
-                    -- Read all final hashes
-                    finalHashes <- mapM readIORef hashRefs
+                    -- Read final hashes separately for "before" and "after" groups
+                    beforeHashes <- mapM readIORef (take numInstances hashRefs)
+                    afterHashes <- mapM readIORef (drop numInstances hashRefs)
 
-                    -- All hashes MUST be identical
-                    case finalHashes of
-                        [] -> assertFailure "No subscriptions completed"
-                        (expectedHash : restHashes) ->
-                            forM_ (zip [1 :: Int ..] restHashes) $ \(idx, actualHash) ->
-                                when (actualHash /= expectedHash) $
+                    -- Verify all "before" subscriptions saw the same event order
+                    case beforeHashes of
+                        [] -> assertFailure "No 'before' subscriptions completed"
+                        (expectedBeforeHash : restBeforeHashes) ->
+                            forM_ (zip [1 :: Int ..] restBeforeHashes) $ \(idx, actualHash) ->
+                                when (actualHash /= expectedBeforeHash) $
                                     assertFailure $
-                                        "Subscription "
+                                        "'Before' subscription "
                                             <> show idx
                                             <> " saw different event order.\n"
                                             <> "Expected hash: "
-                                            <> show expectedHash
+                                            <> show expectedBeforeHash
                                             <> "\nActual hash:   "
                                             <> show actualHash
+
+                    -- Verify all "after" subscriptions saw the same event order
+                    case afterHashes of
+                        [] -> assertFailure "No 'after' subscriptions completed"
+                        (expectedAfterHash : restAfterHashes) ->
+                            forM_ (zip [1 :: Int ..] restAfterHashes) $ \(idx, actualHash) ->
+                                when (actualHash /= expectedAfterHash) $
+                                    assertFailure $
+                                        "'After' subscription "
+                                            <> show idx
+                                            <> " saw different event order.\n"
+                                            <> "Expected hash: "
+                                            <> show expectedAfterHash
+                                            <> "\nActual hash:   "
+                                            <> show actualHash
+
+                    -- Sanity check: "before" and "after" should have different hashes
+                    -- (they saw different sets of events)
+                    when (not (null beforeHashes) && not (null afterHashes)) $
+                        when (head beforeHashes == head afterHashes) $
+                            assertFailure
+                                "SANITY CHECK FAILED: 'before' and 'after' subscriptions saw the same events!\n\
+                                \This indicates FromLastProcessed is not working correctly."
   where
     -- Initial hash (empty chain)
     initialHash :: Digest SHA256
@@ -1590,19 +1642,25 @@ across multiple instances writing to and reading from the same stream.
 
 Test design:
   - N instances (separate store handles to same backend)
-  - All instances write M events to a SHARED stream (not separate streams)
+  - All instances write M events total to a SHARED stream, split into:
+    * Phase 1: M/2 events written SEQUENTIALLY (no concurrency) for setup
+    * Phase 2: Remaining M/2 events written CONCURRENTLY with jitter
   - Each instance runs 2 subscriptions:
-    1. Started BEFORE its writes
-    2. Started AFTER its writes
+    1. "Before" subscriptions: FromBeginning (see ALL events)
+    2. "After" subscriptions: FromLastProcessed <cursor> (see only Phase 2 events)
   - All subscriptions watch SingleStream(sharedStream) (not AllStreams)
   - Each subscription computes a blockchain-style hash chain:
       hash_n = SHA256(hash_{n-1} || eventId || streamId || streamVersion)
-  - All subscriptions MUST produce the same final hash (proves same ordering)
+  - Verification:
+    * All "before" subscriptions produce the same hash
+    * All "after" subscriptions produce the same hash (different from "before")
+    * This proves ordering is consistent regardless of startup position
 
 What this tests:
   - Multiple instances writing to the same stream (concurrent writes)
   - Multiple instances subscribing to the same specific stream
   - Cross-instance notification works for single-stream subscriptions
+  - Tests BOTH FromBeginning and FromLastProcessed for single-stream subscriptions
   - Global ordering preserved even when watching a single stream
 
 Key difference from AllStreams test:
@@ -1624,6 +1682,10 @@ testMultiInstanceEventOrdering_SingleStream numEventsPerInstance numInstances st
         assertFailure $
             "Expected " <> show numInstances <> " store handles, got " <> show (length stores)
 
+    -- Split events into setup (sequential) and concurrent phases
+    let setupEvents = numEventsPerInstance `div` 2
+        concurrentEvents = numEventsPerInstance - setupEvents
+
     -- Single shared stream that all instances write to
     sharedStream <- StreamId <$> UUID.nextRandom
 
@@ -1634,7 +1696,25 @@ testMultiInstanceEventOrdering_SingleStream numEventsPerInstance numInstances st
     -- Completion tracking
     completionVars <- replicateM (2 * numInstances) newEmptyMVar
 
-    -- Phase 1: Start "before" subscriptions (one per instance) with jitter
+    -- Phase 1 (Setup): Write setupEvents SEQUENTIALLY to the shared stream (no concurrency, no jitter)
+    -- Each instance writes a portion of the setup events
+    setupCursor <- forM stores $ \store -> do
+        forM [1 .. setupEvents] $ \eventNum -> do
+            let event = makeUserEvent eventNum
+            result <- insertEvents store Nothing (singleEvent sharedStream Any event)
+            case result of
+                FailedInsertion err -> assertFailure $ "Failed to insert setup event: " ++ show err
+                SuccessfulInsertion success -> pure success.finalCursor
+
+    -- Capture the final cursor from the last setup write
+    let checkpointCursor = case setupCursor of
+            [] -> error "No setup writes completed"
+            writes -> case last writes of
+                [] -> error "No events in last setup write"
+                cursors -> last cursors
+
+    -- Phase 2: Start "before" subscriptions (one per instance) with jitter
+    -- These use FromBeginning and will see ALL events (setup + concurrent + tombstone)
     beforeHandles <- forConcurrently (zip3 stores (take numInstances hashRefs) (take numInstances completionVars)) $
         \(store, hashRef, doneVar) -> do
             -- Random jitter 0-200ms to simulate subscriptions starting at different times
@@ -1648,23 +1728,8 @@ testMultiInstanceEventOrdering_SingleStream numEventsPerInstance numInstances st
                 )
                 EventSelector{streamId = SingleStream sharedStream, startupPosition = FromBeginning}
 
-    -- Phase 2: Each instance writes M events to the SHARED stream with jitter
-    forConcurrently_ stores $ \store -> do
-        -- Random jitter 0-50ms before starting to write (instance-level variance)
-        jitter <- randomRIO (0, 50_000)
-        threadDelay jitter
-        -- Write each event individually with jitter between them
-        forM_ [1 .. numEventsPerInstance] $ \eventNum -> do
-            -- Random jitter 0-25ms between events (simulates network/processing delays)
-            eventJitter <- randomRIO (0, 25_000)
-            threadDelay eventJitter
-            let event = makeUserEvent eventNum
-            result <- insertEvents store Nothing (singleEvent sharedStream Any event)
-            case result of
-                FailedInsertion err -> assertFailure $ "Failed to insert event: " ++ show err
-                SuccessfulInsertion _ -> pure ()
-
     -- Phase 3: Start "after" subscriptions (one per instance) with jitter
+    -- These use FromLastProcessed and will see ONLY events after the checkpoint (concurrent + tombstone)
     afterHandles <- forConcurrently (zip3 stores (drop numInstances hashRefs) (drop numInstances completionVars)) $
         \(store, hashRef, doneVar) -> do
             -- Random jitter 0-200ms to simulate staggered catch-up subscriptions
@@ -1676,9 +1741,25 @@ testMultiInstanceEventOrdering_SingleStream numEventsPerInstance numInstances st
                     :? match Tombstone (handleTombstone doneVar)
                     :? MatchEnd
                 )
-                EventSelector{streamId = SingleStream sharedStream, startupPosition = FromBeginning}
+                EventSelector{streamId = SingleStream sharedStream, startupPosition = FromLastProcessed checkpointCursor}
 
-    -- Phase 4: Write tombstone to the SHARED stream to signal end of test
+    -- Phase 4 (Concurrent): Write remaining events to the SHARED stream with jitter
+    forConcurrently_ stores $ \store -> do
+        -- Random jitter 0-50ms before starting to write (instance-level variance)
+        jitter <- randomRIO (0, 50_000)
+        threadDelay jitter
+        -- Write each remaining event individually with jitter between them
+        forM_ [(setupEvents + 1) .. numEventsPerInstance] $ \eventNum -> do
+            -- Random jitter 0-25ms between events (simulates network/processing delays)
+            eventJitter <- randomRIO (0, 25_000)
+            threadDelay eventJitter
+            let event = makeUserEvent eventNum
+            result <- insertEvents store Nothing (singleEvent sharedStream Any event)
+            case result of
+                FailedInsertion err -> assertFailure $ "Failed to insert concurrent event: " ++ show err
+                SuccessfulInsertion _ -> pure ()
+
+    -- Phase 5: Write tombstone to the SHARED stream to signal end of test
     result <-
         insertEvents
             (head stores)
@@ -1701,23 +1782,47 @@ testMultiInstanceEventOrdering_SingleStream numEventsPerInstance numInstances st
             case timeoutResult of
                 Nothing -> assertFailure "Test timed out waiting for subscriptions"
                 Just _ -> do
-                    -- Read all final hashes
-                    finalHashes <- mapM readIORef hashRefs
+                    -- Read final hashes separately for "before" and "after" groups
+                    beforeHashes <- mapM readIORef (take numInstances hashRefs)
+                    afterHashes <- mapM readIORef (drop numInstances hashRefs)
 
-                    -- All hashes MUST be identical
-                    case finalHashes of
-                        [] -> assertFailure "No subscriptions completed"
-                        (expectedHash : restHashes) ->
-                            forM_ (zip [1 :: Int ..] restHashes) $ \(idx, actualHash) ->
-                                when (actualHash /= expectedHash) $
+                    -- Verify all "before" subscriptions saw the same event order
+                    case beforeHashes of
+                        [] -> assertFailure "No 'before' subscriptions completed"
+                        (expectedBeforeHash : restBeforeHashes) ->
+                            forM_ (zip [1 :: Int ..] restBeforeHashes) $ \(idx, actualHash) ->
+                                when (actualHash /= expectedBeforeHash) $
                                     assertFailure $
-                                        "Subscription "
+                                        "'Before' subscription "
                                             <> show idx
                                             <> " saw different event order.\n"
                                             <> "Expected hash: "
-                                            <> show expectedHash
+                                            <> show expectedBeforeHash
                                             <> "\nActual hash:   "
                                             <> show actualHash
+
+                    -- Verify all "after" subscriptions saw the same event order
+                    case afterHashes of
+                        [] -> assertFailure "No 'after' subscriptions completed"
+                        (expectedAfterHash : restAfterHashes) ->
+                            forM_ (zip [1 :: Int ..] restAfterHashes) $ \(idx, actualHash) ->
+                                when (actualHash /= expectedAfterHash) $
+                                    assertFailure $
+                                        "'After' subscription "
+                                            <> show idx
+                                            <> " saw different event order.\n"
+                                            <> "Expected hash: "
+                                            <> show expectedAfterHash
+                                            <> "\nActual hash:   "
+                                            <> show actualHash
+
+                    -- Sanity check: "before" and "after" should have different hashes
+                    -- (they saw different sets of events)
+                    when (not (null beforeHashes) && not (null afterHashes)) $
+                        when (head beforeHashes == head afterHashes) $
+                            assertFailure
+                                "SANITY CHECK FAILED: 'before' and 'after' subscriptions saw the same events!\n\
+                                \This indicates FromLastProcessed is not working correctly."
   where
     -- Initial hash (empty chain)
     initialHash :: Digest SHA256
