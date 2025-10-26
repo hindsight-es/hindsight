@@ -32,20 +32,32 @@ module Test.Hindsight.Store.TestRunner (
 where
 
 import Control.Concurrent (MVar, newEmptyMVar, putMVar, takeMVar, threadDelay)
-import Control.Monad (forM, forM_, replicateM, replicateM_)
+import Control.Monad (forM, forM_, replicateM, replicateM_, when)
+import Crypto.Hash (Digest, SHA256, hash)
+import Data.Bits (shiftR)
+import Data.ByteArray qualified as BA
+import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
+import Data.ByteString.Lazy qualified as BSL
 import Data.IORef
+import Data.Int (Int64)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (mapMaybe)
+import Data.Proxy (Proxy (..))
 import Data.Text (Text)
 import Data.Typeable (cast)
+import Data.UUID (toByteString)
 import Data.UUID.V4 qualified as UUID
+import Data.Word (Word8)
 import Hindsight.Events (SomeLatestEvent)
 import Hindsight.Store
+import System.Random (randomRIO)
+import System.Timeout (timeout)
 import Test.Hindsight.Examples (UserCreated, UserInformation2 (..))
 import Test.Hindsight.Store.Common
 import Test.Tasty
 import Test.Tasty.HUnit
-import UnliftIO.Async (async, concurrently, wait)
+import UnliftIO.Async (async, concurrently, forConcurrently, forConcurrently_, wait)
 import UnliftIO.Exception (fromException, throwIO, tryAny)
 
 -- | Test runner for event store tests
@@ -120,6 +132,24 @@ multiInstanceTests runner =
         [ testCase "Multi-Instance Subscriptions (2 instances)" $ runMultiInstanceTest runner 2 (testMultiInstanceSubscription)
         , testCase "Multi-Instance Subscriptions (5 instances)" $ runMultiInstanceTest runner 5 (testMultiInstanceSubscription)
         , testCase "Multi-Instance Subscriptions (10 instances)" $ runMultiInstanceTest runner 10 (testMultiInstanceSubscription)
+        ]
+    , testGroup
+        "Multi-Instance Event Ordering Tests (AllStreams)"
+        [ testCase "Event Ordering AllStreams (2 instances, 5 events each)" $
+            runMultiInstanceTest runner 2 (testMultiInstanceEventOrdering_AllStreams 5 2)
+        , testCase "Event Ordering AllStreams (3 instances, 10 events each)" $
+            runMultiInstanceTest runner 3 (testMultiInstanceEventOrdering_AllStreams 10 3)
+        , testCase "Event Ordering AllStreams (5 instances, 20 events each)" $
+            runMultiInstanceTest runner 5 (testMultiInstanceEventOrdering_AllStreams 20 5)
+        ]
+    , testGroup
+        "Multi-Instance Event Ordering Tests (SingleStream)"
+        [ testCase "Event Ordering SingleStream (2 instances, 5 events each)" $
+            runMultiInstanceTest runner 2 (testMultiInstanceEventOrdering_SingleStream 5 2)
+        , testCase "Event Ordering SingleStream (3 instances, 10 events each)" $
+            runMultiInstanceTest runner 3 (testMultiInstanceEventOrdering_SingleStream 10 3)
+        , testCase "Event Ordering SingleStream (5 instances, 20 events each)" $
+            runMultiInstanceTest runner 5 (testMultiInstanceEventOrdering_SingleStream 20 5)
         ]
     ]
 
@@ -1376,3 +1406,355 @@ testMultiInstanceSubscription stores = do
                         (firstEvents : restEvents) ->
                             forM_ restEvents $ \events ->
                                 length events @?= length firstEvents
+
+{- | Test that multiple instances observe events in the same total order (AllStreams mode).
+
+This test validates a critical property for event sourcing: all subscribers,
+regardless of when they start or which instance they're on, MUST see events
+in the same global order.
+
+Test design:
+  - N instances (separate store handles to same backend)
+  - Each instance writes M events to its own stream
+  - Each instance runs 2 subscriptions:
+    1. Started BEFORE its writes (sees all events from all instances)
+    2. Started AFTER its writes (sees events from other instances)
+  - All subscriptions watch AllStreams
+  - Each subscription computes a blockchain-style hash chain:
+      hash_n = SHA256(hash_{n-1} || eventId || streamId || streamVersion)
+  - All subscriptions MUST produce the same final hash (proves same ordering)
+
+Why this is strong:
+  - Hash chaining makes ordering violations detectable
+  - EventId is stable across subscriptions
+  - Multiple subscriptions per instance catch notification bugs
+  - Different start positions catch catch-up vs live bugs
+-}
+testMultiInstanceEventOrdering_AllStreams ::
+    forall backend.
+    (EventStore backend, StoreConstraints backend IO, Show (Cursor backend)) =>
+    -- | Number of events each instance writes
+    Int ->
+    -- | Number of instances
+    Int ->
+    [BackendHandle backend] ->
+    IO ()
+testMultiInstanceEventOrdering_AllStreams numEventsPerInstance numInstances stores = do
+    -- Validate inputs
+    when (length stores /= numInstances) $
+        assertFailure $
+            "Expected " <> show numInstances <> " store handles, got " <> show (length stores)
+
+    -- Each instance gets a unique stream
+    streamIds <- replicateM numInstances (StreamId <$> UUID.nextRandom)
+
+    -- Shared tombstone stream (signals end of test)
+    tombstoneStream <- StreamId <$> UUID.nextRandom
+
+    -- Each subscription tracks its hash chain in an IORef
+    -- We'll have 2 * numInstances subscriptions (before + after writes per instance)
+    hashRefs <- replicateM (2 * numInstances) (newIORef (initialHash :: Digest SHA256))
+
+    -- Completion tracking
+    completionVars <- replicateM (2 * numInstances) newEmptyMVar
+
+    -- Phase 1: Start "before" subscriptions (one per instance) with jitter
+    beforeHandles <- forConcurrently (zip3 stores (take numInstances hashRefs) (take numInstances completionVars)) $
+        \(store, hashRef, doneVar) -> do
+            -- Random jitter 0-200ms to simulate subscriptions starting at different times
+            jitter <- randomRIO (0, 200_000)
+            threadDelay jitter
+            subscribe
+                store
+                ( match UserCreated (hashEventHandler hashRef)
+                    :? match Tombstone (handleTombstone doneVar)
+                    :? MatchEnd
+                )
+                EventSelector{streamId = AllStreams, startupPosition = FromBeginning}
+
+    -- Phase 2: Each instance writes M events to its own stream with jitter
+    forConcurrently_ (zip stores streamIds) $ \(store, streamId) -> do
+        -- Random jitter 0-50ms before starting to write (instance-level variance)
+        jitter <- randomRIO (0, 50_000)
+        threadDelay jitter
+        -- Write each event individually with jitter between them
+        forM_ [1 .. numEventsPerInstance] $ \eventNum -> do
+            -- Random jitter 0-25ms between events (simulates network/processing delays)
+            eventJitter <- randomRIO (0, 25_000)
+            threadDelay eventJitter
+            let event = makeUserEvent eventNum
+            result <- insertEvents store Nothing (singleEvent streamId Any event)
+            case result of
+                FailedInsertion err -> assertFailure $ "Failed to insert event: " ++ show err
+                SuccessfulInsertion _ -> pure ()
+
+    -- Phase 3: Start "after" subscriptions (one per instance) with jitter
+    afterHandles <- forConcurrently (zip3 stores (drop numInstances hashRefs) (drop numInstances completionVars)) $
+        \(store, hashRef, doneVar) -> do
+            -- Random jitter 0-200ms to simulate staggered catch-up subscriptions
+            jitter <- randomRIO (0, 200_000)
+            threadDelay jitter
+            subscribe
+                store
+                ( match UserCreated (hashEventHandler hashRef)
+                    :? match Tombstone (handleTombstone doneVar)
+                    :? MatchEnd
+                )
+                EventSelector{streamId = AllStreams, startupPosition = FromBeginning}
+
+    -- Phase 4: Write tombstone to signal end of test
+    result <-
+        insertEvents
+            (head stores)
+            Nothing
+            (singleEvent tombstoneStream Any makeTombstone)
+
+    case result of
+        FailedInsertion err -> do
+            -- Cancel all subscriptions
+            mapM_ (.cancel) (beforeHandles <> afterHandles)
+            assertFailure $ "Failed to insert tombstone: " ++ show err
+        SuccessfulInsertion _ -> do
+            -- Wait for all subscriptions to complete (with timeout)
+            timeoutResult <- timeout 30_000_000 $ do
+                forM_ completionVars takeMVar
+
+            -- Cancel all subscriptions
+            mapM_ (.cancel) (beforeHandles <> afterHandles)
+
+            case timeoutResult of
+                Nothing -> assertFailure "Test timed out waiting for subscriptions"
+                Just _ -> do
+                    -- Read all final hashes
+                    finalHashes <- mapM readIORef hashRefs
+
+                    -- All hashes MUST be identical
+                    case finalHashes of
+                        [] -> assertFailure "No subscriptions completed"
+                        (expectedHash : restHashes) ->
+                            forM_ (zip [1 :: Int ..] restHashes) $ \(idx, actualHash) ->
+                                when (actualHash /= expectedHash) $
+                                    assertFailure $
+                                        "Subscription "
+                                            <> show idx
+                                            <> " saw different event order.\n"
+                                            <> "Expected hash: "
+                                            <> show expectedHash
+                                            <> "\nActual hash:   "
+                                            <> show actualHash
+  where
+    -- Initial hash (empty chain)
+    initialHash :: Digest SHA256
+    initialHash = hash (BS.empty :: ByteString)
+
+    -- Hash event handler: chains previous hash with event metadata
+    hashEventHandler :: IORef (Digest SHA256) -> EventHandler UserCreated IO backend
+    hashEventHandler hashRef envelope = do
+        let eventIdBytes = BSL.toStrict $ toByteString (envelope.eventId.toUUID)
+            streamIdBytes = BSL.toStrict $ toByteString (envelope.streamId.toUUID)
+            streamVersionBytes = encodeStreamVersion envelope.streamVersion
+
+        prevHash <- readIORef hashRef
+        let prevHashBytes = hashToBytes prevHash
+            combined = BS.concat [prevHashBytes, eventIdBytes, streamIdBytes, streamVersionBytes]
+            newHash = hash combined
+
+        writeIORef hashRef newHash
+        pure Continue
+
+    -- Convert Digest to ByteString (for hashing)
+    hashToBytes :: Digest SHA256 -> ByteString
+    hashToBytes = BA.convert
+
+    -- Encode StreamVersion as bytes
+    encodeStreamVersion :: StreamVersion -> ByteString
+    encodeStreamVersion (StreamVersion n) = BS.pack $ encodeInt64 n
+
+    -- Encode Int64 as big-endian bytes
+    encodeInt64 :: Int64 -> [Word8]
+    encodeInt64 n =
+        [ fromIntegral (n `shiftR` 56)
+        , fromIntegral (n `shiftR` 48)
+        , fromIntegral (n `shiftR` 40)
+        , fromIntegral (n `shiftR` 32)
+        , fromIntegral (n `shiftR` 24)
+        , fromIntegral (n `shiftR` 16)
+        , fromIntegral (n `shiftR` 8)
+        , fromIntegral n
+        ]
+
+{- | Test that multiple instances observe events in the same total order (SingleStream mode).
+
+This test validates that single-stream subscriptions maintain ordering consistency
+across multiple instances writing to and reading from the same stream.
+
+Test design:
+  - N instances (separate store handles to same backend)
+  - All instances write M events to a SHARED stream (not separate streams)
+  - Each instance runs 2 subscriptions:
+    1. Started BEFORE its writes
+    2. Started AFTER its writes
+  - All subscriptions watch SingleStream(sharedStream) (not AllStreams)
+  - Each subscription computes a blockchain-style hash chain:
+      hash_n = SHA256(hash_{n-1} || eventId || streamId || streamVersion)
+  - All subscriptions MUST produce the same final hash (proves same ordering)
+
+What this tests:
+  - Multiple instances writing to the same stream (concurrent writes)
+  - Multiple instances subscribing to the same specific stream
+  - Cross-instance notification works for single-stream subscriptions
+  - Global ordering preserved even when watching a single stream
+
+Key difference from AllStreams test:
+  - Write target: all instances → 1 shared stream (not N separate streams)
+  - Subscription selector: SingleStream(sharedStream) (not AllStreams)
+-}
+testMultiInstanceEventOrdering_SingleStream ::
+    forall backend.
+    (EventStore backend, StoreConstraints backend IO, Show (Cursor backend)) =>
+    -- | Number of events each instance writes
+    Int ->
+    -- | Number of instances
+    Int ->
+    [BackendHandle backend] ->
+    IO ()
+testMultiInstanceEventOrdering_SingleStream numEventsPerInstance numInstances stores = do
+    -- Validate inputs
+    when (length stores /= numInstances) $
+        assertFailure $
+            "Expected " <> show numInstances <> " store handles, got " <> show (length stores)
+
+    -- Single shared stream that all instances write to
+    sharedStream <- StreamId <$> UUID.nextRandom
+
+    -- Each subscription tracks its hash chain in an IORef
+    -- We'll have 2 * numInstances subscriptions (before + after writes per instance)
+    hashRefs <- replicateM (2 * numInstances) (newIORef (initialHash :: Digest SHA256))
+
+    -- Completion tracking
+    completionVars <- replicateM (2 * numInstances) newEmptyMVar
+
+    -- Phase 1: Start "before" subscriptions (one per instance) with jitter
+    beforeHandles <- forConcurrently (zip3 stores (take numInstances hashRefs) (take numInstances completionVars)) $
+        \(store, hashRef, doneVar) -> do
+            -- Random jitter 0-200ms to simulate subscriptions starting at different times
+            jitter <- randomRIO (0, 200_000)
+            threadDelay jitter
+            subscribe
+                store
+                ( match UserCreated (hashEventHandler hashRef)
+                    :? match Tombstone (handleTombstone doneVar)
+                    :? MatchEnd
+                )
+                EventSelector{streamId = SingleStream sharedStream, startupPosition = FromBeginning}
+
+    -- Phase 2: Each instance writes M events to the SHARED stream with jitter
+    forConcurrently_ stores $ \store -> do
+        -- Random jitter 0-50ms before starting to write (instance-level variance)
+        jitter <- randomRIO (0, 50_000)
+        threadDelay jitter
+        -- Write each event individually with jitter between them
+        forM_ [1 .. numEventsPerInstance] $ \eventNum -> do
+            -- Random jitter 0-25ms between events (simulates network/processing delays)
+            eventJitter <- randomRIO (0, 25_000)
+            threadDelay eventJitter
+            let event = makeUserEvent eventNum
+            result <- insertEvents store Nothing (singleEvent sharedStream Any event)
+            case result of
+                FailedInsertion err -> assertFailure $ "Failed to insert event: " ++ show err
+                SuccessfulInsertion _ -> pure ()
+
+    -- Phase 3: Start "after" subscriptions (one per instance) with jitter
+    afterHandles <- forConcurrently (zip3 stores (drop numInstances hashRefs) (drop numInstances completionVars)) $
+        \(store, hashRef, doneVar) -> do
+            -- Random jitter 0-200ms to simulate staggered catch-up subscriptions
+            jitter <- randomRIO (0, 200_000)
+            threadDelay jitter
+            subscribe
+                store
+                ( match UserCreated (hashEventHandler hashRef)
+                    :? match Tombstone (handleTombstone doneVar)
+                    :? MatchEnd
+                )
+                EventSelector{streamId = SingleStream sharedStream, startupPosition = FromBeginning}
+
+    -- Phase 4: Write tombstone to the SHARED stream to signal end of test
+    result <-
+        insertEvents
+            (head stores)
+            Nothing
+            (singleEvent sharedStream Any makeTombstone)
+
+    case result of
+        FailedInsertion err -> do
+            -- Cancel all subscriptions
+            mapM_ (.cancel) (beforeHandles <> afterHandles)
+            assertFailure $ "Failed to insert tombstone: " ++ show err
+        SuccessfulInsertion _ -> do
+            -- Wait for all subscriptions to complete (with timeout)
+            timeoutResult <- timeout 30_000_000 $ do
+                forM_ completionVars takeMVar
+
+            -- Cancel all subscriptions
+            mapM_ (.cancel) (beforeHandles <> afterHandles)
+
+            case timeoutResult of
+                Nothing -> assertFailure "Test timed out waiting for subscriptions"
+                Just _ -> do
+                    -- Read all final hashes
+                    finalHashes <- mapM readIORef hashRefs
+
+                    -- All hashes MUST be identical
+                    case finalHashes of
+                        [] -> assertFailure "No subscriptions completed"
+                        (expectedHash : restHashes) ->
+                            forM_ (zip [1 :: Int ..] restHashes) $ \(idx, actualHash) ->
+                                when (actualHash /= expectedHash) $
+                                    assertFailure $
+                                        "Subscription "
+                                            <> show idx
+                                            <> " saw different event order.\n"
+                                            <> "Expected hash: "
+                                            <> show expectedHash
+                                            <> "\nActual hash:   "
+                                            <> show actualHash
+  where
+    -- Initial hash (empty chain)
+    initialHash :: Digest SHA256
+    initialHash = hash (BS.empty :: ByteString)
+
+    -- Hash event handler: chains previous hash with event metadata
+    hashEventHandler :: IORef (Digest SHA256) -> EventHandler UserCreated IO backend
+    hashEventHandler hashRef envelope = do
+        let eventIdBytes = BSL.toStrict $ toByteString (envelope.eventId.toUUID)
+            streamIdBytes = BSL.toStrict $ toByteString (envelope.streamId.toUUID)
+            streamVersionBytes = encodeStreamVersion envelope.streamVersion
+
+        prevHash <- readIORef hashRef
+        let prevHashBytes = hashToBytes prevHash
+            combined = BS.concat [prevHashBytes, eventIdBytes, streamIdBytes, streamVersionBytes]
+            newHash = hash combined
+
+        writeIORef hashRef newHash
+        pure Continue
+
+    -- Convert Digest to ByteString (for hashing)
+    hashToBytes :: Digest SHA256 -> ByteString
+    hashToBytes = BA.convert
+
+    -- Encode StreamVersion as bytes
+    encodeStreamVersion :: StreamVersion -> ByteString
+    encodeStreamVersion (StreamVersion n) = BS.pack $ encodeInt64 n
+
+    -- Encode Int64 as big-endian bytes
+    encodeInt64 :: Int64 -> [Word8]
+    encodeInt64 n =
+        [ fromIntegral (n `shiftR` 56)
+        , fromIntegral (n `shiftR` 48)
+        , fromIntegral (n `shiftR` 40)
+        , fromIntegral (n `shiftR` 32)
+        , fromIntegral (n `shiftR` 24)
+        , fromIntegral (n `shiftR` 16)
+        , fromIntegral (n `shiftR` 8)
+        , fromIntegral n
+        ]

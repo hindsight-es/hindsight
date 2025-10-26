@@ -253,7 +253,8 @@ workerLoop pool tickChannel initialCursor matcher selector = do
 
 -- | The raw event data structure fetched from the database.
 data EventData = EventData
-    { transactionNo :: Int64
+    { transactionXid8 :: Int64
+    -- ^ PostgreSQL's native transaction ID (xid8)
     , seqNo :: Int32
     , eventId :: UUID
     , streamId :: UUID
@@ -308,26 +309,26 @@ fetchEventBatch pool cursor limit selector = liftIO $ do
 
 baseSql :: ByteString
 baseSql =
-    "SELECT transaction_no, seq_no, event_id, stream_id, correlation_id, created_at, event_name, event_version, payload, stream_version "
+    "SELECT transaction_xid8::text::bigint, seq_no, event_id, stream_id, correlation_id, created_at, event_name, event_version, payload, stream_version "
         <> "FROM events "
-        <> "WHERE (transaction_no, seq_no) > ($1, $2) "
-        <> "AND transaction_no <= get_safe_transaction_number_mvcc() "
+        <> "WHERE (transaction_xid8::text::bigint, seq_no) > ($1, $2) "
+        <> "AND transaction_xid8 < get_safe_transaction_xid8() "
 
 allStreamsSql :: ByteString
-allStreamsSql = baseSql <> "ORDER BY transaction_no, seq_no LIMIT $3"
+allStreamsSql = baseSql <> "ORDER BY transaction_xid8, seq_no LIMIT $3"
 
 singleStreamSql :: ByteString
-singleStreamSql = baseSql <> "AND stream_id = $4 ORDER BY transaction_no, seq_no LIMIT $3"
+singleStreamSql = baseSql <> "AND stream_id = $4 ORDER BY transaction_xid8, seq_no LIMIT $3"
 
 allStreamsEncoder :: E.Params (SQLCursor, Int, EventSelector SQLStore)
 allStreamsEncoder =
-    contramap (\(c, _, _) -> c.transactionNo) (E.param (E.nonNullable E.int8))
+    contramap (\(c, _, _) -> c.transactionXid8) (E.param (E.nonNullable E.int8))
         <> contramap (\(c, _, _) -> c.sequenceNo) (E.param (E.nonNullable E.int4))
         <> contramap (\(_, l, _) -> fromIntegral l) (E.param (E.nonNullable E.int4))
 
 singleStreamEncoder :: E.Params (SQLCursor, Int, EventSelector SQLStore)
 singleStreamEncoder =
-    contramap (\(c, _, _) -> c.transactionNo) (E.param (E.nonNullable E.int8))
+    contramap (\(c, _, _) -> c.transactionXid8) (E.param (E.nonNullable E.int8))
         <> contramap (\(c, _, _) -> c.sequenceNo) (E.param (E.nonNullable E.int4))
         <> contramap (\(_, l, _) -> fromIntegral l) (E.param (E.nonNullable E.int4))
         <> contramap (\(_, _, s) -> case s.streamId of SingleStream (StreamId sid) -> sid; _ -> error "impossible") (E.param (E.nonNullable E.uuid))
@@ -350,10 +351,10 @@ processEventBatch matcher batch = do
     let tryMatchers :: forall ts'. EventMatcher ts' SQLStore m -> EventData -> m ()
         tryMatchers MatchEnd eventData = do
             -- No matcher matched this event, just update cursor
-            let cursor = SQLCursor eventData.transactionNo eventData.seqNo
+            let cursor = SQLCursor eventData.transactionXid8 eventData.seqNo
             writeIORef lastCursorRef (Just cursor)
         tryMatchers ((proxy, handler) :? rest) eventData = do
-            let cursor = SQLCursor eventData.transactionNo eventData.seqNo
+            let cursor = SQLCursor eventData.transactionXid8 eventData.seqNo
             if eventData.eventName == getEventName proxy
                 then do
                     -- This matcher matches the event
@@ -421,7 +422,7 @@ processEventBatch matcher batch = do
     let finalCursor = case lastCursor of
             Just cursor -> cursor
             Nothing -> case listToMaybe (reverse batch) of
-                Just lastEvent -> SQLCursor lastEvent.transactionNo lastEvent.seqNo
+                Just lastEvent -> SQLCursor lastEvent.transactionXid8 lastEvent.seqNo
                 Nothing -> error "processEventBatch called with an empty batch"
 
     pure (finalCursor, not stopped)

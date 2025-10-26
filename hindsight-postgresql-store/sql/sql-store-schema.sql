@@ -1,27 +1,25 @@
--- Core sequence for transaction ordering
-CREATE SEQUENCE IF NOT EXISTS transaction_seq;
-
--- Transactions table stores all transaction numbers
+-- Transactions table stores transaction IDs using PostgreSQL's native xid8
+-- xid8 is a 64-bit transaction ID that never wraps and integrates with MVCC
 CREATE TABLE IF NOT EXISTS event_transactions (
-    transaction_no BIGINT PRIMARY KEY DEFAULT nextval('transaction_seq')
+    transaction_xid8 xid8 PRIMARY KEY DEFAULT pg_current_xact_id()
 );
 
 -- Stream heads table tracks latest position of each stream
 CREATE TABLE IF NOT EXISTS stream_heads (
     stream_id UUID PRIMARY KEY,
-    latest_transaction_no BIGINT NOT NULL,
+    latest_transaction_xid8 xid8 NOT NULL,
     latest_seq_no INT NOT NULL,
     last_event_id UUID NOT NULL,
     stream_version BIGINT NOT NULL DEFAULT 0, -- Local stream version (1, 2, 3, ...)
-    CONSTRAINT stream_heads_latest_transaction_no 
-        FOREIGN KEY (latest_transaction_no) 
-        REFERENCES event_transactions (transaction_no) 
+    CONSTRAINT stream_heads_latest_transaction_xid8
+        FOREIGN KEY (latest_transaction_xid8)
+        REFERENCES event_transactions (transaction_xid8)
         DEFERRABLE INITIALLY DEFERRED
 );
 
 -- Events table stores all events across all streams
 CREATE TABLE IF NOT EXISTS events (
-    transaction_no BIGINT NOT NULL,
+    transaction_xid8 xid8 NOT NULL,
     seq_no INT NOT NULL,
     event_id UUID NOT NULL PRIMARY KEY,
     stream_id UUID NOT NULL,
@@ -31,69 +29,60 @@ CREATE TABLE IF NOT EXISTS events (
     event_version INT NOT NULL,
     payload JSONB NOT NULL,
     stream_version BIGINT NOT NULL, -- Local stream version for this event
-    CONSTRAINT events_transaction_no 
-        FOREIGN KEY (transaction_no) 
-        REFERENCES event_transactions (transaction_no) 
+    CONSTRAINT events_transaction_xid8
+        FOREIGN KEY (transaction_xid8)
+        REFERENCES event_transactions (transaction_xid8)
         DEFERRABLE INITIALLY DEFERRED
 );
 
 
 -- Index for efficient stream-based queries (global ordering)
-CREATE INDEX IF NOT EXISTS idx_stream_events 
-    ON events (stream_id, transaction_no, seq_no);
+CREATE INDEX IF NOT EXISTS idx_stream_events
+    ON events (stream_id, transaction_xid8, seq_no);
 
 -- Index for efficient stream version queries (local ordering)
-CREATE INDEX IF NOT EXISTS idx_stream_version_events 
+CREATE INDEX IF NOT EXISTS idx_stream_version_events
     ON events (stream_id, stream_version);
 
 -- Index for correlation-based queries
-CREATE INDEX IF NOT EXISTS idx_correlation 
-    ON events (correlation_id) 
+CREATE INDEX IF NOT EXISTS idx_correlation
+    ON events (correlation_id)
     WHERE correlation_id IS NOT NULL;
 
 -- Index for event type queries
-CREATE INDEX IF NOT EXISTS idx_event_type 
+CREATE INDEX IF NOT EXISTS idx_event_type
     ON events (event_name, event_version);
 
 -- CRITICAL: Composite index for efficient transaction-based range queries
 -- This index is essential for dispatcher performance when fetching events
-CREATE INDEX IF NOT EXISTS idx_events_transaction_order 
-    ON events (transaction_no, seq_no);
+CREATE INDEX IF NOT EXISTS idx_events_transaction_order
+    ON events (transaction_xid8, seq_no);
 
 -- Index for filtered transaction queries with event names
--- Supports queries like WHERE (transaction_no, seq_no) > (?, ?) AND event_name = ANY(?)
-CREATE INDEX IF NOT EXISTS idx_events_transaction_event_name 
-    ON events (transaction_no, seq_no, event_name);
+-- Supports queries like WHERE (transaction_xid8, seq_no) > (?, ?) AND event_name = ANY(?)
+CREATE INDEX IF NOT EXISTS idx_events_transaction_event_name
+    ON events (transaction_xid8, seq_no, event_name);
 
 
--- MVCC-based safe transaction number using proper PostgreSQL snapshot functions
--- Returns the highest transaction number that is guaranteed to be visible
--- to all concurrent readers based on current MVCC snapshot
-CREATE OR REPLACE FUNCTION get_safe_transaction_number_mvcc()
-RETURNS bigint AS $$
-DECLARE
-  snapshot_xmin bigint;
-  max_tx_no bigint;
+-- MVCC-based safe transaction barrier using PostgreSQL's snapshot xmin
+-- Returns the xid8 barrier: only transactions < this value are guaranteed visible
+-- This prevents reading uncommitted transactions and ensures consistent ordering
+CREATE OR REPLACE FUNCTION get_safe_transaction_xid8()
+RETURNS xid8 AS $$
 BEGIN
-    -- Get the oldest transaction that might still be running using modern function
-    SELECT pg_snapshot_xmin(pg_current_snapshot()) INTO snapshot_xmin;
-    
-    -- Get the maximum transaction number we've allocated
-    SELECT MAX(transaction_no) INTO max_tx_no FROM event_transactions;
-    
-    -- Return the safe upper bound: transactions with IDs >= snapshot_xmin might not be visible
-    -- So we return the minimum of (snapshot_xmin - 1) and max_tx_no
-    RETURN LEAST(COALESCE(snapshot_xmin - 1, max_tx_no), COALESCE(max_tx_no, 0));
+    -- Get the oldest transaction that might still be running
+    -- Transactions with xid8 >= this value may not be visible in current snapshot
+    RETURN pg_snapshot_xmin(pg_current_snapshot());
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql STABLE;
 
 
-CREATE OR REPLACE FUNCTION notify_transaction() 
+CREATE OR REPLACE FUNCTION notify_transaction()
 RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
    PERFORM pg_notify(
        'event_store_transaction',
-       json_build_object('transactionNo', NEW.transaction_no)::text
+       json_build_object('transactionXid8', NEW.transaction_xid8::text)::text
    );
    RETURN NEW;
 END;
