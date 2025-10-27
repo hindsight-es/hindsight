@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -49,6 +50,11 @@ import Hindsight.Store.PostgreSQL.Core.Types (SQLCursor (..), SQLStore, SyncProj
 import Hindsight.Store.PostgreSQL.Projections.State (updateSyncProjectionState)
 import Hindsight.Store.PostgreSQL.Projections.Sync (executeSyncProjectionForEvent)
 
+-- | The current version of the hindsight-postgresql-store package
+-- This value is populated at compile-time from the package version via CPP
+currentStoreVersion :: Text
+currentStoreVersion = CURRENT_PACKAGE_VERSION
+
 -- * Types
 
 -- | Result of event insertion
@@ -81,26 +87,28 @@ insertTransactionXid8 = Statement sql encoder D.noResult True
     encoder = E.param (E.nonNullable E.int8)
 
 -- | Insert a single event into the events table
-insertEventStatement :: Statement (Int64, Int32, EventId, StreamId, Maybe UUID, UTCTime, Text, Int32, Value, StreamVersion) ()
+insertEventStatement :: Statement (Int64, Int32, EventId, StreamId, Maybe UUID, UTCTime, Text, Int32, Text, Value, StreamVersion) ()
 insertEventStatement = Statement sql encoder D.noResult True
   where
     sql =
-        "INSERT INTO events (\
-        \    transaction_xid8, seq_no, event_id, stream_id,\
-        \    correlation_id, created_at, event_name, event_version, payload, stream_version\
-        \) VALUES ($1::text::xid8, $2, $3, $4, $5, $6, $7, $8, $9, $10)"
+        "INSERT INTO EVENTS(\
+            transaction_xid8, seq_no, event_id, stream_id,\
+            correlation_id, created_at, event_name, event_version,\
+            store_version, payload, stream_version\
+        ) VALUES ($1::text::xid8, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"
 
     encoder =
-        ((\(a, _, _, _, _, _, _, _, _, _) -> a) >$< E.param (E.nonNullable E.int8))
-            <> ((\(_, b, _, _, _, _, _, _, _, _) -> b) >$< E.param (E.nonNullable E.int4))
-            <> ((\(_, _, EventId c, _, _, _, _, _, _, _) -> c) >$< E.param (E.nonNullable E.uuid))
-            <> ((\(_, _, _, StreamId d, _, _, _, _, _, _) -> d) >$< E.param (E.nonNullable E.uuid))
-            <> ((\(_, _, _, _, e, _, _, _, _, _) -> e) >$< E.param (E.nullable E.uuid))
-            <> ((\(_, _, _, _, _, f, _, _, _, _) -> f) >$< E.param (E.nonNullable E.timestamptz))
-            <> ((\(_, _, _, _, _, _, g, _, _, _) -> g) >$< E.param (E.nonNullable E.text))
-            <> ((\(_, _, _, _, _, _, _, h, _, _) -> h) >$< E.param (E.nonNullable E.int4))
-            <> ((\(_, _, _, _, _, _, _, _, i, _) -> i) >$< E.param (E.nonNullable E.jsonb))
-            <> ((\(_, _, _, _, _, _, _, _, _, StreamVersion j) -> j) >$< E.param (E.nonNullable E.int8))
+        ((\(a, _, _, _, _, _, _, _, _, _, _) -> a) >$< E.param (E.nonNullable E.int8))
+            <> ((\(_, b, _, _, _, _, _, _, _, _, _) -> b) >$< E.param (E.nonNullable E.int4))
+            <> ((\(_, _, EventId c, _, _, _, _, _, _, _, _) -> c) >$< E.param (E.nonNullable E.uuid))
+            <> ((\(_, _, _, StreamId d, _, _, _, _, _, _, _) -> d) >$< E.param (E.nonNullable E.uuid))
+            <> ((\(_, _, _, _, e, _, _, _, _, _, _) -> e) >$< E.param (E.nullable E.uuid))
+            <> ((\(_, _, _, _, _, f, _, _, _, _, _) -> f) >$< E.param (E.nonNullable E.timestamptz))
+            <> ((\(_, _, _, _, _, _, g, _, _, _, _) -> g) >$< E.param (E.nonNullable E.text))
+            <> ((\(_, _, _, _, _, _, _, h, _, _, _) -> h) >$< E.param (E.nonNullable E.int4))
+            <> ((\(_, _, _, _, _, _, _, _, i, _, _) -> i) >$< E.param (E.nonNullable E.text))
+            <> ((\(_, _, _, _, _, _, _, _, _, j, _) -> j) >$< E.param (E.nonNullable E.jsonb))
+            <> ((\(_, _, _, _, _, _, _, _, _, _, StreamVersion k) -> k) >$< E.param (E.nonNullable E.int8))
 
 -- | Update or insert a stream head record
 updateStreamHeadStatement :: Statement (StreamId, Int64, Int32, EventId, StreamVersion) ()
@@ -108,13 +116,13 @@ updateStreamHeadStatement = Statement sql encoder D.noResult True
   where
     sql =
         "INSERT INTO stream_heads (\
-        \    stream_id, latest_transaction_xid8, latest_seq_no, last_event_id, stream_version\
-        \) VALUES ($1, $2::text::xid8, $3, $4, $5)\
-        \  ON CONFLICT (stream_id) DO UPDATE SET\
-        \    latest_transaction_xid8 = excluded.latest_transaction_xid8,\
-        \    latest_seq_no = excluded.latest_seq_no,\
-        \    last_event_id = excluded.last_event_id,\
-        \    stream_version = excluded.stream_version"
+            stream_id, latest_transaction_xid8, latest_seq_no, last_event_id, stream_version\
+        ) VALUES ($1, $2::text::xid8, $3, $4, $5)\
+          ON CONFLICT (stream_id) DO UPDATE SET\
+            latest_transaction_xid8 = excluded.latest_transaction_xid8,\
+            latest_seq_no = excluded.latest_seq_no,\
+            last_event_id = excluded.last_event_id,\
+            stream_version = excluded.stream_version"
 
     encoder =
         ((\(StreamId a, _, _, _, _) -> a) >$< E.param (E.nonNullable E.uuid))
@@ -312,6 +320,7 @@ insertEventsWithSyncProjections syncRegistry correlationId eventBatches = do
                 , envelope.createdAt
                 , name
                 , fromIntegral ver
+                , currentStoreVersion
                 , toJSON payload
                 , streamVer
                 )

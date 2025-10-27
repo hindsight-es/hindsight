@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS events (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     event_name TEXT NOT NULL,
     event_version INT NOT NULL,
+    store_version TEXT NOT NULL,
     payload JSONB NOT NULL,
     stream_version BIGINT NOT NULL, -- Local stream version for this event
     CONSTRAINT events_transaction_xid8
