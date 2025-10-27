@@ -265,7 +265,7 @@ testStartFromPosition store = do
                         :? match Tombstone (handleTombstone completionVar)
                         :? MatchEnd
                     )
-                    EventSelector{streamId = AllStreams, startupPosition = FromLastProcessed cursor}
+                    EventSelector{streamId = AllStreams, startupPosition = FromPosition cursor}
 
             takeMVar completionVar
             handle.cancel -- Cancel subscription after completion
@@ -1423,7 +1423,7 @@ Test design:
     2. FB-during: Started DURING writes (mid-stream)
     3. FB-after: Started AFTER all writes complete
 
-    **FromLastProcessed (3N subscriptions):**
+    **FromPosition (3N subscriptions):**
     4. FLP-initial: Started right AFTER checkpoint acquisition
     5. FLP-during: Started DURING writes (mid-stream)
     6. FLP-after: Started AFTER all writes complete
@@ -1434,11 +1434,11 @@ Test design:
 
   - Verification:
     * All FromBeginning groups (initial, during, after) → same hash H1
-    * All FromLastProcessed groups (initial, during, after) → same hash H2
+    * All FromPosition groups (initial, during, after) → same hash H2
     * H1 ≠ H2 (sanity check: they saw different event sets)
 
 Why this is comprehensive:
-  - Tests BOTH startup modes (FromBeginning and FromLastProcessed)
+  - Tests BOTH startup modes (FromBeginning and FromPosition)
   - Tests subscriptions started at ALL phases (before/during/after writes)
   - All writes fully concurrent with jitter (realistic stress test)
   - Hash chaining makes ordering violations detectable
@@ -1470,11 +1470,11 @@ testMultiInstanceEventOrdering_AllStreams numEventsPerInstance numInstances stor
 
     -- 6 subscription groups: 6N total subscriptions
     -- Group 1: FB-initial (N subs) - FromBeginning, started before writes
-    -- Group 2: FLP-initial (N subs) - FromLastProcessed, started after checkpoint
+    -- Group 2: FLP-initial (N subs) - FromPosition, started after checkpoint
     -- Group 3: FB-during (N subs) - FromBeginning, started during writes
-    -- Group 4: FLP-during (N subs) - FromLastProcessed, started during writes
+    -- Group 4: FLP-during (N subs) - FromPosition, started during writes
     -- Group 5: FB-after (N subs) - FromBeginning, started after writes
-    -- Group 6: FLP-after (N subs) - FromLastProcessed, started after writes
+    -- Group 6: FLP-after (N subs) - FromPosition, started after writes
     hashRefs <- replicateM (6 * numInstances) (newIORef (initialHash :: Digest SHA256))
     completionVars <- replicateM (6 * numInstances) newEmptyMVar
 
@@ -1527,7 +1527,7 @@ testMultiInstanceEventOrdering_AllStreams numEventsPerInstance numInstances stor
                     :? match Tombstone (handleTombstone doneVar)
                     :? MatchEnd
                 )
-                EventSelector{streamId = AllStreams, startupPosition = FromLastProcessed checkpointCursor}
+                EventSelector{streamId = AllStreams, startupPosition = FromPosition checkpointCursor}
 
     -- Phase 3: Write remaining M/2 events CONCURRENTLY, spawn "during" subs mid-write
     let fbDuringRefs = take numInstances (drop (2 * numInstances) hashRefs)
@@ -1564,7 +1564,7 @@ testMultiInstanceEventOrdering_AllStreams numEventsPerInstance numInstances stor
                         :? match Tombstone (handleTombstone doneVar)
                         :? MatchEnd
                     )
-                    EventSelector{streamId = AllStreams, startupPosition = FromLastProcessed checkpointCursor}
+                    EventSelector{streamId = AllStreams, startupPosition = FromPosition checkpointCursor}
 
         putMVar duringHandlesVar (fbDuringHandles <> flpDuringHandles)
 
@@ -1612,7 +1612,7 @@ testMultiInstanceEventOrdering_AllStreams numEventsPerInstance numInstances stor
                     :? match Tombstone (handleTombstone doneVar)
                     :? MatchEnd
                 )
-                EventSelector{streamId = AllStreams, startupPosition = FromLastProcessed checkpointCursor}
+                EventSelector{streamId = AllStreams, startupPosition = FromPosition checkpointCursor}
 
     -- Phase 5: Write tombstone to signal end of test
     result <- insertEvents (head stores) Nothing (singleEvent tombstoneStream Any makeTombstone)
@@ -1693,7 +1693,7 @@ testMultiInstanceEventOrdering_AllStreams numEventsPerInstance numInstances stor
                             when (h1 == h2) $
                                 assertFailure
                                     "SANITY CHECK FAILED: FB and FLP groups have the same hash!\n\
-                                    \This indicates FromLastProcessed is not working correctly."
+                                    \This indicates FromPosition is not working correctly."
                         _ -> pure ()
   where
     -- Initial hash (empty chain)
@@ -1770,7 +1770,7 @@ Test design:
     2. FB-during: Started DURING writes (mid-stream)
     3. FB-after: Started AFTER all writes complete
 
-    **FromLastProcessed (3N subscriptions):**
+    **FromPosition (3N subscriptions):**
     4. FLP-initial: Started right AFTER checkpoint acquisition
     5. FLP-during: Started DURING writes (mid-stream)
     6. FLP-after: Started AFTER all writes complete
@@ -1781,7 +1781,7 @@ Test design:
 
   - Verification:
     * All FromBeginning groups (initial, during, after) → same hash H1
-    * All FromLastProcessed groups (initial, during, after) → same hash H2
+    * All FromPosition groups (initial, during, after) → same hash H2
     * H1 ≠ H2 (sanity check: they saw different event sets)
 
 Key differences from AllStreams test:
@@ -1813,11 +1813,11 @@ testMultiInstanceEventOrdering_SingleStream numEventsPerInstance numInstances st
 
     -- 6 subscription groups: 6N total subscriptions
     -- Group 1: FB-initial (N subs) - FromBeginning, started before writes
-    -- Group 2: FLP-initial (N subs) - FromLastProcessed, started after checkpoint
+    -- Group 2: FLP-initial (N subs) - FromPosition, started after checkpoint
     -- Group 3: FB-during (N subs) - FromBeginning, started during writes
-    -- Group 4: FLP-during (N subs) - FromLastProcessed, started during writes
+    -- Group 4: FLP-during (N subs) - FromPosition, started during writes
     -- Group 5: FB-after (N subs) - FromBeginning, started after writes
-    -- Group 6: FLP-after (N subs) - FromLastProcessed, started after writes
+    -- Group 6: FLP-after (N subs) - FromPosition, started after writes
     hashRefs <- replicateM (6 * numInstances) (newIORef (initialHash :: Digest SHA256))
     completionVars <- replicateM (6 * numInstances) newEmptyMVar
 
@@ -1870,7 +1870,7 @@ testMultiInstanceEventOrdering_SingleStream numEventsPerInstance numInstances st
                     :? match Tombstone (handleTombstone doneVar)
                     :? MatchEnd
                 )
-                EventSelector{streamId = SingleStream sharedStream, startupPosition = FromLastProcessed checkpointCursor}
+                EventSelector{streamId = SingleStream sharedStream, startupPosition = FromPosition checkpointCursor}
 
     -- Phase 3: Write remaining M/2 events CONCURRENTLY, spawn "during" subs mid-write
     let fbDuringRefs = take numInstances (drop (2 * numInstances) hashRefs)
@@ -1907,7 +1907,7 @@ testMultiInstanceEventOrdering_SingleStream numEventsPerInstance numInstances st
                         :? match Tombstone (handleTombstone doneVar)
                         :? MatchEnd
                     )
-                    EventSelector{streamId = SingleStream sharedStream, startupPosition = FromLastProcessed checkpointCursor}
+                    EventSelector{streamId = SingleStream sharedStream, startupPosition = FromPosition checkpointCursor}
 
         putMVar duringHandlesVar (fbDuringHandles <> flpDuringHandles)
 
@@ -1955,7 +1955,7 @@ testMultiInstanceEventOrdering_SingleStream numEventsPerInstance numInstances st
                     :? match Tombstone (handleTombstone doneVar)
                     :? MatchEnd
                 )
-                EventSelector{streamId = SingleStream sharedStream, startupPosition = FromLastProcessed checkpointCursor}
+                EventSelector{streamId = SingleStream sharedStream, startupPosition = FromPosition checkpointCursor}
 
     -- Phase 5: Write tombstone to signal end of test
     result <- insertEvents (head stores) Nothing (singleEvent sharedStream Any makeTombstone)
@@ -2036,7 +2036,7 @@ testMultiInstanceEventOrdering_SingleStream numEventsPerInstance numInstances st
                             when (h1 == h2) $
                                 assertFailure
                                     "SANITY CHECK FAILED: FB and FLP groups have the same hash!\n\
-                                    \This indicates FromLastProcessed is not working correctly."
+                                    \This indicates FromPosition is not working correctly."
                         _ -> pure ()
   where
     -- Initial hash (empty chain)

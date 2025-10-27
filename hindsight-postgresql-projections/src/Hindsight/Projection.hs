@@ -166,7 +166,7 @@ import Hindsight.Store (
     EventMatcher (..),
     EventSelector (EventSelector, startupPosition, streamId),
     EventStore (StoreConstraints, subscribe),
-    StartupPosition (FromBeginning, FromLastProcessed),
+    StartupPosition (FromBeginning, FromPosition),
     StreamSelector (AllStreams),
     SubscriptionResult (Continue, Stop),
  )
@@ -274,7 +274,7 @@ runProjection projId pool mbTVar store handlers = do
             (makeEventMatcher projId pool mbTVar handlers)
             EventSelector
                 { streamId = AllStreams
-                , startupPosition = maybe FromBeginning FromLastProcessed (fmap (.lastProcessed) mbLastState)
+                , startupPosition = maybe FromBeginning FromPosition (fmap (.lastProcessed) mbLastState)
                 }
 
     pure ()
