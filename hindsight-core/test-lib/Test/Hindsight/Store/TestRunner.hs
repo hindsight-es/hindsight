@@ -123,7 +123,7 @@ genericEventStoreTests runner =
 -- | Multi-instance test cases (for backends that support cross-process subscriptions)
 multiInstanceTests ::
     forall backend.
-    (EventStore backend, StoreConstraints backend IO, Show (Cursor backend)) =>
+    (EventStore backend, StoreConstraints backend IO, Show (Cursor backend), Ord (Cursor backend)) =>
     EventStoreTestRunner backend ->
     [TestTree]
 multiInstanceTests runner =
@@ -1415,24 +1415,38 @@ in the same global order.
 
 Test design:
   - N instances (separate store handles to same backend)
-  - Each instance writes M events to its own stream
-  - Each instance runs 2 subscriptions:
-    1. Started BEFORE its writes (sees all events from all instances)
-    2. Started AFTER its writes (sees events from other instances)
-  - All subscriptions watch AllStreams
+  - Each instance writes M events total to its own stream (all CONCURRENT with jitter)
+  - 6N total subscriptions testing all combinations of timing and startup mode:
+
+    **FromBeginning (3N subscriptions):**
+    1. FB-initial: Started BEFORE any writes
+    2. FB-during: Started DURING writes (mid-stream)
+    3. FB-after: Started AFTER all writes complete
+
+    **FromLastProcessed (3N subscriptions):**
+    4. FLP-initial: Started right AFTER checkpoint acquisition
+    5. FLP-during: Started DURING writes (mid-stream)
+    6. FLP-after: Started AFTER all writes complete
+
+  - Checkpoint: Captured after first M/2 concurrent writes (maximum cursor)
   - Each subscription computes a blockchain-style hash chain:
       hash_n = SHA256(hash_{n-1} || eventId || streamId || streamVersion)
-  - All subscriptions MUST produce the same final hash (proves same ordering)
 
-Why this is strong:
+  - Verification:
+    * All FromBeginning groups (initial, during, after) → same hash H1
+    * All FromLastProcessed groups (initial, during, after) → same hash H2
+    * H1 ≠ H2 (sanity check: they saw different event sets)
+
+Why this is comprehensive:
+  - Tests BOTH startup modes (FromBeginning and FromLastProcessed)
+  - Tests subscriptions started at ALL phases (before/during/after writes)
+  - All writes fully concurrent with jitter (realistic stress test)
   - Hash chaining makes ordering violations detectable
-  - EventId is stable across subscriptions
-  - Multiple subscriptions per instance catch notification bugs
-  - Different start positions catch catch-up vs live bugs
+  - Validates cursor-based resumption works correctly under load
 -}
 testMultiInstanceEventOrdering_AllStreams ::
     forall backend.
-    (EventStore backend, StoreConstraints backend IO, Show (Cursor backend)) =>
+    (EventStore backend, StoreConstraints backend IO, Show (Cursor backend), Ord (Cursor backend)) =>
     -- | Number of events each instance writes
     Int ->
     -- | Number of instances
@@ -1445,53 +1459,54 @@ testMultiInstanceEventOrdering_AllStreams numEventsPerInstance numInstances stor
         assertFailure $
             "Expected " <> show numInstances <> " store handles, got " <> show (length stores)
 
+    -- Split events into two phases (M/2 each)
+    let halfEvents = numEventsPerInstance `div` 2
+
     -- Each instance gets a unique stream
     streamIds <- replicateM numInstances (StreamId <$> UUID.nextRandom)
 
     -- Shared tombstone stream (signals end of test)
     tombstoneStream <- StreamId <$> UUID.nextRandom
 
-    -- Each subscription tracks its hash chain in an IORef
-    -- We'll have 2 * numInstances subscriptions (before + after writes per instance)
-    hashRefs <- replicateM (2 * numInstances) (newIORef (initialHash :: Digest SHA256))
+    -- 6 subscription groups: 6N total subscriptions
+    -- Group 1: FB-initial (N subs) - FromBeginning, started before writes
+    -- Group 2: FLP-initial (N subs) - FromLastProcessed, started after checkpoint
+    -- Group 3: FB-during (N subs) - FromBeginning, started during writes
+    -- Group 4: FLP-during (N subs) - FromLastProcessed, started during writes
+    -- Group 5: FB-after (N subs) - FromBeginning, started after writes
+    -- Group 6: FLP-after (N subs) - FromLastProcessed, started after writes
+    hashRefs <- replicateM (6 * numInstances) (newIORef (initialHash :: Digest SHA256))
+    completionVars <- replicateM (6 * numInstances) newEmptyMVar
 
-    -- Completion tracking
-    completionVars <- replicateM (2 * numInstances) newEmptyMVar
-
-    -- Phase 1: Start "before" subscriptions (one per instance) with jitter
-    beforeHandles <- forConcurrently (zip3 stores (take numInstances hashRefs) (take numInstances completionVars)) $
-        \(store, hashRef, doneVar) -> do
-            -- Random jitter 0-200ms to simulate subscriptions starting at different times
-            jitter <- randomRIO (0, 200_000)
-            threadDelay jitter
-            subscribe
-                store
-                ( match UserCreated (hashEventHandler hashRef)
-                    :? match Tombstone (handleTombstone doneVar)
-                    :? MatchEnd
-                )
-                EventSelector{streamId = AllStreams, startupPosition = FromBeginning}
-
-    -- Phase 2: Each instance writes M events to its own stream with jitter
-    forConcurrently_ (zip stores streamIds) $ \(store, streamId) -> do
+    -- Phase 1: Write M/2 events CONCURRENTLY with jitter, capturing cursors
+    allCursors <- forConcurrently (zip stores streamIds) $ \(store, streamId) -> do
         -- Random jitter 0-50ms before starting to write (instance-level variance)
         jitter <- randomRIO (0, 50_000)
         threadDelay jitter
         -- Write each event individually with jitter between them
-        forM_ [1 .. numEventsPerInstance] $ \eventNum -> do
+        forM [1 .. halfEvents] $ \eventNum -> do
             -- Random jitter 0-25ms between events (simulates network/processing delays)
             eventJitter <- randomRIO (0, 25_000)
             threadDelay eventJitter
             let event = makeUserEvent eventNum
             result <- insertEvents store Nothing (singleEvent streamId Any event)
             case result of
-                FailedInsertion err -> assertFailure $ "Failed to insert event: " ++ show err
-                SuccessfulInsertion _ -> pure ()
+                FailedInsertion err -> assertFailure $ "Phase 1 write failed: " ++ show err
+                SuccessfulInsertion success -> pure success.finalCursor
 
-    -- Phase 3: Start "after" subscriptions (one per instance) with jitter
-    afterHandles <- forConcurrently (zip3 stores (drop numInstances hashRefs) (drop numInstances completionVars)) $
+    -- Capture checkpoint cursor (maximum across all Phase 1 writes)
+    let checkpointCursor = case concat allCursors of
+            [] -> error "No cursors captured from Phase 1"
+            cs -> maximum cs
+
+    -- Phase 2: Start FB-initial and FLP-initial subscriptions
+    let fbInitialRefs = take numInstances hashRefs
+        fbInitialVars = take numInstances completionVars
+        flpInitialRefs = take numInstances (drop numInstances hashRefs)
+        flpInitialVars = take numInstances (drop numInstances completionVars)
+
+    fbInitialHandles <- forConcurrently (zip3 stores fbInitialRefs fbInitialVars) $
         \(store, hashRef, doneVar) -> do
-            -- Random jitter 0-200ms to simulate staggered catch-up subscriptions
             jitter <- randomRIO (0, 200_000)
             threadDelay jitter
             subscribe
@@ -1502,46 +1517,184 @@ testMultiInstanceEventOrdering_AllStreams numEventsPerInstance numInstances stor
                 )
                 EventSelector{streamId = AllStreams, startupPosition = FromBeginning}
 
-    -- Phase 4: Write tombstone to signal end of test
-    result <-
-        insertEvents
-            (head stores)
-            Nothing
-            (singleEvent tombstoneStream Any makeTombstone)
+    flpInitialHandles <- forConcurrently (zip3 stores flpInitialRefs flpInitialVars) $
+        \(store, hashRef, doneVar) -> do
+            jitter <- randomRIO (0, 200_000)
+            threadDelay jitter
+            subscribe
+                store
+                ( match UserCreated (hashEventHandler hashRef)
+                    :? match Tombstone (handleTombstone doneVar)
+                    :? MatchEnd
+                )
+                EventSelector{streamId = AllStreams, startupPosition = FromLastProcessed checkpointCursor}
+
+    -- Phase 3: Write remaining M/2 events CONCURRENTLY, spawn "during" subs mid-write
+    let fbDuringRefs = take numInstances (drop (2 * numInstances) hashRefs)
+        fbDuringVars = take numInstances (drop (2 * numInstances) completionVars)
+        flpDuringRefs = take numInstances (drop (3 * numInstances) hashRefs)
+        flpDuringVars = take numInstances (drop (3 * numInstances) completionVars)
+
+    duringHandlesVar <- newEmptyMVar
+
+    -- Spawn "during" subscriptions asynchronously after a delay
+    _ <- async $ do
+        -- Wait ~1 second for writes to be well underway
+        threadDelay 1_000_000
+
+        fbDuringHandles <- forConcurrently (zip3 stores fbDuringRefs fbDuringVars) $
+            \(store, hashRef, doneVar) -> do
+                jitter <- randomRIO (0, 200_000)
+                threadDelay jitter
+                subscribe
+                    store
+                    ( match UserCreated (hashEventHandler hashRef)
+                        :? match Tombstone (handleTombstone doneVar)
+                        :? MatchEnd
+                    )
+                    EventSelector{streamId = AllStreams, startupPosition = FromBeginning}
+
+        flpDuringHandles <- forConcurrently (zip3 stores flpDuringRefs flpDuringVars) $
+            \(store, hashRef, doneVar) -> do
+                jitter <- randomRIO (0, 200_000)
+                threadDelay jitter
+                subscribe
+                    store
+                    ( match UserCreated (hashEventHandler hashRef)
+                        :? match Tombstone (handleTombstone doneVar)
+                        :? MatchEnd
+                    )
+                    EventSelector{streamId = AllStreams, startupPosition = FromLastProcessed checkpointCursor}
+
+        putMVar duringHandlesVar (fbDuringHandles <> flpDuringHandles)
+
+    -- Write remaining events concurrently
+    forConcurrently_ (zip stores streamIds) $ \(store, streamId) -> do
+        jitter <- randomRIO (0, 50_000)
+        threadDelay jitter
+        forM_ [(halfEvents + 1) .. numEventsPerInstance] $ \eventNum -> do
+            eventJitter <- randomRIO (0, 25_000)
+            threadDelay eventJitter
+            let event = makeUserEvent eventNum
+            result <- insertEvents store Nothing (singleEvent streamId Any event)
+            case result of
+                FailedInsertion err -> assertFailure $ "Phase 3 write failed: " ++ show err
+                SuccessfulInsertion _ -> pure ()
+
+    -- Wait for "during" subscriptions to be ready
+    duringHandles <- takeMVar duringHandlesVar
+
+    -- Phase 4: Start "after" subscriptions
+    let fbAfterRefs = take numInstances (drop (4 * numInstances) hashRefs)
+        fbAfterVars = take numInstances (drop (4 * numInstances) completionVars)
+        flpAfterRefs = drop (5 * numInstances) hashRefs
+        flpAfterVars = drop (5 * numInstances) completionVars
+
+    fbAfterHandles <- forConcurrently (zip3 stores fbAfterRefs fbAfterVars) $
+        \(store, hashRef, doneVar) -> do
+            jitter <- randomRIO (0, 200_000)
+            threadDelay jitter
+            subscribe
+                store
+                ( match UserCreated (hashEventHandler hashRef)
+                    :? match Tombstone (handleTombstone doneVar)
+                    :? MatchEnd
+                )
+                EventSelector{streamId = AllStreams, startupPosition = FromBeginning}
+
+    flpAfterHandles <- forConcurrently (zip3 stores flpAfterRefs flpAfterVars) $
+        \(store, hashRef, doneVar) -> do
+            jitter <- randomRIO (0, 200_000)
+            threadDelay jitter
+            subscribe
+                store
+                ( match UserCreated (hashEventHandler hashRef)
+                    :? match Tombstone (handleTombstone doneVar)
+                    :? MatchEnd
+                )
+                EventSelector{streamId = AllStreams, startupPosition = FromLastProcessed checkpointCursor}
+
+    -- Phase 5: Write tombstone to signal end of test
+    result <- insertEvents (head stores) Nothing (singleEvent tombstoneStream Any makeTombstone)
+
+    let allHandles = fbInitialHandles <> flpInitialHandles <> duringHandles <> fbAfterHandles <> flpAfterHandles
 
     case result of
         FailedInsertion err -> do
-            -- Cancel all subscriptions
-            mapM_ (.cancel) (beforeHandles <> afterHandles)
+            mapM_ (.cancel) allHandles
             assertFailure $ "Failed to insert tombstone: " ++ show err
         SuccessfulInsertion _ -> do
             -- Wait for all subscriptions to complete (with timeout)
-            timeoutResult <- timeout 30_000_000 $ do
-                forM_ completionVars takeMVar
+            timeoutResult <- timeout 30_000_000 $ forM_ completionVars takeMVar
 
             -- Cancel all subscriptions
-            mapM_ (.cancel) (beforeHandles <> afterHandles)
+            mapM_ (.cancel) allHandles
 
             case timeoutResult of
                 Nothing -> assertFailure "Test timed out waiting for subscriptions"
                 Just _ -> do
-                    -- Read all final hashes
-                    finalHashes <- mapM readIORef hashRefs
+                    -- Read hashes for all 6 groups
+                    fbInitialHashes <- mapM readIORef (take numInstances hashRefs)
+                    flpInitialHashes <- mapM readIORef (take numInstances (drop numInstances hashRefs))
+                    fbDuringHashes <- mapM readIORef (take numInstances (drop (2 * numInstances) hashRefs))
+                    flpDuringHashes <- mapM readIORef (take numInstances (drop (3 * numInstances) hashRefs))
+                    fbAfterHashes <- mapM readIORef (take numInstances (drop (4 * numInstances) hashRefs))
+                    flpAfterHashes <- mapM readIORef (drop (5 * numInstances) hashRefs)
 
-                    -- All hashes MUST be identical
-                    case finalHashes of
-                        [] -> assertFailure "No subscriptions completed"
-                        (expectedHash : restHashes) ->
-                            forM_ (zip [1 :: Int ..] restHashes) $ \(idx, actualHash) ->
-                                when (actualHash /= expectedHash) $
-                                    assertFailure $
-                                        "Subscription "
-                                            <> show idx
-                                            <> " saw different event order.\n"
-                                            <> "Expected hash: "
-                                            <> show expectedHash
-                                            <> "\nActual hash:   "
-                                            <> show actualHash
+                    -- Verify each group has internal consistency
+                    verifyGroupConsistency "FB-initial" fbInitialHashes
+                    verifyGroupConsistency "FLP-initial" flpInitialHashes
+                    verifyGroupConsistency "FB-during" fbDuringHashes
+                    verifyGroupConsistency "FLP-during" flpDuringHashes
+                    verifyGroupConsistency "FB-after" fbAfterHashes
+                    verifyGroupConsistency "FLP-after" flpAfterHashes
+
+                    -- Verify all FB groups match each other
+                    case (fbInitialHashes, fbDuringHashes, fbAfterHashes) of
+                        (h1 : _, h2 : _, h3 : _) -> do
+                            when (h1 /= h2) $
+                                assertFailure $
+                                    "FB-initial and FB-during have different hashes:\n"
+                                        <> "  FB-initial: "
+                                        <> show h1
+                                        <> "\n  FB-during:  "
+                                        <> show h2
+                            when (h1 /= h3) $
+                                assertFailure $
+                                    "FB-initial and FB-after have different hashes:\n"
+                                        <> "  FB-initial: "
+                                        <> show h1
+                                        <> "\n  FB-after:   "
+                                        <> show h3
+                        _ -> pure ()
+
+                    -- Verify all FLP groups match each other
+                    case (flpInitialHashes, flpDuringHashes, flpAfterHashes) of
+                        (h1 : _, h2 : _, h3 : _) -> do
+                            when (h1 /= h2) $
+                                assertFailure $
+                                    "FLP-initial and FLP-during have different hashes:\n"
+                                        <> "  FLP-initial: "
+                                        <> show h1
+                                        <> "\n  FLP-during:  "
+                                        <> show h2
+                            when (h1 /= h3) $
+                                assertFailure $
+                                    "FLP-initial and FLP-after have different hashes:\n"
+                                        <> "  FLP-initial: "
+                                        <> show h1
+                                        <> "\n  FLP-after:   "
+                                        <> show h3
+                        _ -> pure ()
+
+                    -- Sanity check: FB and FLP should have different hashes
+                    case (fbInitialHashes, flpInitialHashes) of
+                        (h1 : _, h2 : _) ->
+                            when (h1 == h2) $
+                                assertFailure
+                                    "SANITY CHECK FAILED: FB and FLP groups have the same hash!\n\
+                                    \This indicates FromLastProcessed is not working correctly."
+                        _ -> pure ()
   where
     -- Initial hash (empty chain)
     initialHash :: Digest SHA256
@@ -1583,35 +1736,63 @@ testMultiInstanceEventOrdering_AllStreams numEventsPerInstance numInstances stor
         , fromIntegral n
         ]
 
+    -- Verify all subscriptions in a group saw the same event order
+    verifyGroupConsistency :: String -> [Digest SHA256] -> IO ()
+    verifyGroupConsistency groupName hashes =
+        case hashes of
+            [] -> assertFailure $ groupName <> ": No subscriptions completed"
+            (expectedHash : rest) ->
+                forM_ (zip [1 :: Int ..] rest) $ \(idx, actualHash) ->
+                    when (actualHash /= expectedHash) $
+                        assertFailure $
+                            groupName
+                                <> " subscription "
+                                <> show idx
+                                <> " saw different event order.\n"
+                                <> "Expected hash: "
+                                <> show expectedHash
+                                <> "\nActual hash:   "
+                                <> show actualHash
+
 {- | Test that multiple instances observe events in the same total order (SingleStream mode).
 
-This test validates that single-stream subscriptions maintain ordering consistency
-across multiple instances writing to and reading from the same stream.
+This test validates a critical property for single-stream subscriptions: all subscribers
+watching the same stream, regardless of when they start or which instance they're on,
+MUST see events in the same order.
 
 Test design:
   - N instances (separate store handles to same backend)
-  - All instances write M events to a SHARED stream (not separate streams)
-  - Each instance runs 2 subscriptions:
-    1. Started BEFORE its writes
-    2. Started AFTER its writes
-  - All subscriptions watch SingleStream(sharedStream) (not AllStreams)
+  - All instances write M events total to a SHARED stream (all CONCURRENT with jitter)
+  - 6N total subscriptions testing all combinations of timing and startup mode:
+
+    **FromBeginning (3N subscriptions):**
+    1. FB-initial: Started BEFORE any writes
+    2. FB-during: Started DURING writes (mid-stream)
+    3. FB-after: Started AFTER all writes complete
+
+    **FromLastProcessed (3N subscriptions):**
+    4. FLP-initial: Started right AFTER checkpoint acquisition
+    5. FLP-during: Started DURING writes (mid-stream)
+    6. FLP-after: Started AFTER all writes complete
+
+  - Checkpoint: Captured after first M/2 concurrent writes (maximum cursor)
   - Each subscription computes a blockchain-style hash chain:
       hash_n = SHA256(hash_{n-1} || eventId || streamId || streamVersion)
-  - All subscriptions MUST produce the same final hash (proves same ordering)
 
-What this tests:
-  - Multiple instances writing to the same stream (concurrent writes)
-  - Multiple instances subscribing to the same specific stream
-  - Cross-instance notification works for single-stream subscriptions
-  - Global ordering preserved even when watching a single stream
+  - Verification:
+    * All FromBeginning groups (initial, during, after) → same hash H1
+    * All FromLastProcessed groups (initial, during, after) → same hash H2
+    * H1 ≠ H2 (sanity check: they saw different event sets)
 
-Key difference from AllStreams test:
+Key differences from AllStreams test:
   - Write target: all instances → 1 shared stream (not N separate streams)
   - Subscription selector: SingleStream(sharedStream) (not AllStreams)
+  - Tests concurrent writes to the same stream from multiple instances
+  - Tests single-stream subscriptions work correctly with cursor-based resumption
 -}
 testMultiInstanceEventOrdering_SingleStream ::
     forall backend.
-    (EventStore backend, StoreConstraints backend IO, Show (Cursor backend)) =>
+    (EventStore backend, StoreConstraints backend IO, Show (Cursor backend), Ord (Cursor backend)) =>
     -- | Number of events each instance writes
     Int ->
     -- | Number of instances
@@ -1624,50 +1805,51 @@ testMultiInstanceEventOrdering_SingleStream numEventsPerInstance numInstances st
         assertFailure $
             "Expected " <> show numInstances <> " store handles, got " <> show (length stores)
 
+    -- Split events into two phases (M/2 each)
+    let halfEvents = numEventsPerInstance `div` 2
+
     -- Single shared stream that all instances write to
     sharedStream <- StreamId <$> UUID.nextRandom
 
-    -- Each subscription tracks its hash chain in an IORef
-    -- We'll have 2 * numInstances subscriptions (before + after writes per instance)
-    hashRefs <- replicateM (2 * numInstances) (newIORef (initialHash :: Digest SHA256))
+    -- 6 subscription groups: 6N total subscriptions
+    -- Group 1: FB-initial (N subs) - FromBeginning, started before writes
+    -- Group 2: FLP-initial (N subs) - FromLastProcessed, started after checkpoint
+    -- Group 3: FB-during (N subs) - FromBeginning, started during writes
+    -- Group 4: FLP-during (N subs) - FromLastProcessed, started during writes
+    -- Group 5: FB-after (N subs) - FromBeginning, started after writes
+    -- Group 6: FLP-after (N subs) - FromLastProcessed, started after writes
+    hashRefs <- replicateM (6 * numInstances) (newIORef (initialHash :: Digest SHA256))
+    completionVars <- replicateM (6 * numInstances) newEmptyMVar
 
-    -- Completion tracking
-    completionVars <- replicateM (2 * numInstances) newEmptyMVar
-
-    -- Phase 1: Start "before" subscriptions (one per instance) with jitter
-    beforeHandles <- forConcurrently (zip3 stores (take numInstances hashRefs) (take numInstances completionVars)) $
-        \(store, hashRef, doneVar) -> do
-            -- Random jitter 0-200ms to simulate subscriptions starting at different times
-            jitter <- randomRIO (0, 200_000)
-            threadDelay jitter
-            subscribe
-                store
-                ( match UserCreated (hashEventHandler hashRef)
-                    :? match Tombstone (handleTombstone doneVar)
-                    :? MatchEnd
-                )
-                EventSelector{streamId = SingleStream sharedStream, startupPosition = FromBeginning}
-
-    -- Phase 2: Each instance writes M events to the SHARED stream with jitter
-    forConcurrently_ stores $ \store -> do
+    -- Phase 1: Write M/2 events CONCURRENTLY to shared stream with jitter, capturing cursors
+    allCursors <- forConcurrently stores $ \store -> do
         -- Random jitter 0-50ms before starting to write (instance-level variance)
         jitter <- randomRIO (0, 50_000)
         threadDelay jitter
         -- Write each event individually with jitter between them
-        forM_ [1 .. numEventsPerInstance] $ \eventNum -> do
+        forM [1 .. halfEvents] $ \eventNum -> do
             -- Random jitter 0-25ms between events (simulates network/processing delays)
             eventJitter <- randomRIO (0, 25_000)
             threadDelay eventJitter
             let event = makeUserEvent eventNum
             result <- insertEvents store Nothing (singleEvent sharedStream Any event)
             case result of
-                FailedInsertion err -> assertFailure $ "Failed to insert event: " ++ show err
-                SuccessfulInsertion _ -> pure ()
+                FailedInsertion err -> assertFailure $ "Phase 1 write failed: " ++ show err
+                SuccessfulInsertion success -> pure success.finalCursor
 
-    -- Phase 3: Start "after" subscriptions (one per instance) with jitter
-    afterHandles <- forConcurrently (zip3 stores (drop numInstances hashRefs) (drop numInstances completionVars)) $
+    -- Capture checkpoint cursor (maximum across all Phase 1 writes)
+    let checkpointCursor = case concat allCursors of
+            [] -> error "No cursors captured from Phase 1"
+            cs -> maximum cs
+
+    -- Phase 2: Start FB-initial and FLP-initial subscriptions
+    let fbInitialRefs = take numInstances hashRefs
+        fbInitialVars = take numInstances completionVars
+        flpInitialRefs = take numInstances (drop numInstances hashRefs)
+        flpInitialVars = take numInstances (drop numInstances completionVars)
+
+    fbInitialHandles <- forConcurrently (zip3 stores fbInitialRefs fbInitialVars) $
         \(store, hashRef, doneVar) -> do
-            -- Random jitter 0-200ms to simulate staggered catch-up subscriptions
             jitter <- randomRIO (0, 200_000)
             threadDelay jitter
             subscribe
@@ -1678,46 +1860,184 @@ testMultiInstanceEventOrdering_SingleStream numEventsPerInstance numInstances st
                 )
                 EventSelector{streamId = SingleStream sharedStream, startupPosition = FromBeginning}
 
-    -- Phase 4: Write tombstone to the SHARED stream to signal end of test
-    result <-
-        insertEvents
-            (head stores)
-            Nothing
-            (singleEvent sharedStream Any makeTombstone)
+    flpInitialHandles <- forConcurrently (zip3 stores flpInitialRefs flpInitialVars) $
+        \(store, hashRef, doneVar) -> do
+            jitter <- randomRIO (0, 200_000)
+            threadDelay jitter
+            subscribe
+                store
+                ( match UserCreated (hashEventHandler hashRef)
+                    :? match Tombstone (handleTombstone doneVar)
+                    :? MatchEnd
+                )
+                EventSelector{streamId = SingleStream sharedStream, startupPosition = FromLastProcessed checkpointCursor}
+
+    -- Phase 3: Write remaining M/2 events CONCURRENTLY, spawn "during" subs mid-write
+    let fbDuringRefs = take numInstances (drop (2 * numInstances) hashRefs)
+        fbDuringVars = take numInstances (drop (2 * numInstances) completionVars)
+        flpDuringRefs = take numInstances (drop (3 * numInstances) hashRefs)
+        flpDuringVars = take numInstances (drop (3 * numInstances) completionVars)
+
+    duringHandlesVar <- newEmptyMVar
+
+    -- Spawn "during" subscriptions asynchronously after a delay
+    _ <- async $ do
+        -- Wait ~1 second for writes to be well underway
+        threadDelay 1_000_000
+
+        fbDuringHandles <- forConcurrently (zip3 stores fbDuringRefs fbDuringVars) $
+            \(store, hashRef, doneVar) -> do
+                jitter <- randomRIO (0, 200_000)
+                threadDelay jitter
+                subscribe
+                    store
+                    ( match UserCreated (hashEventHandler hashRef)
+                        :? match Tombstone (handleTombstone doneVar)
+                        :? MatchEnd
+                    )
+                    EventSelector{streamId = SingleStream sharedStream, startupPosition = FromBeginning}
+
+        flpDuringHandles <- forConcurrently (zip3 stores flpDuringRefs flpDuringVars) $
+            \(store, hashRef, doneVar) -> do
+                jitter <- randomRIO (0, 200_000)
+                threadDelay jitter
+                subscribe
+                    store
+                    ( match UserCreated (hashEventHandler hashRef)
+                        :? match Tombstone (handleTombstone doneVar)
+                        :? MatchEnd
+                    )
+                    EventSelector{streamId = SingleStream sharedStream, startupPosition = FromLastProcessed checkpointCursor}
+
+        putMVar duringHandlesVar (fbDuringHandles <> flpDuringHandles)
+
+    -- Write remaining events concurrently to shared stream
+    forConcurrently_ stores $ \store -> do
+        jitter <- randomRIO (0, 50_000)
+        threadDelay jitter
+        forM_ [(halfEvents + 1) .. numEventsPerInstance] $ \eventNum -> do
+            eventJitter <- randomRIO (0, 25_000)
+            threadDelay eventJitter
+            let event = makeUserEvent eventNum
+            result <- insertEvents store Nothing (singleEvent sharedStream Any event)
+            case result of
+                FailedInsertion err -> assertFailure $ "Phase 3 write failed: " ++ show err
+                SuccessfulInsertion _ -> pure ()
+
+    -- Wait for "during" subscriptions to be ready
+    duringHandles <- takeMVar duringHandlesVar
+
+    -- Phase 4: Start "after" subscriptions
+    let fbAfterRefs = take numInstances (drop (4 * numInstances) hashRefs)
+        fbAfterVars = take numInstances (drop (4 * numInstances) completionVars)
+        flpAfterRefs = drop (5 * numInstances) hashRefs
+        flpAfterVars = drop (5 * numInstances) completionVars
+
+    fbAfterHandles <- forConcurrently (zip3 stores fbAfterRefs fbAfterVars) $
+        \(store, hashRef, doneVar) -> do
+            jitter <- randomRIO (0, 200_000)
+            threadDelay jitter
+            subscribe
+                store
+                ( match UserCreated (hashEventHandler hashRef)
+                    :? match Tombstone (handleTombstone doneVar)
+                    :? MatchEnd
+                )
+                EventSelector{streamId = SingleStream sharedStream, startupPosition = FromBeginning}
+
+    flpAfterHandles <- forConcurrently (zip3 stores flpAfterRefs flpAfterVars) $
+        \(store, hashRef, doneVar) -> do
+            jitter <- randomRIO (0, 200_000)
+            threadDelay jitter
+            subscribe
+                store
+                ( match UserCreated (hashEventHandler hashRef)
+                    :? match Tombstone (handleTombstone doneVar)
+                    :? MatchEnd
+                )
+                EventSelector{streamId = SingleStream sharedStream, startupPosition = FromLastProcessed checkpointCursor}
+
+    -- Phase 5: Write tombstone to signal end of test
+    result <- insertEvents (head stores) Nothing (singleEvent sharedStream Any makeTombstone)
+
+    let allHandles = fbInitialHandles <> flpInitialHandles <> duringHandles <> fbAfterHandles <> flpAfterHandles
 
     case result of
         FailedInsertion err -> do
-            -- Cancel all subscriptions
-            mapM_ (.cancel) (beforeHandles <> afterHandles)
+            mapM_ (.cancel) allHandles
             assertFailure $ "Failed to insert tombstone: " ++ show err
         SuccessfulInsertion _ -> do
             -- Wait for all subscriptions to complete (with timeout)
-            timeoutResult <- timeout 30_000_000 $ do
-                forM_ completionVars takeMVar
+            timeoutResult <- timeout 30_000_000 $ forM_ completionVars takeMVar
 
             -- Cancel all subscriptions
-            mapM_ (.cancel) (beforeHandles <> afterHandles)
+            mapM_ (.cancel) allHandles
 
             case timeoutResult of
                 Nothing -> assertFailure "Test timed out waiting for subscriptions"
                 Just _ -> do
-                    -- Read all final hashes
-                    finalHashes <- mapM readIORef hashRefs
+                    -- Read hashes for all 6 groups
+                    fbInitialHashes <- mapM readIORef (take numInstances hashRefs)
+                    flpInitialHashes <- mapM readIORef (take numInstances (drop numInstances hashRefs))
+                    fbDuringHashes <- mapM readIORef (take numInstances (drop (2 * numInstances) hashRefs))
+                    flpDuringHashes <- mapM readIORef (take numInstances (drop (3 * numInstances) hashRefs))
+                    fbAfterHashes <- mapM readIORef (take numInstances (drop (4 * numInstances) hashRefs))
+                    flpAfterHashes <- mapM readIORef (drop (5 * numInstances) hashRefs)
 
-                    -- All hashes MUST be identical
-                    case finalHashes of
-                        [] -> assertFailure "No subscriptions completed"
-                        (expectedHash : restHashes) ->
-                            forM_ (zip [1 :: Int ..] restHashes) $ \(idx, actualHash) ->
-                                when (actualHash /= expectedHash) $
-                                    assertFailure $
-                                        "Subscription "
-                                            <> show idx
-                                            <> " saw different event order.\n"
-                                            <> "Expected hash: "
-                                            <> show expectedHash
-                                            <> "\nActual hash:   "
-                                            <> show actualHash
+                    -- Verify each group has internal consistency
+                    verifyGroupConsistency "FB-initial" fbInitialHashes
+                    verifyGroupConsistency "FLP-initial" flpInitialHashes
+                    verifyGroupConsistency "FB-during" fbDuringHashes
+                    verifyGroupConsistency "FLP-during" flpDuringHashes
+                    verifyGroupConsistency "FB-after" fbAfterHashes
+                    verifyGroupConsistency "FLP-after" flpAfterHashes
+
+                    -- Verify all FB groups match each other
+                    case (fbInitialHashes, fbDuringHashes, fbAfterHashes) of
+                        (h1 : _, h2 : _, h3 : _) -> do
+                            when (h1 /= h2) $
+                                assertFailure $
+                                    "FB-initial and FB-during have different hashes:\n"
+                                        <> "  FB-initial: "
+                                        <> show h1
+                                        <> "\n  FB-during:  "
+                                        <> show h2
+                            when (h1 /= h3) $
+                                assertFailure $
+                                    "FB-initial and FB-after have different hashes:\n"
+                                        <> "  FB-initial: "
+                                        <> show h1
+                                        <> "\n  FB-after:   "
+                                        <> show h3
+                        _ -> pure ()
+
+                    -- Verify all FLP groups match each other
+                    case (flpInitialHashes, flpDuringHashes, flpAfterHashes) of
+                        (h1 : _, h2 : _, h3 : _) -> do
+                            when (h1 /= h2) $
+                                assertFailure $
+                                    "FLP-initial and FLP-during have different hashes:\n"
+                                        <> "  FLP-initial: "
+                                        <> show h1
+                                        <> "\n  FLP-during:  "
+                                        <> show h2
+                            when (h1 /= h3) $
+                                assertFailure $
+                                    "FLP-initial and FLP-after have different hashes:\n"
+                                        <> "  FLP-initial: "
+                                        <> show h1
+                                        <> "\n  FLP-after:   "
+                                        <> show h3
+                        _ -> pure ()
+
+                    -- Sanity check: FB and FLP should have different hashes
+                    case (fbInitialHashes, flpInitialHashes) of
+                        (h1 : _, h2 : _) ->
+                            when (h1 == h2) $
+                                assertFailure
+                                    "SANITY CHECK FAILED: FB and FLP groups have the same hash!\n\
+                                    \This indicates FromLastProcessed is not working correctly."
+                        _ -> pure ()
   where
     -- Initial hash (empty chain)
     initialHash :: Digest SHA256
@@ -1758,3 +2078,21 @@ testMultiInstanceEventOrdering_SingleStream numEventsPerInstance numInstances st
         , fromIntegral (n `shiftR` 8)
         , fromIntegral n
         ]
+
+    -- Verify all subscriptions in a group saw the same event order
+    verifyGroupConsistency :: String -> [Digest SHA256] -> IO ()
+    verifyGroupConsistency groupName hashes =
+        case hashes of
+            [] -> assertFailure $ groupName <> ": No subscriptions completed"
+            (expectedHash : rest) ->
+                forM_ (zip [1 :: Int ..] rest) $ \(idx, actualHash) ->
+                    when (actualHash /= expectedHash) $
+                        assertFailure $
+                            groupName
+                                <> " subscription "
+                                <> show idx
+                                <> " saw different event order.\n"
+                                <> "Expected hash: "
+                                <> show expectedHash
+                                <> "\nActual hash:   "
+                                <> show actualHash
