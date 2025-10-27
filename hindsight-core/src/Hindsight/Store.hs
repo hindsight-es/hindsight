@@ -365,7 +365,7 @@ data StartupPosition backend
     = -- | Start from the first event
       FromBeginning
     | -- | Start after the specified position
-      FromLastProcessed (Cursor backend)
+      FromPosition (Cursor backend)
 
 deriving instance (Show (Cursor backend)) => Show (StartupPosition backend)
 

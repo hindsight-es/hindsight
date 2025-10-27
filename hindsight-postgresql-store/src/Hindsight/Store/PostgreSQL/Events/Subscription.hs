@@ -208,7 +208,7 @@ subscribe handle matcher selector = do
 
         let initialCursor = case selector.startupPosition of
                 FromBeginning -> SQLCursor (-1) (-1)
-                FromLastProcessed cursor -> cursor
+                FromPosition cursor -> cursor
 
         -- Spawn an independent worker thread for this subscription
         workerThread <- async $ runInIO $ workerLoop (pool handle) tickChannel initialCursor matcher selector

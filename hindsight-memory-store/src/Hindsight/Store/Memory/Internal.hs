@@ -363,7 +363,7 @@ subscribeToEvents stateVar matcher selector = do
     -- Calculate initial sequence number
     startSeq <- case selector.startupPosition of
         FromBeginning -> pure (-1)
-        FromLastProcessed cursor -> pure $ makeSequenceNo cursor
+        FromPosition cursor -> pure $ makeSequenceNo cursor
 
     -- Get or create notification channel
     notifyVar <- liftIO $ atomically $ do
