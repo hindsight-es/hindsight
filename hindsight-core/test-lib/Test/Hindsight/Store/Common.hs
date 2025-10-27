@@ -6,6 +6,7 @@
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -13,11 +14,16 @@
 
 module Test.Hindsight.Store.Common where
 
+import Control.Concurrent (MVar, putMVar)
 import Data.Aeson (FromJSON, ToJSON)
+import Data.IORef (IORef, atomicModifyIORef')
+import Data.Maybe (mapMaybe)
 import Data.Proxy (Proxy (..))
 import Data.Text (Text, pack)
+import Data.Typeable (cast)
 import GHC.Generics (Generic)
 import Hindsight.Events
+import Hindsight.Store (EventEnvelope (EventWithMetadata), EventHandler, SubscriptionResult (Continue, Stop))
 import Test.Hindsight.Examples
 import Test.QuickCheck (Arbitrary (..))
 import Test.QuickCheck.Instances.Text ()
@@ -129,3 +135,21 @@ makeCounterFail =
     SomeLatestEvent
         (Proxy @CounterFail)
         CounterFailPayload
+
+-- * Event Handler Helpers
+
+-- | Collect events until tombstone is encountered
+collectEventsUntilTombstone :: IORef [EventEnvelope UserCreated backend] -> EventHandler UserCreated IO backend
+collectEventsUntilTombstone ref event = do
+    atomicModifyIORef' ref (\events -> (event : events, ()))
+    pure Continue
+
+-- | Handle tombstone event by signaling completion
+handleTombstone :: MVar () -> EventHandler Tombstone IO backend
+handleTombstone completionVar _ = do
+    putMVar completionVar ()
+    pure Stop
+
+-- | Extract UserInformation2 from event envelope
+extractUserInfo :: EventEnvelope UserCreated backend -> Maybe UserInformation2
+extractUserInfo (EventWithMetadata _ _ _ _ _ _ payload) = cast payload
