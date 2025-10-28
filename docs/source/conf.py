@@ -7,7 +7,7 @@
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
 project = 'Hindsight'
-copyright = '2025, Gaël Deest'
+copyright = 'Gaël Deest - 2025'
 author = 'Gaël Deest'
 release = '0.1.0'
 
