@@ -1,5 +1,5 @@
 ---
-title: Announcing Hindsight: Typesafe, Evolvable Event Sourcing for Haskell
+title: "Announcing Hindsight: Typesafe, Evolvable Event Sourcing for Haskell"
 date: 2025-10-28
 author: Gaël Deest
 ---
