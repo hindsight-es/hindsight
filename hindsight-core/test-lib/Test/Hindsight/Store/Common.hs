@@ -26,7 +26,6 @@ import Hindsight.Events
 import Hindsight.Store (EventEnvelope (EventWithMetadata), EventHandler, SubscriptionResult (Continue, Stop))
 import Test.Hindsight.Examples
 import Test.QuickCheck (Arbitrary (..))
-import Test.QuickCheck.Instances.Text ()
 
 -- | Tombstone event used to signal end of test data
 type Tombstone = "tombstone"

@@ -1,4 +1,3 @@
-{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DerivingStrategies #-}
@@ -6,6 +5,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE RequiredTypeArguments #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -42,9 +42,9 @@ tree :: TestTree
 tree =
     testGroup
         "Example Events"
-        [ createRoundtripTests @UserCreated
+        [ createRoundtripTests UserCreated
         , -- Running only golden tests with custom config
-          createGoldenTests @UserCreated goldenTestConfig
+          createGoldenTests UserCreated goldenTestConfig
         ]
   where
     goldenTestConfig =

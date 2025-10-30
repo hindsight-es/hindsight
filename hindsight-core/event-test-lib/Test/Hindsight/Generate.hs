@@ -1,9 +1,8 @@
-{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE RequiredTypeArguments #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
@@ -77,8 +76,8 @@ import Test.Hindsight.Generate
 
 tests :: TestTree
 tests = testGroup "Events"
-    [ createRoundtripTests \@UserCreated
-    , createGoldenTests \@UserCreated defaultGoldenTestConfig
+    [ createRoundtripTests UserCreated
+    , createGoldenTests UserCreated defaultGoldenTestConfig
     ]
 @
 
@@ -323,11 +322,11 @@ makeGoldenTest ::
     Proxy ver ->
     Proxy payload ->
     TestTree
-makeGoldenTest config pEvent pVer _ =
+makeGoldenTest config pEvent pVer (_ :: Proxy payload) =
     goldenVsString
         ("Version " <> show (reifyPeanoNat @ver) <> " golden")
         (goldenPathFor config pEvent pVer)
-        (generateGoldenContent @payload config)
+        (generateGoldenContent payload config)
 
 {- | Generate deterministic JSON content for golden testing.
 
@@ -341,11 +340,11 @@ Process:
 3. Pretty-print the results as JSON
 -}
 generateGoldenContent ::
-    forall a.
+    forall a ->
     (Arbitrary a, ToJSON a) =>
     GoldenTestConfig ->
     IO BL.ByteString
-generateGoldenContent config = do
+generateGoldenContent a config = do
     let gen = vectorOf (goldenTestCaseCount config) (arbitrary @a)
         qcGen = mkQCGen (goldenTestSeed config)
         samples = unGen gen qcGen (goldenTestSizeParam config)
@@ -374,7 +373,7 @@ import Test.Hindsight.Examples (UserCreated)
 
 tests :: TestTree
 tests = testGroup "Event Tests"
-    [ createRoundtripTests \@UserCreated
+    [ createRoundtripTests UserCreated
     ]
 @
 
@@ -390,16 +389,16 @@ Always include these tests. They catch basic serialization bugs and verify
 that your JSON instances work correctly for all versions.
 -}
 createRoundtripTests ::
-    forall event.
+    forall event ->
     ( Event event
     , HasFullEvidenceList event ValidTestPayloadForVersion
     ) =>
     TestTree
-createRoundtripTests =
+createRoundtripTests event =
     generateTest
         (eventName <> " Roundtrip Tests")
         makeRoundtripTest
-        (getPayloadEvidence @event @ValidTestPayloadForVersion)
+        (getPayloadEvidence event ValidTestPayloadForVersion)
   where
     name = getEventName event
     eventName = T.unpack name
@@ -425,8 +424,8 @@ import Test.Hindsight.Examples (UserCreated)
 
 tests :: TestTree
 tests = testGroup "Event Tests"
-    [ createRoundtripTests \@UserCreated
-    , createGoldenTests \@UserCreated config
+    [ createRoundtripTests UserCreated
+    , createGoldenTests UserCreated config
     ]
   where
     config = defaultGoldenTestConfig
@@ -464,17 +463,17 @@ Skip them for rapidly evolving internal events where format changes are frequent
 4. Review diff: If change is intentional, update golden file
 -}
 createGoldenTests ::
-    forall event.
+    forall event ->
     ( Event event
     , HasFullEvidenceList event ValidTestPayloadForVersion
     ) =>
     GoldenTestConfig ->
     TestTree
-createGoldenTests config =
+createGoldenTests event config =
     generateTest
         (eventName <> " Golden Tests")
         (makeGoldenTest config)
-        (getPayloadEvidence @event @ValidTestPayloadForVersion)
+        (getPayloadEvidence event ValidTestPayloadForVersion)
   where
     name = getEventName event
     eventName = T.unpack name

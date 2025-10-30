@@ -644,8 +644,8 @@ type HasFullEvidenceList event c = (HasEvidenceList 'PeanoZero (EventVersionCoun
 
 Used internally by parsing and serialization machinery.
 -}
-getPayloadEvidence :: forall event c. (HasFullEvidenceList event c) => VersionConstraints (EventVersionVector event) (c event)
-getPayloadEvidence = getEvidenceList
+getPayloadEvidence :: forall event -> forall c -> (HasFullEvidenceList event c) => VersionConstraints (EventVersionVector event) (c event)
+getPayloadEvidence _ _ = getEvidenceList
 
 -- -----------------------------------------------------------------------------
 -- Serialization
@@ -715,11 +715,11 @@ parseMap @\"order_placed\"
 @
 -}
 parseMap ::
-    forall event.
+    forall event ->
     (Event event) =>
     -- | Map from version to parser
     Map Int (Value -> Aeson.Parser (CurrentPayloadType event))
-parseMap = Map.fromList $ go [] (getPayloadEvidence @event @ValidPayloadForVersion)
+parseMap event = Map.fromList $ go [] (getPayloadEvidence event ValidPayloadForVersion)
   where
     go :: forall ts. [(Int, Value -> Aeson.Parser (CurrentPayloadType event))] -> VersionConstraints ts (ValidPayloadForVersion event) -> [(Int, Value -> Aeson.Parser (CurrentPayloadType event))]
     go acc (VersionConstraintsLast (_pVer :: Proxy ver, _pPayload :: Proxy payload)) =
@@ -743,7 +743,7 @@ parseMapFromProxy ::
     Proxy event ->
     -- | Map from version to parser
     Map Int (Value -> Aeson.Parser (CurrentPayloadType event))
-parseMapFromProxy _ = parseMap @event
+parseMapFromProxy (_ :: Proxy event) = parseMap event
 
 {- | Get the maximum version number for an event as a runtime integer.
 
