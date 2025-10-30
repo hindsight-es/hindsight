@@ -66,6 +66,7 @@ library event-examples
     import:           warnings, opts
     visibility:       public
     exposed-modules:  Test.Hindsight.Examples
+                      Test.Hindsight.Instances
     build-depends:    base >= 4.20.1 && < 5,
                       aeson >= 2.2.3 && < 2.3,
                       filepath >= 1.5.4 && < 1.6,

@@ -19,20 +19,15 @@ License     : BSD3
 Maintainer  : maintainer@example.com
 
 Example event definitions used in test suites and store backend tests.
-Includes utilities like 'DeterministicText' for reproducible testing.
 -}
 module Test.Hindsight.Examples where
 
 import Data.Aeson
-import Data.Proxy
-import Data.Text (Text)
 import Data.Text qualified as T
 import GHC.Generics (Generic)
 import Hindsight
-import System.FilePath ((</>))
-
-import Test.QuickCheck
-import Test.Tasty
+import Test.Hindsight.Instances ()
+import Test.QuickCheck (Arbitrary (..))
 
 type UserCreated = "user_created"
 
@@ -82,62 +77,12 @@ data UserInformation2 = UserInformation2
     deriving stock (Show, Eq, Generic)
     deriving anyclass (FromJSON, ToJSON)
 
-{- | Newtype wrapper for deterministic Text generation in property tests.
-
-TODO: Move this to a dedicated testing utilities module (e.g., Test.Hindsight.Util.Arbitrary)
-once the test-lib structure is finalized. This is a general-purpose testing utility
-that shouldn't be tied to the Examples module.
--}
-newtype DeterministicText = DeterministicText Text
-    deriving (Show, Eq)
-
-instance Arbitrary DeterministicText where
-    arbitrary = DeterministicText . T.pack <$> listOf (elements validChars)
-      where
-        -- Use only ASCII letters and numbers for deterministic generation
-        validChars = ['a' .. 'z'] ++ ['A' .. 'Z'] ++ ['0' .. '9']
-
-    -- Shrink by removing characters from the end
-    shrink (DeterministicText t) =
-        [DeterministicText (T.take n t) | n <- [0 .. T.length t - 1]]
-
--- Use deterministic text generation for UserInformation instances
+-- | Arbitrary instances use deterministic Text generation from Test.Hindsight.Instances
 instance Arbitrary UserInformation0 where
-    arbitrary = do
-        userId <- arbitrary
-        DeterministicText userName <- arbitrary
-        return $ UserInformation0 userId userName
-
-    shrink (UserInformation0 uid uname) =
-        [ UserInformation0 uid' uname'
-        | (uid', DeterministicText uname') <- shrink (uid, DeterministicText uname)
-        ]
+    arbitrary = UserInformation0 <$> arbitrary <*> arbitrary
 
 instance Arbitrary UserInformation1 where
-    arbitrary = do
-        userId <- arbitrary
-        DeterministicText userName <- arbitrary
-        userEmail <- oneof [return Nothing, Just . (\(DeterministicText t) -> t) <$> arbitrary]
-        return $ UserInformation1 userId userName userEmail
-
-    shrink (UserInformation1 uid uname email) =
-        [ UserInformation1 uid' uname' email''
-        | (uid', DeterministicText uname', email') <-
-            shrink (uid, DeterministicText uname, fmap DeterministicText email)
-        , let email'' = fmap (\(DeterministicText t) -> t) email'
-        ]
+    arbitrary = UserInformation1 <$> arbitrary <*> arbitrary <*> arbitrary
 
 instance Arbitrary UserInformation2 where
-    arbitrary = do
-        userId <- arbitrary
-        DeterministicText userName <- arbitrary
-        userEmail <- oneof [return Nothing, Just . (\(DeterministicText t) -> t) <$> arbitrary]
-        likeability <- arbitrary
-        return $ UserInformation2 userId userName userEmail likeability
-
-    shrink (UserInformation2 uid uname email lik) =
-        [ UserInformation2 uid' uname' email'' lik'
-        | (uid', DeterministicText uname', email', lik') <-
-            shrink (uid, DeterministicText uname, fmap DeterministicText email, lik)
-        , let email'' = fmap (\(DeterministicText t) -> t) email'
-        ]
+    arbitrary = UserInformation2 <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
