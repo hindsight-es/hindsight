@@ -59,6 +59,7 @@ import Data.Functor.Contravariant (contramap)
 import Data.Int (Int32, Int64)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (listToMaybe)
+import Data.Proxy (Proxy (..))
 import Data.Text (Text, isInfixOf, pack)
 import Data.Text qualified as T
 import Data.Text.Encoding (decodeUtf8)
@@ -353,9 +354,9 @@ processEventBatch matcher batch = do
             -- No matcher matched this event, just update cursor
             let cursor = SQLCursor eventData.transactionXid8 eventData.seqNo
             writeIORef lastCursorRef (Just cursor)
-        tryMatchers ((proxy, handler) :? rest) eventData = do
+        tryMatchers ((proxy :: Proxy event, handler) :? rest) eventData = do
             let cursor = SQLCursor eventData.transactionXid8 eventData.seqNo
-            if eventData.eventName == getEventName proxy
+            if eventData.eventName == getEventName event
                 then do
                     -- This matcher matches the event
                     case Map.lookup (fromIntegral eventData.eventVersion) (parseMapFromProxy proxy) of

@@ -70,6 +70,7 @@ test-suite hindsight-postgresql-projections-test
         hasql-transaction,
         hindsight-core,
         hindsight-core:event-testing,
+        hindsight-core:event-examples,
         hindsight-core:store-testing,
         hindsight-memory-store,
         hindsight-postgresql-projections,

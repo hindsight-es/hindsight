@@ -7,7 +7,13 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
-module Test.Hindsight.Generate where
+module Test.Hindsight.Generate
+    ( createRoundtripTests,
+      createGoldenTests,
+      GoldenTestConfig(goldenTestSizeParam, goldenPathFor, goldenTestCaseCount,
+                 goldenTestSeed),
+      defaultGoldenTestConfig )
+where
 
 import Data.Aeson (ToJSON, decode, encode)
 import Data.Aeson.Encode.Pretty qualified as AE
@@ -26,7 +32,7 @@ import Test.Tasty.Golden (goldenVsString)
 import Test.Tasty.QuickCheck (testProperty)
 
 -- | Configuration for test generation
-data TestConfig = TestConfig
+data GoldenTestConfig = GoldenTestConfig
     { goldenPathFor :: forall event ver. (Event event, ReifiablePeanoNat ver) => Proxy event -> Proxy ver -> FilePath
     -- ^ Function to generate golden file path for a version
     , goldenTestCaseCount :: forall a. (Num a) => a
@@ -41,15 +47,13 @@ type TestPayloadRequirements event idx payload = (VersionPayloadRequirements eve
 
 -- | Evidence that a type is a valid payload for a version
 class (TestPayloadRequirements event idx payload) => ValidTestPayloadForVersion (event :: Symbol) (idx :: PeanoNat) (payload :: Type) where
-    testEvidence :: Dict (VersionPayloadRequirements event idx payload)
 
 instance (TestPayloadRequirements event idx payload) => ValidTestPayloadForVersion event idx payload where
-    testEvidence = Dict
 
 -- | Default test configuration
-defaultTestConfig :: TestConfig
-defaultTestConfig =
-    TestConfig
+defaultGoldenTestConfig :: GoldenTestConfig
+defaultGoldenTestConfig =
+    GoldenTestConfig
         { goldenPathFor = \(_pEvent :: Proxy event) (_ :: Proxy ver) ->
             let name = getEventName event
                 version = show $ reifyPeanoNat @ver
@@ -61,7 +65,6 @@ defaultTestConfig =
 
 generateTest ::
     forall event.
-    TestConfig ->
     String ->
     ( forall ver payload.
       ( ValidTestPayloadForVersion event ver payload
@@ -75,7 +78,7 @@ generateTest ::
     ) ->
     VersionConstraints (EventVersionVector event) (ValidTestPayloadForVersion event) ->
     TestTree
-generateTest _ desc makeTest constraints =
+generateTest desc makeTest constraints =
     testGroup desc $ go [] constraints
   where
     go :: [TestTree] -> VersionConstraints ts (ValidTestPayloadForVersion event) -> [TestTree]
@@ -88,12 +91,11 @@ generateTest _ desc makeTest constraints =
 makeRoundtripTest ::
     forall event ver payload.
     (ValidTestPayloadForVersion event ver payload) =>
-    TestConfig ->
     Proxy event ->
     Proxy ver ->
     Proxy payload ->
     TestTree
-makeRoundtripTest _ _ _ _ =
+makeRoundtripTest _ _ _ =
     testProperty
         ("Version " <> show (reifyPeanoNat @ver) <> " roundtrip")
         $ \(payload :: payload) ->
@@ -107,7 +109,7 @@ encodePretty = AE.encodePretty
 makeGoldenTest ::
     forall event ver payload.
     (Event event, ValidTestPayloadForVersion event ver payload) =>
-    TestConfig ->
+    GoldenTestConfig ->
     Proxy event ->
     Proxy ver ->
     Proxy payload ->
@@ -122,7 +124,7 @@ makeGoldenTest config pEvent pVer _ =
 generateGoldenContent ::
     forall a.
     (Arbitrary a, ToJSON a) =>
-    TestConfig ->
+    GoldenTestConfig ->
     IO BL.ByteString
 generateGoldenContent config = do
     let gen = vectorOf (goldenTestCaseCount config) (arbitrary @a)
@@ -136,13 +138,11 @@ createRoundtripTests ::
     ( Event event
     , HasFullEvidenceList event ValidTestPayloadForVersion
     ) =>
-    TestConfig ->
     TestTree
-createRoundtripTests config =
+createRoundtripTests =
     generateTest
-        config
         (eventName <> " Roundtrip Tests")
-        (makeRoundtripTest config)
+        makeRoundtripTest
         (getPayloadEvidence @event @ValidTestPayloadForVersion)
   where
     name = getEventName event
@@ -153,18 +153,13 @@ createGoldenTests ::
     ( Event event
     , HasFullEvidenceList event ValidTestPayloadForVersion
     ) =>
-    TestConfig ->
+    GoldenTestConfig ->
     TestTree
 createGoldenTests config =
     generateTest
-        config
         (eventName <> " Golden Tests")
         (makeGoldenTest config)
         (getPayloadEvidence @event @ValidTestPayloadForVersion)
   where
     name = getEventName event
     eventName = T.unpack name
-
--- | Convert a Peano-encoded type-level natural to a String
-showPeanoNat :: forall n. (ReifiablePeanoNat n) => String
-showPeanoNat = show $ reifyPeanoNat @n

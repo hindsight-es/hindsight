@@ -61,6 +61,23 @@ library event-testing
     default-language: GHC2021
     default-extensions: OverloadedRecordDot, DataKinds, DuplicateRecordFields, StrictData, Strict, RequiredTypeArguments
 
+-- Internal library for example events used in tests
+library event-examples
+    import:           warnings, opts
+    visibility:       public
+    exposed-modules:  Test.Hindsight.Examples
+    build-depends:    base >= 4.20.1 && < 5,
+                      aeson >= 2.2.3 && < 2.3,
+                      filepath >= 1.5.4 && < 1.6,
+                      hindsight-core,
+                      hindsight-core:event-testing,
+                      QuickCheck >= 2.14 && < 2.17,
+                      tasty >= 1.5.3 && < 1.6,
+                      text >= 2.1.2 && < 2.2
+    hs-source-dirs:   event-examples-lib
+    default-language: GHC2021
+    default-extensions: OverloadedRecordDot, DataKinds, DuplicateRecordFields, StrictData, Strict, RequiredTypeArguments
+
 -- Internal library for store testing utilities
 library store-testing
     import:           warnings, opts
@@ -85,7 +102,7 @@ library store-testing
                       crypton >= 1.0 && < 1.1,
                       hedgehog >= 1.5 && < 1.8,
                       hindsight-core,
-                      hindsight-core:event-testing,
+                      hindsight-core:event-examples,
                       memory >= 0.18 && < 0.19,
                       QuickCheck >= 2.14 && < 2.17,
                       quickcheck-instances >= 0.3.33 && < 0.4,
@@ -108,7 +125,7 @@ test-suite hindsight-test
     type:             exitcode-stdio-1.0
     ghc-options:      -threaded -rtsopts
     other-modules:    Test.Hindsight,
-                      Test.Hindsight.Examples
+                      Test.Hindsight.EventTests
     hs-source-dirs:   test
     main-is:          Main.hs
     build-depends:
@@ -117,6 +134,6 @@ test-suite hindsight-test
         filepath,
         hindsight-core,
         hindsight-core:event-testing,
+        hindsight-core:event-examples,
         tasty,
-        text,
-        QuickCheck
+        text

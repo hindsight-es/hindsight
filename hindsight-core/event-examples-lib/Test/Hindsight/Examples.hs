@@ -30,13 +30,7 @@ import Data.Text qualified as T
 import GHC.Generics (Generic)
 import Hindsight
 import System.FilePath ((</>))
-import Test.Hindsight.Generate
-    ( createRoundtripTests,
-      defaultTestConfig,
-      createGoldenTests,
-      TestConfig(goldenTestSizeParam, goldenPathFor, goldenTestCaseCount,
-                 goldenTestSeed),
-      showPeanoNat )
+
 import Test.QuickCheck
 import Test.Tasty
 
@@ -147,22 +141,3 @@ instance Arbitrary UserInformation2 where
             shrink (uid, DeterministicText uname, fmap DeterministicText email, lik)
         , let email'' = fmap (\(DeterministicText t) -> t) email'
         ]
-
--- Example usage:
-tree :: TestTree
-tree =
-    testGroup
-        "Example Events"
-        [ createRoundtripTests @UserCreated defaultTestConfig
-        , -- Running only golden tests with custom config
-          createGoldenTests @UserCreated customConfig
-        ]
-  where
-    customConfig =
-        defaultTestConfig
-            { goldenPathFor = \(_ :: Proxy event) (_ :: Proxy ver) ->
-                "golden" </> "events" </> getEventName event </> showPeanoNat @ver <> ".json"
-            , goldenTestCaseCount = 10
-            , goldenTestSeed = 12345
-            , goldenTestSizeParam = 30 -- QuickCheck size parameter
-            }
