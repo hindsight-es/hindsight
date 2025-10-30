@@ -34,6 +34,7 @@ import Data.Functor.Contravariant ((>$<))
 import Data.Int (Int32, Int64)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Proxy (Proxy (..))
 import Data.Text (Text)
 import Data.Time (UTCTime)
 import Data.Time.Clock (getCurrentTime)
@@ -280,7 +281,7 @@ insertEventsWithSyncProjections syncRegistry correlationId eventBatches = do
         -- Create envelope and execute both database insertion and sync projections
         -- Ensures identical metadata for both database insertion and projection execution
         processEventWithUnifiedMetadata :: UUID -> StreamId -> SQLCursor -> Maybe CorrelationId -> UTCTime -> StreamVersion -> SomeLatestEvent -> HasqlTransaction.Transaction ()
-        processEventWithUnifiedMetadata eventId streamId cursor corrId' timestamp streamVer (SomeLatestEvent eventProxy payload) = do
+        processEventWithUnifiedMetadata eventId streamId cursor corrId' timestamp streamVer (SomeLatestEvent (eventProxy :: Proxy event) payload) = do
             let envelope =
                     EventWithMetadata
                         { position = cursor
@@ -298,10 +299,10 @@ insertEventsWithSyncProjections syncRegistry correlationId eventBatches = do
             -- Sync projection using the SAME envelope
             executeSyncProjectionForEvent registry eventProxy envelope
 
-        insertSingleEventFromEnvelope envelope streamVer proxy payload = do
+        insertSingleEventFromEnvelope envelope streamVer (proxy :: Proxy event) payload = do
             let SQLCursor cursorTxNo cursorSeqNo = envelope.position
                 EventId eventId = envelope.eventId
-                name = getEventName proxy
+                name = getEventName event
                 ver = getMaxVersion proxy
             HasqlTransaction.statement
                 ( cursorTxNo

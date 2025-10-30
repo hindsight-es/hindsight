@@ -79,12 +79,14 @@ extractMatchingHandlers ::
     [ProjectionHandler event backend]
 extractMatchingHandlers handlers eventProxy = matchHandlers handlers
   where
-    eventName = getEventName eventProxy
+    eventName :: Text
+    eventName = getEventName event
 
     matchHandlers :: ProjectionHandlers ts' backend -> [ProjectionHandler event backend]
     matchHandlers ProjectionEnd = []
     matchHandlers ((handlerProxy :: Proxy handlerEvent, handler) :-> rest) =
-        let handlerName = getEventName handlerProxy
+        let handlerName :: Text
+            handlerName = getEventName handlerEvent
          in if eventName == handlerName
                 then
                     -- Type cast: Since event names match, the types must be equal.
@@ -133,8 +135,9 @@ handlersForEventName targetEventName = go
   where
     go :: ProjectionHandlers ts' backend -> [SomeProjectionHandler backend]
     go ProjectionEnd = []
-    go ((eventProxy, handler) :-> rest) =
-        let handlerEventName = getEventName eventProxy
+    go ((eventProxy :: Proxy event, handler) :-> rest) =
+        let handlerEventName :: Text
+            handlerEventName = getEventName event
          in if targetEventName == handlerEventName
                 then SomeProjectionHandler eventProxy handler : go rest
                 else go rest

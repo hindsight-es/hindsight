@@ -79,6 +79,7 @@ test-suite hindsight-postgresql-store-test
         hindsight-postgresql-projections,
         hindsight-postgresql-store,
         hindsight-core:event-testing,
+        hindsight-core:event-examples,
         hindsight-core:store-testing,
         random,
         tasty,

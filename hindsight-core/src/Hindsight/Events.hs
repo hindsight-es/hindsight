@@ -190,7 +190,7 @@ import Data.Aeson.Types qualified as Aeson
 import Data.Kind (Constraint, Type)
 import Data.Map (Map)
 import Data.Map qualified as Map
-import Data.Text qualified as T
+import Data.String (IsString (fromString))
 import Data.Typeable (Proxy (..), Typeable)
 import GHC.TypeLits (
     ErrorMessage (..),
@@ -226,23 +226,23 @@ import Hindsight.Events.Internal.Versioning (
 -- Event Names
 -- -----------------------------------------------------------------------------
 
-{- | Get the event name as Text from a Symbol.
+{- | Get the event name as string type from a Symbol.
 
 This converts a type-level event name to a runtime value, useful for
 logging, debugging, and serialization.
 
 @
-getEventName (Proxy @\"user_created\") = \"user_created\"
+getEventName "user_created" ~ fromString "user_created"
 @
+
+Works for any @IsString@ instance (@String@, @Text@, ...)
 -}
 getEventName ::
-    forall (event :: Symbol).
-    (KnownSymbol event) =>
-    -- | Proxy for the event type
-    Proxy event ->
-    -- | Event name as Text
-    T.Text
-getEventName _ = T.pack $ symbolVal (Proxy @event)
+    forall (event :: Symbol) ->
+    forall str.
+    (Event event, IsString str) =>
+    str
+getEventName event = fromString $ symbolVal (Proxy @event)
 
 -- -----------------------------------------------------------------------------
 -- Event Versioning System
@@ -644,8 +644,8 @@ type HasFullEvidenceList event c = (HasEvidenceList 'PeanoZero (EventVersionCoun
 
 Used internally by parsing and serialization machinery.
 -}
-getPayloadEvidence :: forall event c. (HasFullEvidenceList event c) => VersionConstraints (EventVersionVector event) (c event)
-getPayloadEvidence = getEvidenceList
+getPayloadEvidence :: forall event -> forall c -> (HasFullEvidenceList event c) => VersionConstraints (EventVersionVector event) (c event)
+getPayloadEvidence _ _ = getEvidenceList
 
 -- -----------------------------------------------------------------------------
 -- Serialization
@@ -715,11 +715,11 @@ parseMap @\"order_placed\"
 @
 -}
 parseMap ::
-    forall event.
+    forall event ->
     (Event event) =>
     -- | Map from version to parser
     Map Int (Value -> Aeson.Parser (CurrentPayloadType event))
-parseMap = Map.fromList $ go [] (getPayloadEvidence @event @ValidPayloadForVersion)
+parseMap event = Map.fromList $ go [] (getPayloadEvidence event ValidPayloadForVersion)
   where
     go :: forall ts. [(Int, Value -> Aeson.Parser (CurrentPayloadType event))] -> VersionConstraints ts (ValidPayloadForVersion event) -> [(Int, Value -> Aeson.Parser (CurrentPayloadType event))]
     go acc (VersionConstraintsLast (_pVer :: Proxy ver, _pPayload :: Proxy payload)) =
@@ -743,7 +743,7 @@ parseMapFromProxy ::
     Proxy event ->
     -- | Map from version to parser
     Map Int (Value -> Aeson.Parser (CurrentPayloadType event))
-parseMapFromProxy _ = parseMap @event
+parseMapFromProxy (_ :: Proxy event) = parseMap event
 
 {- | Get the maximum version number for an event as a runtime integer.
 

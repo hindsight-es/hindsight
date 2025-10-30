@@ -183,34 +183,34 @@ processEventThroughMatchers ::
     EventMatcher ts backend m ->
     StoredEvent ->
     m SubscriptionResult
-processEventThroughMatchers (proxy, handler) rest event = do
-    let targetEvent = getEventName proxy
-    if event.eventName == targetEvent
+processEventThroughMatchers (proxy, handler) rest storedEvent = do
+    let targetEvent = getEventName event
+    if storedEvent.eventName == targetEvent
         then case parseStoredEventToEnvelope
             proxy
-            event.eventId
-            event.streamId
-            (makeCursor event.seqNo)
-            event.streamVersion
-            event.correlationId
-            event.createdAt
-            event.payload
-            event.eventVersion of
+            storedEvent.eventId
+            storedEvent.streamId
+            (makeCursor storedEvent.seqNo)
+            storedEvent.streamVersion
+            storedEvent.correlationId
+            storedEvent.createdAt
+            storedEvent.payload
+            storedEvent.eventVersion of
             Just envelope ->
                 (handler envelope) `catch` \(e :: SomeException) ->
                     throwIO $
                         HandlerException
                             { originalException = e
-                            , failedEventPosition = T.pack $ show (makeCursor @backend event.seqNo)
-                            , failedEventId = event.eventId
-                            , failedEventName = event.eventName
-                            , failedEventStreamId = event.streamId
-                            , failedEventStreamVersion = event.streamVersion
-                            , failedEventCorrelationId = event.correlationId
-                            , failedEventCreatedAt = event.createdAt
+                            , failedEventPosition = T.pack $ show (makeCursor @backend storedEvent.seqNo)
+                            , failedEventId = storedEvent.eventId
+                            , failedEventName = storedEvent.eventName
+                            , failedEventStreamId = storedEvent.streamId
+                            , failedEventStreamVersion = storedEvent.streamVersion
+                            , failedEventCorrelationId = storedEvent.correlationId
+                            , failedEventCreatedAt = storedEvent.createdAt
                             }
-            Nothing -> processEvents rest [event]
-        else processEvents rest [event]
+            Nothing -> processEvents rest [storedEvent]
+        else processEvents rest [storedEvent]
 
 -- | Update store state with new events
 updateState :: forall backend. (StoreCursor backend) => StoredEvent -> StoreState backend -> StoreState backend
@@ -239,8 +239,8 @@ makeStoredEvents state mbCorrId now eventIds streamId batch =
         seqNos = [baseSeq .. baseSeq + fromIntegral (length batch.events) - 1]
         currentStreamVersion = Map.findWithDefault (StreamVersion 0) streamId state.streamLocalVersions
         streamVersions = [currentStreamVersion + 1 .. currentStreamVersion + fromIntegral (length batch.events)]
-        mkStoredEvent (sn, (eid, SomeLatestEvent proxy payload), streamVer) =
-            let name = getEventName proxy
+        mkStoredEvent (sn, (eid, SomeLatestEvent (proxy :: Proxy event) payload), streamVer) =
+            let name = getEventName event
                 version = fromInteger $ getMaxVersion proxy
              in ( StoredEvent
                     { seqNo = sn

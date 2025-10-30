@@ -45,8 +45,7 @@ library
 library event-testing
     import:           warnings, opts
     visibility:       public
-    exposed-modules:  Test.Hindsight.Generate,
-                      Test.Hindsight.Examples
+    exposed-modules:  Test.Hindsight.Generate
     build-depends:    base >= 4.20.1 && < 5,
                       aeson >= 2.2.3 && < 2.3,
                       aeson-pretty >= 0.8.10 && < 0.9,
@@ -59,6 +58,24 @@ library event-testing
                       tasty-quickcheck >= 0.11.1 && < 0.12,
                       text >= 2.1.2 && < 2.2
     hs-source-dirs:   event-test-lib
+    default-language: GHC2021
+    default-extensions: OverloadedRecordDot, DataKinds, DuplicateRecordFields, StrictData, Strict, RequiredTypeArguments
+
+-- Internal library for example events used in tests
+library event-examples
+    import:           warnings, opts
+    visibility:       public
+    exposed-modules:  Test.Hindsight.Examples
+                      Test.Hindsight.Instances
+    build-depends:    base >= 4.20.1 && < 5,
+                      aeson >= 2.2.3 && < 2.3,
+                      filepath >= 1.5.4 && < 1.6,
+                      hindsight-core,
+                      hindsight-core:event-testing,
+                      QuickCheck >= 2.14 && < 2.17,
+                      tasty >= 1.5.3 && < 1.6,
+                      text >= 2.1.2 && < 2.2
+    hs-source-dirs:   event-examples-lib
     default-language: GHC2021
     default-extensions: OverloadedRecordDot, DataKinds, DuplicateRecordFields, StrictData, Strict, RequiredTypeArguments
 
@@ -86,7 +103,7 @@ library store-testing
                       crypton >= 1.0 && < 1.1,
                       hedgehog >= 1.5 && < 1.8,
                       hindsight-core,
-                      hindsight-core:event-testing,
+                      hindsight-core:event-examples,
                       memory >= 0.18 && < 0.19,
                       QuickCheck >= 2.14 && < 2.17,
                       quickcheck-instances >= 0.3.33 && < 0.4,
@@ -108,10 +125,16 @@ test-suite hindsight-test
     default-language: GHC2021
     type:             exitcode-stdio-1.0
     ghc-options:      -threaded -rtsopts
-    other-modules:    Test.Hindsight
+    other-modules:    Test.Hindsight,
+                      Test.Hindsight.EventTests
     hs-source-dirs:   test
     main-is:          Main.hs
     build-depends:
         base,
+        aeson,
+        filepath,
+        hindsight-core,
         hindsight-core:event-testing,
-        tasty
+        hindsight-core:event-examples,
+        tasty,
+        text
