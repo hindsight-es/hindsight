@@ -190,7 +190,7 @@ import Data.Aeson.Types qualified as Aeson
 import Data.Kind (Constraint, Type)
 import Data.Map (Map)
 import Data.Map qualified as Map
-import Data.String (IsString(fromString))
+import Data.String (IsString (fromString))
 import Data.Typeable (Proxy (..), Typeable)
 import GHC.TypeLits (
     ErrorMessage (..),
@@ -238,10 +238,10 @@ getEventName "user_created" ~ fromString "user_created"
 Works for any @IsString@ instance (@String@, @Text@, ...)
 -}
 getEventName ::
-  forall (event :: Symbol) ->
-  forall str.
-  (Event event, IsString str) =>
-  str
+    forall (event :: Symbol) ->
+    forall str.
+    (Event event, IsString str) =>
+    str
 getEventName event = fromString $ symbolVal (Proxy @event)
 
 -- -----------------------------------------------------------------------------

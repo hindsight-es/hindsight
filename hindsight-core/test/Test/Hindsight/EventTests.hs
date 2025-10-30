@@ -30,11 +30,12 @@ import GHC.Generics (Generic)
 import Hindsight
 import System.FilePath ((</>))
 import Test.Hindsight.Examples
-import Test.Hindsight.Generate
-    ( createRoundtripTests,
-      defaultGoldenTestConfig,
-      createGoldenTests,
-      GoldenTestConfig(..) )
+import Test.Hindsight.Generate (
+    GoldenTestConfig (..),
+    createGoldenTests,
+    createRoundtripTests,
+    defaultGoldenTestConfig,
+ )
 import Test.Tasty
 
 tree :: TestTree

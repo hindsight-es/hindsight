@@ -100,31 +100,32 @@ If any version lacks required instances, you get a compile error pointing to the
 * __Roundtrip tests__: Always. These verify basic serialization correctness.
 * __Golden tests__: For stable APIs or when JSON format matters to external systems.
   Changes to golden files are explicit in diffs, making unintended format changes visible in code review.
-
 -}
-module Test.Hindsight.Generate
-    ( -- * Roundtrip Tests
-      createRoundtripTests
+module Test.Hindsight.Generate (
+    -- * Roundtrip Tests
+    createRoundtripTests,
 
-      -- * Golden Tests
-    , createGoldenTests
-    , GoldenTestConfig(..)
-    , defaultGoldenTestConfig
+    -- * Golden Tests
+    createGoldenTests,
+    GoldenTestConfig (..),
+    defaultGoldenTestConfig,
 
-      -- * Technical Details
-      -- | Internal constraint machinery. You typically don't need to use this
-      -- directly—it's automatically satisfied when your payload types have the
-      -- required instances ('FromJSON', 'ToJSON', 'Eq', 'Show', 'Typeable', 'Arbitrary').
-      --
-      -- This is exported primarily for:
-      --
-      -- * Understanding compiler error messages that mention 'ValidTestPayloadForVersion'
-      -- * Advanced use cases requiring explicit constraint manipulation
-      --
-      -- If you see a compiler error mentioning this constraint, it means one of
-      -- your payload versions is missing a required instance.
-    , ValidTestPayloadForVersion
-    )
+    -- * Technical Details
+
+    {- | Internal constraint machinery. You typically don't need to use this
+    directly—it's automatically satisfied when your payload types have the
+    required instances ('FromJSON', 'ToJSON', 'Eq', 'Show', 'Typeable', 'Arbitrary').
+
+    This is exported primarily for:
+
+    * Understanding compiler error messages that mention 'ValidTestPayloadForVersion'
+    * Advanced use cases requiring explicit constraint manipulation
+
+    If you see a compiler error mentioning this constraint, it means one of
+    your payload versions is missing a required instance.
+    -}
+    ValidTestPayloadForVersion,
+)
 where
 
 import Data.Aeson (ToJSON, decode, encode)
@@ -207,9 +208,9 @@ machinery that walks through all event versions.
 Users don't need to write instances manually; they're derived automatically when
 payloads have the required JSON and Arbitrary instances.
 -}
-class (TestPayloadRequirements event idx payload) => ValidTestPayloadForVersion (event :: Symbol) (idx :: PeanoNat) (payload :: Type) where
+class (TestPayloadRequirements event idx payload) => ValidTestPayloadForVersion (event :: Symbol) (idx :: PeanoNat) (payload :: Type)
 
-instance (TestPayloadRequirements event idx payload) => ValidTestPayloadForVersion event idx payload where
+instance (TestPayloadRequirements event idx payload) => ValidTestPayloadForVersion event idx payload
 
 {- | Default golden test configuration.
 
