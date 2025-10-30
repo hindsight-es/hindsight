@@ -27,7 +27,7 @@ import Test.Tasty.QuickCheck (testProperty)
 
 -- | Configuration for test generation
 data TestConfig = TestConfig
-    { goldenPathFor :: forall event ver. (KnownSymbol event, ReifiablePeanoNat ver) => Proxy event -> Proxy ver -> FilePath
+    { goldenPathFor :: forall event ver. (Event event, ReifiablePeanoNat ver) => Proxy event -> Proxy ver -> FilePath
     -- ^ Function to generate golden file path for a version
     , goldenTestCaseCount :: forall a. (Num a) => a
     -- ^ Number of test cases to generate for golden tests
@@ -50,8 +50,8 @@ instance (TestPayloadRequirements event idx payload) => ValidTestPayloadForVersi
 defaultTestConfig :: TestConfig
 defaultTestConfig =
     TestConfig
-        { goldenPathFor = \(pEvent :: Proxy event) (_ :: Proxy ver) ->
-            let name = getEventName pEvent
+        { goldenPathFor = \(_pEvent :: Proxy event) (_ :: Proxy ver) ->
+            let name = getEventName event
                 version = show $ reifyPeanoNat @ver
              in "test/golden/events" </> T.unpack name </> (version <> ".json")
         , goldenTestCaseCount = 10
@@ -106,7 +106,7 @@ encodePretty = AE.encodePretty
 -- | Generate golden test for a specific version
 makeGoldenTest ::
     forall event ver payload.
-    (ValidTestPayloadForVersion event ver payload) =>
+    (Event event, ValidTestPayloadForVersion event ver payload) =>
     TestConfig ->
     Proxy event ->
     Proxy ver ->
@@ -133,7 +133,7 @@ generateGoldenContent config = do
 -- | Create selective test suites
 createRoundtripTests ::
     forall event.
-    ( KnownSymbol event
+    ( Event event
     , HasFullEvidenceList event ValidTestPayloadForVersion
     ) =>
     TestConfig ->
@@ -145,12 +145,12 @@ createRoundtripTests config =
         (makeRoundtripTest config)
         (getPayloadEvidence @event @ValidTestPayloadForVersion)
   where
-    name = getEventName (Proxy @event)
+    name = getEventName event
     eventName = T.unpack name
 
 createGoldenTests ::
     forall event.
-    ( KnownSymbol event
+    ( Event event
     , HasFullEvidenceList event ValidTestPayloadForVersion
     ) =>
     TestConfig ->
@@ -162,17 +162,9 @@ createGoldenTests config =
         (makeGoldenTest config)
         (getPayloadEvidence @event @ValidTestPayloadForVersion)
   where
-    name = getEventName (Proxy @event)
+    name = getEventName event
     eventName = T.unpack name
 
 -- | Convert a Peano-encoded type-level natural to a String
 showPeanoNat :: forall n. (ReifiablePeanoNat n) => String
 showPeanoNat = show $ reifyPeanoNat @n
-
-{- | Convert a type-level event name to a String
-
-Helper function parallel to 'showPeanoNat' for converting type-level
-event names to strings for file paths and display.
--}
-eventToString :: forall event. (KnownSymbol event) => String
-eventToString = T.unpack $ getEventName (Proxy @event)

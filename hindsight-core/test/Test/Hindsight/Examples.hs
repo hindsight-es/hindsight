@@ -31,6 +31,12 @@ import GHC.Generics (Generic)
 import Hindsight
 import System.FilePath ((</>))
 import Test.Hindsight.Generate
+    ( createRoundtripTests,
+      defaultTestConfig,
+      createGoldenTests,
+      TestConfig(goldenTestSizeParam, goldenPathFor, goldenTestCaseCount,
+                 goldenTestSeed),
+      showPeanoNat )
 import Test.QuickCheck
 import Test.Tasty
 
@@ -155,7 +161,7 @@ tree =
     customConfig =
         defaultTestConfig
             { goldenPathFor = \(_ :: Proxy event) (_ :: Proxy ver) ->
-                "golden" </> "events" </> eventToString @event </> showPeanoNat @ver <> ".json"
+                "golden" </> "events" </> getEventName event </> showPeanoNat @ver <> ".json"
             , goldenTestCaseCount = 10
             , goldenTestSeed = 12345
             , goldenTestSizeParam = 30 -- QuickCheck size parameter
