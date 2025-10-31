@@ -18,8 +18,8 @@ import Data.UUID.V4 qualified as UUID
 import Hindsight.Store
 import System.Random (randomRIO)
 import System.Timeout (timeout)
-import Test.Hindsight.Store.Common (makeUserEvent)
-import Test.Hindsight.Store.TestRunner (EventStoreTestRunner (..), runTest)
+import Test.Hindsight.Examples (makeUserEvent)
+import Test.Hindsight.Store.TestRunner (EventStoreTestRunner (..))
 import Test.Tasty
 import Test.Tasty.HUnit
 import UnliftIO.Async (async, mapConcurrently, wait)
@@ -34,31 +34,31 @@ stressTests runner =
     [ testGroup
         "Pathological Tests"
         [ testCase "Massive Version Conflicts (100 writers)" $
-            runTest runner testMassiveVersionConflicts
+            withStore runner testMassiveVersionConflicts
         , testCase "Massive Version Advancement (1000 iterations)" $
-            runTest runner testMassiveVersionAdvancement
+            withStore runner testMassiveVersionAdvancement
         , testCase "Version Skew Scenario" $
-            runTest runner testVersionSkewScenario
+            withStore runner testVersionSkewScenario
         ]
     , testGroup
         "High-Contention Tests"
         [ testCase "High Contention Version Checks (50 writers)" $
-            runTest runner testHighContentionVersionChecks
+            withStore runner testHighContentionVersionChecks
         , testCase "Version Expectation Performance" $
-            runTest runner testVersionExpectationPerformance
+            withStore runner testVersionExpectationPerformance
         , testCase "Cascading Version Failures" $
-            runTest runner testCascadingVersionFailures
+            withStore runner testCascadingVersionFailures
         , testCase "Multi-Stream Version Atomicity (10 streams)" $
-            runTest runner testMultiStreamVersionAtomicity
+            withStore runner testMultiStreamVersionAtomicity
         , testCase "Rapid Version Advancement (100 iterations)" $
-            runTest runner testRapidVersionAdvancement
+            withStore runner testRapidVersionAdvancement
         ]
     , testGroup
         "Connection Resilience Tests"
         [ testCase "Version Checks with Connection Failures" $
-            runTest runner testVersionCheckWithConnectionFailures
+            withStore runner testVersionCheckWithConnectionFailures
         , testCase "Version Check Deadlock Scenarios" $
-            runTest runner testVersionCheckDeadlock
+            withStore runner testVersionCheckDeadlock
         ]
     ]
 

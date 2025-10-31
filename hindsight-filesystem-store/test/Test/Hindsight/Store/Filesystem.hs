@@ -22,6 +22,7 @@ import Hindsight.Store.Memory.Internal (StoredEvent (seqNo))
 import System.Directory
 import System.FileLock qualified as FL
 import System.IO.Temp (createTempDirectory)
+import Test.Hindsight.Examples (makeUserEvent)
 import Test.Hindsight.Store.Common
 import Test.Tasty
 import Test.Tasty.HUnit

@@ -24,6 +24,7 @@ Example event definitions used in test suites and store backend tests.
 module Test.Hindsight.Examples where
 
 import Data.Aeson
+import Data.Proxy (Proxy (..))
 import Data.Text qualified as T
 import GHC.Generics (Generic)
 import Hindsight
@@ -87,3 +88,49 @@ instance Arbitrary UserInformation1 where
 
 instance Arbitrary UserInformation2 where
     arbitrary = UserInformation2 <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
+
+-- * Tombstone Event for Test Coordination
+
+-- | Tombstone event used to signal end of test data
+type Tombstone = "tombstone"
+
+-- | Simple payload for tombstone event
+data TombstonePayload = TombstonePayload
+    {marker :: T.Text}
+    deriving stock (Show, Eq, Generic)
+    deriving anyclass (FromJSON, ToJSON)
+
+instance Arbitrary TombstonePayload where
+    arbitrary = TombstonePayload <$> arbitrary
+
+-- | Event definition for tombstone event (single version)
+type instance MaxVersion Tombstone = 0
+
+type instance Versions Tombstone = '[TombstonePayload]
+
+instance Event Tombstone
+
+-- | No upgrade needed for single version (uses default identity)
+instance MigrateVersion 0 Tombstone
+
+-- * Helper Functions
+
+-- | Helper to create a test user event
+makeUserEvent :: Int -> SomeLatestEvent
+makeUserEvent userId =
+    SomeLatestEvent (Proxy @UserCreated) $
+        UserInformation2
+            { userId = userId
+            , userName = T.pack "user" <> T.pack (show userId)
+            , userEmail = Just $ T.pack "user" <> T.pack (show userId) <> T.pack "@test.com"
+            , likeability = 10
+            }
+
+-- | Helper to create a tombstone event
+makeTombstone :: SomeLatestEvent
+makeTombstone =
+    SomeLatestEvent
+        (Proxy @Tombstone)
+        TombstonePayload
+            { marker = T.pack "end_of_test"
+            }

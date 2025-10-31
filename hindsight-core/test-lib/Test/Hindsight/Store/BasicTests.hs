@@ -1,11 +1,15 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 
 {- | Basic subscription and event handling tests
 
@@ -22,18 +26,82 @@ module Test.Hindsight.Store.BasicTests (basicTests) where
 
 import Control.Concurrent (MVar, newEmptyMVar, putMVar, takeMVar, threadDelay)
 import Control.Monad (mapM_)
+import Data.Aeson (FromJSON, ToJSON)
 import Data.IORef
 import Data.Map.Strict qualified as Map
-import Data.Maybe (mapMaybe)
+import Data.Proxy (Proxy (..))
 import Data.Text (Text)
 import Data.UUID.V4 qualified as UUID
+import GHC.Generics (Generic)
+import Hindsight.Events
 import Hindsight.Store
-import Test.Hindsight.Examples (UserCreated, UserInformation2 (..))
-import Test.Hindsight.Store.Common
-import Test.Hindsight.Store.TestRunner.Types (EventStoreTestRunner (..))
+import Test.Hindsight.Examples (Tombstone, UserCreated, UserInformation2 (..), makeTombstone, makeUserEvent)
+import Test.Hindsight.Store.Common (collectEvents, extractPayload, handleTombstone)
+import Test.Hindsight.Store.TestRunner (EventStoreTestRunner (..))
 import Test.Tasty
 import Test.Tasty.HUnit
 import UnliftIO.Exception (fromException, throwIO, tryAny)
+
+-- * Counter Events for Stop/Fail Testing
+
+-- | Counter increment event for testing subscription stop behavior
+type CounterInc = "counter_inc"
+
+data CounterIncPayload = CounterIncPayload
+    deriving stock (Show, Eq, Generic)
+    deriving anyclass (FromJSON, ToJSON)
+
+type instance MaxVersion CounterInc = 0
+type instance Versions CounterInc = '[CounterIncPayload]
+instance Event CounterInc
+instance MigrateVersion 0 CounterInc
+
+-- | Counter stop event for testing subscription stop behavior
+type CounterStop = "counter_stop"
+
+data CounterStopPayload = CounterStopPayload
+    deriving stock (Show, Eq, Generic)
+    deriving anyclass (FromJSON, ToJSON)
+
+type instance MaxVersion CounterStop = 0
+type instance Versions CounterStop = '[CounterStopPayload]
+instance Event CounterStop
+instance MigrateVersion 0 CounterStop
+
+-- | Counter fail event for testing exception handling
+type CounterFail = "counter_fail"
+
+data CounterFailPayload = CounterFailPayload
+    deriving stock (Show, Eq, Generic)
+    deriving anyclass (FromJSON, ToJSON)
+
+type instance MaxVersion CounterFail = 0
+type instance Versions CounterFail = '[CounterFailPayload]
+instance Event CounterFail
+instance MigrateVersion 0 CounterFail
+
+-- | Helper to create a counter increment event
+makeCounterInc :: SomeLatestEvent
+makeCounterInc =
+    SomeLatestEvent
+        (Proxy @CounterInc)
+        CounterIncPayload
+
+-- | Helper to create a counter stop event
+makeCounterStop :: SomeLatestEvent
+makeCounterStop =
+    SomeLatestEvent
+        (Proxy @CounterStop)
+        CounterStopPayload
+
+-- | Helper to create a counter fail event
+makeCounterFail :: SomeLatestEvent
+makeCounterFail =
+    SomeLatestEvent
+        (Proxy @CounterFail)
+        CounterFailPayload
+
+-- * Test Utilities
 
 repeatTest :: Int -> TestName -> Assertion -> TestTree
 repeatTest n name assertion =
@@ -74,7 +142,7 @@ testBasicEventReception store = do
             handle <-
                 subscribe
                     store
-                    ( match UserCreated (collectEventsUntilTombstone receivedEvents)
+                    ( match UserCreated (collectEvents receivedEvents)
                         :? match Tombstone (handleTombstone completionVar)
                         :? MatchEnd
                     )
@@ -85,7 +153,7 @@ testBasicEventReception store = do
             events <- reverse <$> readIORef receivedEvents
             length events @?= 3
 
-            let userInfos = mapMaybe extractUserInfo events
+            let userInfos = map extractPayload events
             length userInfos @?= 3
             let userNames :: [Text]
                 userNames = map (.userName) userInfos
@@ -105,7 +173,7 @@ testSingleStreamSelection store = do
     handle <-
         subscribe
             store
-            ( match UserCreated (collectEventsUntilTombstone receivedEvents)
+            ( match UserCreated (collectEvents receivedEvents)
                 :? match Tombstone (handleTombstone completionVar)
                 :? MatchEnd
             )
@@ -114,7 +182,7 @@ testSingleStreamSelection store = do
     takeMVar completionVar
     handle.cancel -- Cancel subscription after completion
     events <- reverse <$> readIORef receivedEvents
-    let userInfos = mapMaybe extractUserInfo events
+    let userInfos = map extractPayload events
     length userInfos @?= 3
     let userNames = map (.userName) userInfos
     userNames @?= ["user1", "user2", "user3"]
@@ -137,7 +205,7 @@ testStartFromPosition store = do
             handle <-
                 subscribe
                     store
-                    ( match UserCreated (collectEventsUntilTombstone receivedEvents)
+                    ( match UserCreated (collectEvents receivedEvents)
                         :? match Tombstone (handleTombstone completionVar)
                         :? MatchEnd
                     )
@@ -146,7 +214,7 @@ testStartFromPosition store = do
             takeMVar completionVar
             handle.cancel -- Cancel subscription after completion
             events <- reverse <$> readIORef receivedEvents
-            let userInfos = mapMaybe extractUserInfo events
+            let userInfos = map extractPayload events
             length userInfos @?= 2
             let userNames :: [Text]
                 userNames = map (.userName) userInfos
@@ -168,7 +236,7 @@ testCorrelationIdPreservation store = do
             handle <-
                 subscribe
                     store
-                    ( match UserCreated (collectEventsUntilTombstone receivedEvents)
+                    ( match UserCreated (collectEvents receivedEvents)
                         :? match Tombstone (handleTombstone completionVar)
                         :? MatchEnd
                     )
@@ -188,7 +256,7 @@ testAsyncSubscription store = do
     handle <-
         subscribe
             store
-            ( match UserCreated (collectEventsUntilTombstone receivedEvents)
+            ( match UserCreated (collectEvents receivedEvents)
                 :? match Tombstone (handleTombstone completionVar)
                 :? MatchEnd
             )
@@ -206,7 +274,7 @@ testAsyncSubscription store = do
             handle.cancel
             events <- reverse <$> readIORef receivedEvents
             length events @?= 3
-            let userInfos = mapMaybe extractUserInfo events
+            let userInfos = map extractPayload events
             length userInfos @?= 3
             let userNames :: [Text]
                 userNames = map (.userName) userInfos

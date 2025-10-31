@@ -29,8 +29,7 @@ import Hindsight.Projection (ProjectionId (..))
 import Hindsight.Projection.Matching (ProjectionHandlers (..))
 import Hindsight.Store.PostgreSQL
 import Hindsight.Store.PostgreSQL.Core.Schema qualified as SQLStore
-import Test.Hindsight.Examples (UserCreated)
-import Test.Hindsight.Store.Common (makeUserEvent)
+import Test.Hindsight.Examples (UserCreated, makeUserEvent)
 import Test.Tasty
 import Test.Tasty.HUnit
 
