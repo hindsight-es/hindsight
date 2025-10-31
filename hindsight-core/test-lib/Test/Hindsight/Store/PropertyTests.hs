@@ -12,7 +12,7 @@ import Data.Map.Strict qualified as Map
 import Data.UUID.V4 qualified as UUID
 import Hedgehog
 import Hindsight.Store
-import Test.Hindsight.Store.Common (makeUserEvent)
+import Test.Hindsight.Examples (makeUserEvent)
 import Test.Hindsight.Store.TestRunner (EventStoreTestRunner (..))
 import Test.Tasty
 import Test.Tasty.HUnit (assertFailure)

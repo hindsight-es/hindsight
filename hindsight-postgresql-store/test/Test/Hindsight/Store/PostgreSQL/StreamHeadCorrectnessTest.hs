@@ -20,7 +20,7 @@ import Hasql.Statement (Statement (..))
 import Hindsight.Store
 import Hindsight.Store.PostgreSQL (SQLStoreHandle, getPool)
 import Test.Hindsight.PostgreSQL.Temp (debugMode, withTempPostgreSQL)
-import Test.Hindsight.Store.Common (makeUserEvent)
+import Test.Hindsight.Examples (makeUserEvent)
 import Test.Tasty
 import Test.Tasty.HUnit
 

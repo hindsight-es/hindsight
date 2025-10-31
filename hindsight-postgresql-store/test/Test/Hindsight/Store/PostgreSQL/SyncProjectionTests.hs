@@ -24,7 +24,7 @@ import Hindsight.Store.PostgreSQL (SQLStoreHandle, getConnectionString, getPool,
 import Hindsight.Store.PostgreSQL.Projections.Sync (emptySyncProjectionRegistry, registerSyncProjection)
 import Test.Hindsight.Examples (UserCreated)
 import Test.Hindsight.PostgreSQL.Temp (defaultConfig, withTempPostgreSQL)
-import Test.Hindsight.Store.Common (makeUserEvent)
+import Test.Hindsight.Examples (makeUserEvent)
 import Test.Tasty
 import Test.Tasty.HUnit
 

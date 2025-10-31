@@ -35,8 +35,8 @@ import Data.Word (Word8)
 import Hindsight.Store
 import System.Random (randomRIO)
 import System.Timeout (timeout)
-import Test.Hindsight.Examples (UserCreated, UserInformation2 (..))
-import Test.Hindsight.Store.Common (Tombstone, collectEventsUntilTombstone, extractUserInfo, handleTombstone, makeTombstone, makeUserEvent)
+import Test.Hindsight.Examples (Tombstone, UserCreated, UserInformation2 (..), makeTombstone, makeUserEvent)
+import Test.Hindsight.Store.Common (collectEvents, extractPayload, handleTombstone)
 import Test.Hindsight.Store.TestRunner (EventStoreTestRunner (..))
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -104,7 +104,7 @@ testMultiInstanceSubscription stores = do
                 \(store, completionVar, eventsRef) -> do
                     subscribe
                         store
-                        ( match UserCreated (collectEventsUntilTombstone eventsRef)
+                        ( match UserCreated (collectEvents eventsRef)
                             :? match Tombstone (handleTombstone completionVar)
                             :? MatchEnd
                         )
@@ -134,7 +134,7 @@ testMultiInstanceSubscription stores = do
                     allReceivedEvents <- mapM (fmap reverse . readIORef) receivedEventsRefs
                     forM_ allReceivedEvents $ \events -> do
                         length events @?= 5
-                        let userInfos = mapMaybe extractUserInfo events
+                        let userInfos = map extractPayload events
                         length userInfos @?= 5
                         let userNames :: [Text]
                             userNames = map (.userName) userInfos

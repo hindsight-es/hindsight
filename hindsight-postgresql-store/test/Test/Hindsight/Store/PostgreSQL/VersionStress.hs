@@ -18,7 +18,7 @@ import Hindsight.Store
 import Hindsight.Store.PostgreSQL (SQLStoreHandle)
 import System.Random (randomRIO)
 import Test.Hindsight.PostgreSQL.Temp (defaultConfig, withTempPostgreSQL)
-import Test.Hindsight.Store.Common (makeUserEvent)
+import Test.Hindsight.Examples (makeUserEvent)
 import Test.Tasty
 import Test.Tasty.HUnit
 import UnliftIO.Async (async, mapConcurrently, wait)
