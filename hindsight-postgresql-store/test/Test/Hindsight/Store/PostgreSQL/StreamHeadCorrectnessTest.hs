@@ -19,8 +19,8 @@ import Hasql.Session qualified as Session
 import Hasql.Statement (Statement (..))
 import Hindsight.Store
 import Hindsight.Store.PostgreSQL (SQLStoreHandle, getPool)
-import Test.Hindsight.PostgreSQL.Temp (debugMode, withTempPostgreSQL)
 import Test.Hindsight.Examples (makeUserEvent)
+import Test.Hindsight.PostgreSQL.Temp (debugMode, withTempPostgreSQL)
 import Test.Tasty
 import Test.Tasty.HUnit
 
