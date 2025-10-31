@@ -11,6 +11,8 @@ Module      : Test.Hindsight.Generate
 Description : Automated test generation for versioned events
 Copyright   : (c) 2025
 License     : BSD3
+Maintainer  : gael@hindsight.events
+Stability   : experimental
 
 = Problem
 

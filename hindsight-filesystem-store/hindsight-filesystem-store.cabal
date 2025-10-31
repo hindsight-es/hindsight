@@ -6,7 +6,7 @@ description:        File-based persistent event store with multi-process support
 license:            BSD-3-Clause
 license-file:       LICENSE
 author:             Gaël Deest
-maintainer:         gael.deest@franbec.org
+maintainer:         gael@hindsight.events
 copyright:          (c) 2025 Gaël Deest
 category:           Web
 build-type:         Simple

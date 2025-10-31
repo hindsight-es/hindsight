@@ -15,9 +15,9 @@
 {- |
 Module      : Hindsight.Projection
 Description : Backend-agnostic projection system for building read models
-Copyright   : (c) 2024
+Copyright   : (c) 2025
 License     : BSD3
-Maintainer  : maintainer@example.com
+Maintainer  : gael@hindsight.events
 Stability   : experimental
 
 This module provides the projection system for transforming event streams into

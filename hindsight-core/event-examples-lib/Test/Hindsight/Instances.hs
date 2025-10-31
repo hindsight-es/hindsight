@@ -5,6 +5,8 @@ Module      : Test.Hindsight.Instances
 Description : Orphan Arbitrary instances for testing
 Copyright   : (c) 2025
 License     : BSD3
+Maintainer  : gael@hindsight.events
+Stability   : experimental
 
 Orphan 'Arbitrary' instances for common types used in event testing.
 

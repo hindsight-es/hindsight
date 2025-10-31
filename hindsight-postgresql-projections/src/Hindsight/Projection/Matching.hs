@@ -8,9 +8,9 @@
 {- |
 Module      : Hindsight.Projection.Matching
 Description : PostgreSQL-based projection handlers
-Copyright   : (c) 2024
+Copyright   : (c) 2025
 License     : BSD3
-Maintainer  : maintainer@example.com
+Maintainer  : gael@hindsight.events
 Stability   : experimental
 
 PostgreSQL-based projection handlers. Used by both sync and async projections

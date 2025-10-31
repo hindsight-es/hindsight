@@ -13,9 +13,9 @@
 {- |
 Module      : Hindsight.Store.Memory
 Description : In-memory event store for testing and development
-Copyright   : (c) 2024
+Copyright   : (c) 2025
 License     : BSD3
-Maintainer  : maintainer@example.com
+Maintainer  : gael@hindsight.events
 Stability   : experimental
 
 = Overview

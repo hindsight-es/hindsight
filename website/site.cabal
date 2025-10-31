@@ -6,7 +6,7 @@ description:        Hakyll-based site generator that integrates Sphinx documenta
                     with blog posts and static pages.
 license:            NONE
 author:             Hindsight Contributors
-maintainer:         gael.deest@franbec.org
+maintainer:         gael@hindsight.events
 category:           Web
 build-type:         Simple
 

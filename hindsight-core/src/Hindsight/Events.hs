@@ -18,9 +18,9 @@
 {- |
 Module      : Hindsight.Events
 Description : Type-safe event system with versioning and automatic upgrades
-Copyright   : (c) 2024
+Copyright   : (c) 2025
 License     : BSD3
-Maintainer  : maintainer@example.com
+Maintainer  : gael@hindsight.events
 Stability   : experimental
 
 This module provides the core API for Hindsight's event system.

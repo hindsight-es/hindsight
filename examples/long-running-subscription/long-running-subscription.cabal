@@ -5,7 +5,7 @@ synopsis:           Long-running subscription example to test notification stale
 description:        Minimal Servant API example that tests PostgreSQL subscription stability over hours
 license:            NONE
 author:             Gaël Deest
-maintainer:         gael.deest@franbec.org
+maintainer:         gael@hindsight.events
 category:           Example
 build-type:         Simple
 

@@ -14,9 +14,10 @@
 {- |
 Module      : Test.Hindsight.Examples
 Description : Example event definitions and test utilities
-Copyright   : (c) 2024
+Copyright   : (c) 2025
 License     : BSD3
-Maintainer  : maintainer@example.com
+Maintainer  : gael@hindsight.events
+Stability   : experimental
 
 Example event definitions used in test suites and store backend tests.
 -}

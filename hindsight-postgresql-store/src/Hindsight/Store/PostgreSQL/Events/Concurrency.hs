@@ -5,9 +5,9 @@
 {- |
 Module      : Hindsight.Store.PostgreSQL.Events.Concurrency
 Description : Version validation for PostgreSQL event store
-Copyright   : (c) 2024
+Copyright   : (c) 2025
 License     : BSD3
-Maintainer  : maintainer@example.com
+Maintainer  : gael@hindsight.events
 Stability   : internal
 
 This module implements optimistic concurrency control for the PostgreSQL

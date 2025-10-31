@@ -11,9 +11,9 @@
 {- |
 Module      : Hindsight.Store
 Description : Event store interface and common data types
-Copyright   : (c) 2024
+Copyright   : (c) 2025
 License     : BSD3
-Maintainer  : maintainer@example.com
+Maintainer  : gael@hindsight.events
 Stability   : experimental
 
 This module defines the core event store interface and types used across

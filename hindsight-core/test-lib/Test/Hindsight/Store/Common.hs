@@ -12,6 +12,17 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
 
+{- |
+Module      : Test.Hindsight.Store.Common
+Description : Common utilities and types for event store tests
+Copyright   : (c) 2025
+License     : BSD3
+Maintainer  : gael@hindsight.events
+Stability   : experimental
+
+Shared test utilities, helper functions, and types used across all event store
+backend test suites.
+-}
 module Test.Hindsight.Store.Common where
 
 import Control.Concurrent (MVar, putMVar)

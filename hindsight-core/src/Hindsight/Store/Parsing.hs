@@ -7,9 +7,9 @@
 {- |
 Module      : Hindsight.Store.Parsing
 Description : Event parsing utilities for event stores
-Copyright   : (c) 2024
+Copyright   : (c) 2025
 License     : BSD3
-Maintainer  : maintainer@example.com
+Maintainer  : gael@hindsight.events
 Stability   : experimental
 
 This module provides core event parsing utilities used by all event store backends

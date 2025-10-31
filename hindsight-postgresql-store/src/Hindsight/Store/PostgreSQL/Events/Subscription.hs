@@ -9,9 +9,9 @@
 {- |
 Module      : Hindsight.Store.PostgreSQL.Events.Subscription
 Description : Unified subscription system for PostgreSQL event store
-Copyright   : (c) 2024
+Copyright   : (c) 2025
 License     : BSD3
-Maintainer  : maintainer@example.com
+Maintainer  : gael@hindsight.events
 Stability   : experimental
 
 This module provides a decentralized, pull-based subscription system where each subscriber
