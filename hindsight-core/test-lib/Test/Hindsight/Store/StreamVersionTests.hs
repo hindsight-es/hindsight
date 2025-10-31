@@ -21,7 +21,7 @@ import Data.UUID.V4 qualified as UUID
 import Hindsight.Store
 import Test.Hindsight.Examples (UserCreated)
 import Test.Hindsight.Store.Common (Tombstone, handleTombstone, makeTombstone, makeUserEvent)
-import Test.Hindsight.Store.TestRunner.Types (EventStoreTestRunner (..))
+import Test.Hindsight.Store.TestRunner (EventStoreTestRunner (..))
 import Test.Tasty
 import Test.Tasty.HUnit
 

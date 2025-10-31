@@ -37,7 +37,7 @@ import System.Random (randomRIO)
 import System.Timeout (timeout)
 import Test.Hindsight.Examples (UserCreated, UserInformation2 (..))
 import Test.Hindsight.Store.Common (Tombstone, collectEventsUntilTombstone, extractUserInfo, handleTombstone, makeTombstone, makeUserEvent)
-import Test.Hindsight.Store.TestRunner.Types (EventStoreTestRunner (..))
+import Test.Hindsight.Store.TestRunner (EventStoreTestRunner (..))
 import Test.Tasty
 import Test.Tasty.HUnit
 import UnliftIO.Async (async, forConcurrently, forConcurrently_)

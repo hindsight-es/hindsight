@@ -30,7 +30,7 @@ import Data.UUID.V4 qualified as UUID
 import Hindsight.Store
 import Test.Hindsight.Examples (UserCreated, UserInformation2 (..))
 import Test.Hindsight.Store.Common
-import Test.Hindsight.Store.TestRunner.Types (EventStoreTestRunner (..))
+import Test.Hindsight.Store.TestRunner (EventStoreTestRunner (..))
 import Test.Tasty
 import Test.Tasty.HUnit
 import UnliftIO.Exception (fromException, throwIO, tryAny)
