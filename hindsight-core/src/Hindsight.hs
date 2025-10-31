@@ -1,9 +1,9 @@
 {- |
 Module      : Hindsight
 Description : Type-safe event sourcing system for Haskell
-Copyright   : (c) 2024
+Copyright   : (c) 2025
 License     : BSD3
-Maintainer  : maintainer@example.com
+Maintainer  : gael@hindsight.events
 Stability   : experimental
 
 Hindsight is a type-safe event sourcing system that provides strong compile-time

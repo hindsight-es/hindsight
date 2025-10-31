@@ -10,9 +10,9 @@
 {- |
 Module      : Hindsight.Events.Internal.TypeLevel
 Description : Pure type-level utilities for event versioning
-Copyright   : (c) 2024
+Copyright   : (c) 2025
 License     : BSD3
-Maintainer  : maintainer@example.com
+Maintainer  : gael@hindsight.events
 Stability   : experimental
 
 This module provides foundational type-level utilities used throughout the

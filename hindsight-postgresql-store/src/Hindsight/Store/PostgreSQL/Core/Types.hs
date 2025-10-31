@@ -6,9 +6,9 @@
 {- |
 Module      : Hindsight.Store.PostgreSQL.Core.Types
 Description : Shared types for PostgreSQL event store backend
-Copyright   : (c) 2024
+Copyright   : (c) 2025
 License     : BSD3
-Maintainer  : maintainer@example.com
+Maintainer  : gael@hindsight.events
 Stability   : internal
 
 Shared types for the PostgreSQL backend. This module exists to break

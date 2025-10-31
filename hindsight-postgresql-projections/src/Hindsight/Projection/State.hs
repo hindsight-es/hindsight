@@ -4,9 +4,9 @@
 {- |
 Module      : Hindsight.Projection.State
 Description : Shared projection state management operations
-Copyright   : (c) 2024
+Copyright   : (c) 2025
 License     : BSD3
-Maintainer  : maintainer@example.com
+Maintainer  : gael@hindsight.events
 Stability   : experimental
 
 This module provides shared database operations for managing projection state

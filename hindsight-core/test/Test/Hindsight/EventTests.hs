@@ -14,9 +14,10 @@
 {- |
 Module      : Test.Hindsight.EventTests
 Description : Example event definitions and test utilities
-Copyright   : (c) 2024
+Copyright   : (c) 2025
 License     : BSD3
-Maintainer  : gael.deest@franbec.org
+Maintainer  : gael@hindsight.events
+Stability   : experimental
 
 Roundtrip and golden tests for example event definitions
 -}

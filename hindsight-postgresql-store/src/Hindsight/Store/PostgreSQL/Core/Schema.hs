@@ -1,6 +1,17 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 
+{- |
+Module      : Hindsight.Store.PostgreSQL.Core.Schema
+Description : PostgreSQL schema initialization for event store
+Copyright   : (c) 2025
+License     : BSD3
+Maintainer  : gael@hindsight.events
+Stability   : internal
+
+Schema initialization for PostgreSQL event store, including event tables,
+transaction tracking, and projection metadata.
+-}
 module Hindsight.Store.PostgreSQL.Core.Schema (
     createSchema,
 )

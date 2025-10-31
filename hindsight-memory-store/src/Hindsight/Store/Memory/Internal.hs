@@ -13,6 +13,17 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
+{- |
+Module      : Hindsight.Store.Memory.Internal
+Description : Internal implementation details for in-memory event store
+Copyright   : (c) 2025
+License     : BSD3
+Maintainer  : gael@hindsight.events
+Stability   : internal
+
+Internal types and utilities for the in-memory event store implementation.
+Not intended for external use.
+-}
 module Hindsight.Store.Memory.Internal (
     -- * Core Types
     StoreState (..),

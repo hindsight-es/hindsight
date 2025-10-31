@@ -13,7 +13,7 @@ Module      : Hindsight.Store.PostgreSQL.Events.TypedDispatcher
 Description : Type-safe event parsing and distribution
 Copyright   : (c) 2025
 License     : BSD3
-Maintainer  : nadine@example.com
+Maintainer  : gael@hindsight.events
 Stability   : experimental
 
 This module implements centralized type-safe event parsing to eliminate

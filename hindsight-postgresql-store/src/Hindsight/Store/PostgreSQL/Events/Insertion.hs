@@ -5,9 +5,9 @@
 {- |
 Module      : Hindsight.Store.PostgreSQL.Events.Insertion
 Description : Event insertion logic for PostgreSQL backend
-Copyright   : (c) 2024
+Copyright   : (c) 2025
 License     : BSD3
-Maintainer  : maintainer@example.com
+Maintainer  : gael@hindsight.events
 Stability   : internal
 
 Handles the insertion of events into PostgreSQL tables, including

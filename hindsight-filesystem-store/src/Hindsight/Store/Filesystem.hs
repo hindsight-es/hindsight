@@ -14,9 +14,9 @@
 {- |
 Module      : Hindsight.Store.Filesystem
 Description : File-based persistent event store with multi-process support
-Copyright   : (c) 2024
+Copyright   : (c) 2025
 License     : BSD3
-Maintainer  : maintainer@example.com
+Maintainer  : gael@hindsight.events
 Stability   : experimental
 
 = Overview

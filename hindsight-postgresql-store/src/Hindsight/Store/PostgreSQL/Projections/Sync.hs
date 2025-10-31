@@ -13,9 +13,9 @@
 {- |
 Module      : Hindsight.Store.PostgreSQL.Projections.Sync
 Description : PostgreSQL synchronous projection system
-Copyright   : (c) 2024
+Copyright   : (c) 2025
 License     : BSD3
-Maintainer  : maintainer@example.com
+Maintainer  : gael@hindsight.events
 Stability   : experimental
 
 This module provides a complete synchronous projection system for PostgreSQL,
