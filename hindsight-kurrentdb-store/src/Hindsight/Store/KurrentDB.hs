@@ -68,6 +68,7 @@ module Hindsight.Store.KurrentDB (
     module Hindsight.Store,
 ) where
 
+import Control.Concurrent.Async (async, cancel, wait)
 import Control.Monad (forM, forM_)
 import Control.Monad.IO.Class (MonadIO (..))
 import Data.Aeson (encode, toJSON)
@@ -131,7 +132,14 @@ instance EventStore KurrentStore where
                                              StreamWrite expectedVer (toList events)) streams
                 in insertMultiStream handle listStreams
 
-    subscribe = error "subscribe: Not yet implemented"
+    subscribe _handle _matcher _selector = liftIO $ do
+        -- TODO: Implement actual subscription using Streams.Read RPC
+        -- For now, return a stub that does nothing
+        workerThread <- async $ pure ()
+        pure $ SubscriptionHandle
+            { cancel = cancel workerThread
+            , wait = wait workerThread
+            }
 
 -- | Insert events into a single stream using Streams.Append RPC
 insertSingleStream ::
