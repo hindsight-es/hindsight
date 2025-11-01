@@ -21,6 +21,7 @@ module Hindsight.Store.KurrentDB.Types (
 
 import Data.Aeson (FromJSON, ToJSON)
 import Data.ByteString (ByteString)
+import Data.Pool (Pool)
 import Data.Word (Word64)
 import GHC.Generics (Generic)
 import Hindsight.Store (BackendHandle, Cursor)
@@ -61,12 +62,14 @@ data KurrentConfig = KurrentConfig
 
 {- | Handle for KurrentDB store connection.
 
-Contains a single persistent gRPC connection.
-gRPC/HTTP/2 efficiently multiplexes many requests over one connection.
+Uses resource-pool to manage a pool of gRPC connections for:
+- Fault tolerance: automatic connection recreation on failure
+- Graceful shutdown: proper connection lifecycle management
+- Resource limiting: prevents connection exhaustion
 -}
 data KurrentHandle = KurrentHandle
     { config :: KurrentConfig
     -- ^ Connection configuration
-    , connection :: Connection
-    -- ^ Persistent gRPC connection
+    , connectionPool :: Pool Connection
+    -- ^ Connection pool for gRPC connections
     }

@@ -14,26 +14,56 @@ module Hindsight.Store.KurrentDB.Client (
 ) where
 
 import Data.ByteString (ByteString)
-import Hindsight.Store.KurrentDB.Types (KurrentHandle (..))
--- import Network.GRPC.Client qualified as GRPC
+import Data.ByteString.Char8 qualified as BS
+import Data.Default (def)
+import Data.Pool (Pool, destroyAllResources, newPool, setNumStripes)
+import Data.Pool qualified as Pool
+import Hindsight.Store.KurrentDB.Types (KurrentConfig (..), KurrentHandle (..))
+import Network.GRPC.Client (Connection)
+import Network.GRPC.Client qualified as GRPC
+import Network.Socket (PortNumber)
 
-{- | Create a new KurrentDB store handle.
+{- | Create a new KurrentDB store handle with connection pooling.
 
-Connection string format: esdb://host:port?tls=false
+Creates a resource pool of gRPC connections for fault tolerance and
+proper lifecycle management.
 
-Parses connection string and establishes gRPC connection to KurrentDB.
+Pool configuration:
+- Size: 10 connections (similar to PostgreSQL backend)
+- Timeout: 60 seconds
+- Stripe count: 1 (connection creation is serialized)
 -}
-newKurrentStore :: ByteString -> IO KurrentHandle
-newKurrentStore _connStr = do
-    -- TODO: Initialize actual gRPC connection
-    -- For now, this is a stub that will be implemented in Phase 1
-    error "newKurrentStore: Not yet implemented. gRPC connection will be added in Phase 1."
+newKurrentStore :: KurrentConfig -> IO KurrentHandle
+newKurrentStore config = do
+    -- Create server address
+    let server =
+            if config.secure
+                then error "TLS not yet implemented"  -- TODO: implement TLS support
+                else
+                    GRPC.ServerInsecure $
+                        GRPC.Address
+                            { GRPC.addressHost = BS.unpack config.host  -- Convert ByteString to String
+                            , GRPC.addressPort = fromIntegral config.port  -- Convert Int to PortNumber
+                            , GRPC.addressAuthority = Nothing
+                            }
 
-{- | Shutdown the KurrentDB store and close connections.
+    -- Create connection pool using modern resource-pool API
+    -- Pool parameters: create function, destroy function, idle timeout, max resources
+    pool <-
+        newPool $
+            setNumStripes (Just 1) $  -- 1 stripe is fine for gRPC
+                Pool.defaultPoolConfig
+                    (GRPC.openConnection def server)  -- Create connection
+                    GRPC.closeConnection  -- Destroy connection
+                    60  -- Idle timeout in seconds
+                    10  -- Max connections in pool
 
-Closes the gRPC connection to KurrentDB.
+    pure $ KurrentHandle{config, connectionPool = pool}
+
+{- | Shutdown the KurrentDB store and close all connections.
+
+Destroys the connection pool, closing all active connections.
 -}
 shutdownKurrentStore :: KurrentHandle -> IO ()
-shutdownKurrentStore _handle = do
-    -- TODO: Close gRPC connection
-    pure ()
+shutdownKurrentStore handle = do
+    destroyAllResources handle.connectionPool

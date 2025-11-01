@@ -28,7 +28,18 @@
 
           # Extend Haskell package set with our local packages + git deps
           # Using ghc910 which has excellent version alignment with cabal.project.freeze
-          haskellPackages = pkgs.haskell.packages.ghc910.extend (self: super:
+          # IMPORTANT: http2-tls override must come BEFORE other package overrides
+          haskellPackages = (pkgs.haskell.packages.ghc910.override {
+            overrides = self: super: {
+              # Override http2-tls FIRST so all dependencies use this version
+              http2-tls = pkgs.haskell.lib.dontCheck (pkgs.haskell.lib.doJailbreak (self.callCabal2nix "http2-tls" (pkgs.fetchFromGitHub {
+                owner = "kazu-yamamoto";
+                repo = "http2-tls";
+                rev = "e4297d0fb932bde750f817f34c2ea9c4810bb2ee";  # PR#15 - drops old tls support
+                sha256 = "sha256-JUBn0Dn9dKoE9nqm5WrjQmVrSF85foApvbCGI04gobU=";
+              }) {}));
+            };
+          }).extend (self: super:
             let
               # Source overrides for local and git packages
               sources = pkgs.haskell.lib.compose.packageSourceOverrides {
@@ -38,6 +49,7 @@
                 hindsight-filesystem-store = ./hindsight-filesystem-store;
                 hindsight-postgresql-store = ./hindsight-postgresql-store;
                 hindsight-postgresql-projections = ./hindsight-postgresql-projections;
+                hindsight-kurrentdb-store = ./hindsight-kurrentdb-store;
                 hindsight-tutorials = ./hindsight-tutorials;
                 hindsight-website = ./website;
                 munihac = ./munihac;
@@ -57,12 +69,31 @@
               tmp-postgres = pkgs.haskell.lib.dontCheck sources.tmp-postgres;
               postgresql-syntax = pkgs.haskell.lib.dontCheck super.postgresql-syntax;
 
+              # Fetch http2-tls from source to get version compatible with tls >= 2.1
+              http2-tls = pkgs.haskell.lib.dontCheck (pkgs.haskell.lib.doJailbreak (self.callCabal2nix "http2-tls" (pkgs.fetchFromGitHub {
+                owner = "kazu-yamamoto";
+                repo = "http2-tls";
+                rev = "e4297d0fb932bde750f817f34c2ea9c4810bb2ee";  # PR#15 - drops old tls support
+                sha256 = "sha256-JUBn0Dn9dKoE9nqm5WrjQmVrSF85foApvbCGI04gobU=";
+              }) {}));
+
+              grapesy = pkgs.haskell.lib.dontCheck (pkgs.haskell.lib.doJailbreak super.grapesy);
+
+              # Jailbreak proto-lens packages to allow newer base/ghc-prim
+              proto-lens = pkgs.haskell.lib.doJailbreak super.proto-lens;
+              proto-lens-runtime = pkgs.haskell.lib.doJailbreak super.proto-lens-runtime;
+              proto-lens-protobuf-types = pkgs.haskell.lib.doJailbreak super.proto-lens-protobuf-types;
+              proto-lens-setup = pkgs.haskell.lib.doJailbreak super.proto-lens-setup;
+              proto-lens-protoc = pkgs.haskell.lib.doJailbreak super.proto-lens-protoc;
+              snappy-c = pkgs.haskell.lib.doJailbreak super.snappy-c;
+
               # Disable tests for all hindsight packages (critical: prevents test execution during inter-package builds)
               hindsight-core = pkgs.haskell.lib.dontCheck sources.hindsight-core;
               hindsight-memory-store = pkgs.haskell.lib.dontCheck sources.hindsight-memory-store;
               hindsight-filesystem-store = pkgs.haskell.lib.dontCheck sources.hindsight-filesystem-store;
               hindsight-postgresql-store = pkgs.haskell.lib.dontCheck sources.hindsight-postgresql-store;
               hindsight-postgresql-projections = pkgs.haskell.lib.dontCheck sources.hindsight-postgresql-projections;
+              hindsight-kurrentdb-store = pkgs.haskell.lib.dontCheck sources.hindsight-kurrentdb-store;
               hindsight-tutorials = pkgs.haskell.lib.dontCheck sources.hindsight-tutorials;
               hindsight-website = pkgs.haskell.lib.dontCheck sources.hindsight-website;
             }
@@ -74,6 +105,7 @@
           hindsight-filesystem-store-pkg = pkgs.haskell.lib.dontCheck haskellPackages.hindsight-filesystem-store;
           hindsight-postgresql-store-pkg = pkgs.haskell.lib.dontCheck haskellPackages.hindsight-postgresql-store;
           hindsight-postgresql-projections-pkg = pkgs.haskell.lib.dontCheck haskellPackages.hindsight-postgresql-projections;
+          hindsight-kurrentdb-store-pkg = pkgs.haskell.lib.dontCheck haskellPackages.hindsight-kurrentdb-store;
           hindsight-tutorials-pkg = pkgs.haskell.lib.dontCheck haskellPackages.hindsight-tutorials;
           hindsight-website-exe = pkgs.haskell.lib.dontCheck haskellPackages.hindsight-website;
 
@@ -108,7 +140,18 @@
           pkgs = nixpkgs.legacyPackages.${system};
 
           # Same extended package set as above (ghc910 for version alignment)
-          haskellPackages = pkgs.haskell.packages.ghc910.extend (self: super:
+          # IMPORTANT: http2-tls override must come BEFORE other package overrides
+          haskellPackages = (pkgs.haskell.packages.ghc910.override {
+            overrides = self: super: {
+              # Override http2-tls FIRST so all dependencies use this version
+              http2-tls = pkgs.haskell.lib.dontCheck (pkgs.haskell.lib.doJailbreak (self.callCabal2nix "http2-tls" (pkgs.fetchFromGitHub {
+                owner = "kazu-yamamoto";
+                repo = "http2-tls";
+                rev = "e4297d0fb932bde750f817f34c2ea9c4810bb2ee";  # PR#15 - drops old tls support
+                sha256 = "sha256-JUBn0Dn9dKoE9nqm5WrjQmVrSF85foApvbCGI04gobU=";
+              }) {}));
+            };
+          }).extend (self: super:
             let
               sources = pkgs.haskell.lib.compose.packageSourceOverrides {
                 hindsight-core = ./hindsight-core;
@@ -116,6 +159,7 @@
                 hindsight-filesystem-store = ./hindsight-filesystem-store;
                 hindsight-postgresql-store = ./hindsight-postgresql-store;
                 hindsight-postgresql-projections = ./hindsight-postgresql-projections;
+                hindsight-kurrentdb-store = ./hindsight-kurrentdb-store;
                 hindsight-tutorials = ./hindsight-tutorials;
                 hindsight-website = ./website;
                 munihac = ./munihac;
@@ -131,6 +175,16 @@
             sources // {
               # Disable tests for all overridden packages
               tmp-postgres = pkgs.haskell.lib.dontCheck sources.tmp-postgres;
+
+              grapesy = pkgs.haskell.lib.dontCheck (pkgs.haskell.lib.doJailbreak super.grapesy);
+
+              # Jailbreak proto-lens packages to allow newer base/ghc-prim
+              proto-lens = pkgs.haskell.lib.doJailbreak super.proto-lens;
+              proto-lens-runtime = pkgs.haskell.lib.doJailbreak super.proto-lens-runtime;
+              proto-lens-protobuf-types = pkgs.haskell.lib.doJailbreak super.proto-lens-protobuf-types;
+              proto-lens-setup = pkgs.haskell.lib.doJailbreak super.proto-lens-setup;
+              proto-lens-protoc = pkgs.haskell.lib.doJailbreak super.proto-lens-protoc;
+              snappy-c = pkgs.haskell.lib.doJailbreak super.snappy-c;
             }
           );
 
@@ -141,6 +195,8 @@
             p.hindsight-filesystem-store
             p.hindsight-postgresql-store
             p.hindsight-postgresql-projections
+            # Temporarily excluded due to gRPC dependency issues - build manually with cabal
+            # p.hindsight-kurrentdb-store
             p.hindsight-tutorials
             p.hindsight-website
           ];
@@ -148,7 +204,11 @@
           # Core dependencies
           coreBuildInputs = with pkgs; [
             haskellPackages.cabal-install
+            haskellPackages.proto-lens-protoc  # For proto-lens code generation
+            pkg-config
             postgresql.dev
+            protobuf  # For proto-lens code generation
+            snappy  # For grapesy (gRPC compression)
             zlib.dev
             zstd
           ];
@@ -179,7 +239,7 @@
             ]);
 
             shellHook = ''
-              export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath [ pkgs.zstd pkgs.zlib ]}"''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+              export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath [ pkgs.zstd pkgs.zlib pkgs.snappy ]}"''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
 
               echo "🚀 Hindsight development environment (full)"
               echo "Using GHC: $(ghc --version)"
@@ -206,7 +266,7 @@
             buildInputs = ciTools;
 
             shellHook = ''
-              export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath [ pkgs.zstd pkgs.zlib ]}"''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+              export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath [ pkgs.zstd pkgs.zlib pkgs.snappy ]}"''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
 
               echo "📦 Hindsight CI environment (minimal)"
               echo "Using GHC: $(ghc --version)"

@@ -48,9 +48,11 @@ library
                     , hindsight-core >= 0.1.0 && < 0.2
                     , http-types >= 0.12 && < 0.13
                     , http2 >= 5.0
+                    , network
                     , proto-lens >= 0.7 && < 0.8
                     , proto-lens-protobuf-types >= 0.7 && < 0.8
                     , proto-lens-runtime >= 0.7 && < 0.8
+                    , resource-pool >= 0.4 && < 0.5
                     , text >= 2.1.2 && < 2.2
                     , time >= 1.12.2 && < 1.15
                     , unliftio >= 0.2.25 && < 0.3
