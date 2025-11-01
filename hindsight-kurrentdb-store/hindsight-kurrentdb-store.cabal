@@ -1,0 +1,110 @@
+cabal-version:      3.8
+name:               hindsight-kurrentdb-store
+version:            0.1.0.0
+synopsis:           KurrentDB event store backend for Hindsight
+description:        KurrentDB implementation of event store using gRPC. Supports multi-stream atomic appends (KurrentDB 25.1+), optimistic concurrency control, and real-time subscriptions.
+license:            BSD-3-Clause
+license-file:       LICENSE
+author:             Gaël Deest
+maintainer:         gael@hindsight.events
+copyright:          (c) 2025 Gaël Deest
+category:           Web
+build-type:         Custom
+extra-source-files: proto/*.proto
+
+custom-setup
+  setup-depends:
+      base >= 4.20
+    , Cabal
+    , proto-lens-setup >= 0.4 && < 0.5
+
+common warnings
+    ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -Wunused-packages
+
+common opts
+    ghc-options: -O
+
+library
+    import:           warnings, opts
+    exposed-modules:  Hindsight.Store.KurrentDB
+                    , Hindsight.Store.KurrentDB.Types
+                    , Hindsight.Store.KurrentDB.Client
+                    , Hindsight.Store.KurrentDB.RPC
+                    , Proto.Code
+                    , Proto.Code_Fields
+                    , Proto.Shared
+                    , Proto.Shared_Fields
+                    , Proto.Status
+                    , Proto.Status_Fields
+                    , Proto.Streams
+                    , Proto.Streams_Fields
+    build-depends:    base >= 4.20.1 && < 5
+                    , aeson >= 2.2.3 && < 2.3
+                    , async >= 2.2.5 && < 2.3
+                    , bytestring >= 0.12.1 && < 0.13
+                    , containers >= 0.7 && < 0.9
+                    , data-default
+                    , grapesy >= 1.1 && < 1.2
+                    , hindsight-core >= 0.1.0 && < 0.2
+                    , http-types >= 0.12 && < 0.13
+                    , http2 >= 5.0
+                    , proto-lens >= 0.7 && < 0.8
+                    , proto-lens-protobuf-types >= 0.7 && < 0.8
+                    , proto-lens-runtime >= 0.7 && < 0.8
+                    , text >= 2.1.2 && < 2.2
+                    , time >= 1.12.2 && < 1.15
+                    , unliftio >= 0.2.25 && < 0.3
+                    , uuid >= 1.3.16 && < 1.4
+    hs-source-dirs:   src
+    default-language: GHC2021
+    default-extensions: OverloadedRecordDot, DataKinds, DuplicateRecordFields, StrictData, Strict, RequiredTypeArguments
+
+test-suite hindsight-kurrentdb-store-test
+    import:           warnings, opts
+    default-language: GHC2021
+    type:             exitcode-stdio-1.0
+    ghc-options:      -threaded -rtsopts
+    hs-source-dirs:   test
+    main-is:          Main.hs
+    build-depends:
+        base
+      , hindsight-kurrentdb-store
+      , hindsight-core:store-testing
+      , tasty
+      , tasty-hunit
+      , uuid
+
+test-suite connectivity-test
+    import:           warnings, opts
+    default-language: GHC2021
+    type:             exitcode-stdio-1.0
+    ghc-options:      -threaded -rtsopts
+    hs-source-dirs:   test
+    main-is:          ConnectivityTest.hs
+    build-depends:
+        base
+      , data-default
+      , grapesy
+      , hindsight-kurrentdb-store
+      , proto-lens
+      , text
+
+test-suite append-test
+    import:           warnings, opts
+    default-language: GHC2021
+    default-extensions: OverloadedRecordDot, DataKinds, DuplicateRecordFields, StrictData, Strict, RequiredTypeArguments
+    type:             exitcode-stdio-1.0
+    ghc-options:      -threaded -rtsopts
+    hs-source-dirs:   test
+    main-is:          AppendTest.hs
+    build-depends:
+        base
+      , bytestring
+      , containers
+      , data-default
+      , grapesy
+      , hindsight-kurrentdb-store
+      , microlens
+      , proto-lens
+      , text
+      , uuid
