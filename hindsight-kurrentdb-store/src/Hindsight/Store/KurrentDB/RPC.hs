@@ -63,6 +63,7 @@ type instance ResponseInitialMetadata (Protobuf Streams "read") = NoMetadata
 type instance ResponseTrailingMetadata (Protobuf Streams "read") = NoMetadata
 
 -- | Metadata type instances for Streams.BatchAppend RPC
+-- Phase 2: Multi-stream atomic appends
 type instance RequestMetadata (Protobuf Streams "batchAppend") = NoMetadata
 type instance ResponseInitialMetadata (Protobuf Streams "batchAppend") = NoMetadata
 type instance ResponseTrailingMetadata (Protobuf Streams "batchAppend") = NoMetadata
