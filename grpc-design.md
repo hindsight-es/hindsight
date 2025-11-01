@@ -2,7 +2,7 @@
 
 **Project**: Hindsight KurrentDB Backend
 **Date**: 2025-11-01
-**Status**: Phase 1 Complete ✅ | Phase 2 In Progress 🚧
+**Status**: Phase 1 Complete ✅ | Phase 2 Complete ✅
 
 ---
 
@@ -178,10 +178,30 @@ import Network.GRPC.Common.StreamElem (StreamElem (..))
 
 ## Phase 2: Multi-Stream Atomic Appends
 
-### Status: 🚧 Design Complete | Implementation In Progress
+### Status: ✅ Complete
 
 ### Objective
 Implement multi-stream atomic event insertion using KurrentDB's `BatchAppend` RPC, ensuring **all-or-nothing ACID semantics** across multiple event streams.
+
+### Critical Discovery: Single-Response Pattern
+
+**Initial Design Assumption**: BatchAppend would return one response per stream (N requests → N responses)
+
+**Actual Behavior**: BatchAppend returns **ONE response for the entire batch** (N requests → 1 response)
+
+**What We Learned**:
+- Client sends N `BatchAppendReq` messages (one per stream)
+- Last request has `is_final=true` to signal completion
+- Server processes the entire batch atomically
+- Server returns a **SINGLE** `BatchAppendResp` with:
+  - `correlation_id` matching the final request
+  - Either `success` (all streams succeeded) OR `error` (batch failed)
+- This is true atomic behavior: one result applies to ALL streams
+
+**Implementation Impact**:
+- Simplified response collection (no need to track N responses)
+- Single validation step (not per-stream)
+- Error applies to all streams (true atomicity)
 
 ---
 
@@ -789,27 +809,52 @@ aggregateErrors results =
 ## Changelog
 
 ### 2025-11-01
-- ✅ **Phase 1 Complete**: Single-stream event insertion working
-- 🚧 **Phase 2 Started**: Multi-stream design complete, implementation in progress
-- 📝 Created comprehensive design document
 
-### Key Achievements
-- All Phase 1 tests passing (5/5)
+#### Phase 1: Single-Stream Appends ✅
 - Full EventStore instance implementation
+- All 5 tests passing
 - Proper error handling and consistency checks
 - Connection pooling with resource-pool
 - Proto wrapper handling for grapesy
 
-### Next Steps
-1. Implement `assignCorrelations` helper
-2. Implement `buildBatchRequest` function
-3. Implement `sendBatchRequests` send phase
-4. Implement `collectBatchResponses` receive phase
-5. Implement `validateBatchResults` validation
-6. Implement `insertMultiStream` main function
-7. Update `insertEvents` dispatcher
-8. Write and run multi-stream tests
-9. Commit Phase 2
+#### Phase 2: Multi-Stream Atomic Appends ✅
+- **Implemented**: `insertMultiStream` with BatchAppend RPC
+- **Discovered**: Single-response pattern (not multi-response as originally designed)
+- **Implemented**: All helper functions:
+  - `assignCorrelations` - UUID generation per stream
+  - `buildBatchRequest` - Request message construction
+  - `sendBatchRequests` - Send phase with is_final flag
+  - `collectBatchResponse` - Single response collection
+  - `convertBatchResponse` - Atomic result application
+- **Updated**: `insertEvents` dispatcher to route multi-stream transactions
+- **Tests**: All 8 tests passing (3 multi-stream tests added)
+- **Re-enabled**: Version mismatch test after investigation confirmed BatchAppend enforces expectations
+- **Commits**:
+  - `4cd714e` - Phase 2 implementation
+  - `5f6712c` - Re-enabled version mismatch test
+
+#### Investigation: BatchAppend Version Mismatch Handling
+- **Question**: Was the disabled test bogus or is there a bug?
+- **Method**: Added debug tracing to inspect raw KurrentDB responses
+- **Discovery**: KurrentDB BatchAppend DOES enforce version expectations correctly
+  - Returns `ALREADY_EXISTS` error with "WrongExpectedVersion" message
+  - Does NOT populate `expected_stream_position` field (unlike single Append)
+  - Error conveyed through standard gRPC `error { code, message }` status
+- **Result**: Re-enabled test, all 8 tests passing
+
+### Key Achievements
+- ✅ Complete EventStore implementation (single + multi-stream)
+- ✅ All 8 tests passing (5 Phase 1 + 3 Phase 2)
+- ✅ Atomic multi-stream appends with version enforcement
+- ✅ Proper error handling for consistency violations
+- ✅ Production-ready connection pooling
+- ✅ Comprehensive test coverage
+
+### Next Steps: Phase 3
+1. Event subscriptions (`Streams.Read` RPC)
+2. Projection integration
+3. Catchup subscriptions
+4. Stream metadata queries
 
 ---
 
