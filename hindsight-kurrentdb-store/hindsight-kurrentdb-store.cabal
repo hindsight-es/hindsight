@@ -65,12 +65,17 @@ library
 test-suite hindsight-kurrentdb-store-test
     import:           warnings, opts
     default-language: GHC2021
+    default-extensions: OverloadedRecordDot, DataKinds, DuplicateRecordFields, StrictData, Strict, RequiredTypeArguments
     type:             exitcode-stdio-1.0
     ghc-options:      -threaded -rtsopts
     hs-source-dirs:   test
     main-is:          Main.hs
     build-depends:
         base
+      , bytestring
+      , containers
+      , data-default
+      , hindsight-core
       , hindsight-kurrentdb-store
       , hindsight-core:store-testing
       , tasty
