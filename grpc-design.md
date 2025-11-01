@@ -2,7 +2,7 @@
 
 **Project**: Hindsight KurrentDB Backend
 **Date**: 2025-11-01
-**Status**: Phase 1 Complete ✅ | Phase 2 Complete ✅
+**Status**: Phase 1 Complete ✅ | Phase 2 Complete ✅ | Phase 3 In Progress 🚧
 
 ---
 
@@ -11,11 +11,12 @@
 1. [Overview](#overview)
 2. [Phase 1: Single-Stream Appends](#phase-1-single-stream-appends)
 3. [Phase 2: Multi-Stream Atomic Appends](#phase-2-multi-stream-atomic-appends)
-4. [API Analysis](#api-analysis)
-5. [Implementation Details](#implementation-details)
-6. [Testing Strategy](#testing-strategy)
-7. [Error Handling](#error-handling)
-8. [Future Work](#future-work)
+4. [Phase 3: Event Subscriptions](#phase-3-event-subscriptions)
+5. [API Analysis](#api-analysis)
+6. [Implementation Details](#implementation-details)
+7. [Testing Strategy](#testing-strategy)
+8. [Error Handling](#error-handling)
+9. [Future Work](#future-work)
 
 ---
 
@@ -24,9 +25,9 @@
 ### Goal
 Implement a KurrentDB backend for the Hindsight event sourcing framework, providing:
 - Single-stream event insertion (Phase 1 ✅)
-- Multi-stream atomic event insertion (Phase 2 🚧)
+- Multi-stream atomic event insertion (Phase 2 ✅)
+- Real-time event subscriptions (Phase 3 🚧)
 - Optimistic concurrency control
-- Real-time event subscriptions (Future)
 
 ### Technology Stack
 - **KurrentDB**: 25.1.0 (gRPC API)
@@ -202,6 +203,360 @@ Implement multi-stream atomic event insertion using KurrentDB's `BatchAppend` RP
 - Simplified response collection (no need to track N responses)
 - Single validation step (not per-stream)
 - Error applies to all streams (true atomicity)
+
+---
+
+## Phase 3: Event Subscriptions
+
+### Status: 🚧 In Progress
+
+### Goal
+
+Implement the `subscribe` function to enable real-time event streaming from KurrentDB, allowing applications to:
+- Subscribe to all events in the database ($all stream)
+- Subscribe to specific individual streams
+- Start from beginning, end, or specific position
+- Receive events in real-time as they're written
+- Handle catchup mode (historical events) and live mode (new events)
+
+### EventStore Interface
+
+From `Hindsight.Store`:
+
+```haskell
+subscribe ::
+    (StoreConstraints backend m) =>
+    BackendHandle backend ->
+    EventMatcher ts backend m ->
+    EventSelector backend ->
+    m (SubscriptionHandle backend)
+
+data SubscriptionHandle backend = SubscriptionHandle
+    { cancel :: IO ()       -- Cancel the subscription
+    , wait :: IO ()         -- Wait for subscription to complete
+    }
+
+data EventSelector backend = EventSelector
+    { startupPosition :: StartupPosition (CursorType backend)
+    , streamSelector :: StreamSelector
+    }
+
+data StartupPosition cursor
+    = FromBeginning
+    | FromPosition cursor
+```
+
+### KurrentDB Streams.Read RPC
+
+**Protocol**: Server-streaming (unary request → stream of responses)
+
+**Proto Definition**:
+```protobuf
+service Streams {
+    rpc Read (ReadReq) returns (stream ReadResp);
+}
+
+message ReadReq {
+    Options options = 1;
+
+    message Options {
+        oneof stream_option {
+            StreamOptions stream = 1;      // Subscribe to single stream
+            AllOptions all = 2;             // Subscribe to $all
+        }
+        ReadDirection read_direction = 3;   // Forwards or Backwards
+        bool resolve_links = 4;
+        oneof count_option {
+            uint64 count = 5;               // Read N events then stop
+            SubscriptionOptions subscription = 6;  // Live subscription
+        }
+        oneof filter_option {
+            FilterOptions filter = 7;
+            Empty no_filter = 8;
+        }
+    }
+}
+
+message ReadResp {
+    oneof content {
+        ReadEvent event = 1;                // Regular event
+        SubscriptionConfirmation confirmation = 2;  // Subscription started
+        Checkpoint checkpoint = 3;          // Position checkpoint
+        StreamNotFound stream_not_found = 4;
+        CaughtUp caught_up = 8;            // Caught up to live
+        FellBehind fell_behind = 9;        // Fell behind
+    }
+}
+```
+
+### Implementation Architecture
+
+The subscription system follows a similar pattern to the PostgreSQL backend but adapted for KurrentDB's gRPC streaming:
+
+#### 1. Subscription Lifecycle
+
+```haskell
+subscribe ::
+    (MonadUnliftIO m) =>
+    KurrentHandle ->
+    EventMatcher ts KurrentStore m ->
+    EventSelector KurrentStore ->
+    m (SubscriptionHandle KurrentStore)
+subscribe handle matcher selector = do
+    runInIO <- askRunInIO
+    liftIO $ do
+        -- Start worker thread for this subscription
+        workerThread <- async $ runInIO $ workerLoop handle matcher selector
+
+        -- Return handle for cancellation
+        pure $ SubscriptionHandle
+            { cancel = cancel workerThread
+            , wait = wait workerThread
+            }
+```
+
+#### 2. Worker Loop
+
+```haskell
+workerLoop ::
+    (MonadUnliftIO m) =>
+    KurrentHandle ->
+    EventMatcher ts KurrentStore m ->
+    EventSelector KurrentStore ->
+    m ()
+workerLoop handle matcher selector = do
+    -- Get connection from pool
+    withResource handle.connectionPool $ \conn -> do
+        -- Build ReadReq message
+        let request = buildReadRequest selector
+
+        -- Open streaming call
+        call <- GRPC.withRPC conn descriptor request $ \call -> do
+            -- Send request
+            GRPC.sendInput call (Proto request)
+
+            -- Process stream of responses
+            processResponseStream call matcher
+```
+
+#### 3. Response Stream Processing
+
+```haskell
+processResponseStream ::
+    (MonadUnliftIO m) =>
+    GRPC.Call ->
+    EventMatcher ts KurrentStore m ->
+    m ()
+processResponseStream call matcher = loop
+  where
+    loop = do
+        mbResp <- liftIO $ GRPC.recvOutput call
+        case mbResp of
+            StreamElem (Proto resp) -> do
+                -- Handle the response
+                shouldContinue <- handleReadResponse resp matcher
+                if shouldContinue
+                    then loop
+                    else pure ()
+            NoMoreElems _ -> pure ()  -- Stream ended
+```
+
+#### 4. Response Handling
+
+```haskell
+handleReadResponse ::
+    (MonadUnliftIO m) =>
+    Proto.ReadResp ->
+    EventMatcher ts KurrentStore m ->
+    m Bool
+handleReadResponse resp matcher =
+    case resp ^. Fields.maybe'content of
+        Just (Proto.ReadResp'Event readEvent) -> do
+            -- Convert to Hindsight event and process
+            processReadEvent readEvent matcher
+            pure True  -- Continue processing
+
+        Just (Proto.ReadResp'Confirmation confirmation) ->
+            -- Subscription confirmed, continue
+            pure True
+
+        Just (Proto.ReadResp'Checkpoint checkpoint) ->
+            -- Update cursor position
+            pure True
+
+        Just (Proto.ReadResp'CaughtUp _) ->
+            -- Now receiving real-time events
+            pure True
+
+        Just (Proto.ReadResp'FellBehind _) ->
+            -- Fell behind, catchup mode
+            pure True
+
+        Just (Proto.ReadResp'StreamNotFound _) ->
+            -- Stream doesn't exist, handle error
+            pure False
+
+        Nothing ->
+            -- Malformed response
+            pure False
+```
+
+#### 5. Event Conversion
+
+```haskell
+processReadEvent ::
+    (MonadUnliftIO m) =>
+    Proto.ReadResp'ReadEvent ->
+    EventMatcher ts KurrentStore m ->
+    m ()
+processReadEvent readEvent matcher = do
+    -- Extract RecordedEvent from ReadEvent
+    let recordedEvent = readEvent ^. Fields.event
+
+    -- Build Hindsight event metadata
+    let eventId = recordedEvent ^. Fields.id
+    let streamId = StreamId $ -- extract stream UUID
+    let position = KurrentCursor
+            { commitPosition = recordedEvent ^. Fields.commitPosition
+            , preparePosition = recordedEvent ^. Fields.preparePosition
+            }
+
+    -- Deserialize event data
+    let eventName = recordedEvent ^. Fields.streamIdentifier . Fields.streamName
+    let eventData = recordedEvent ^. Fields.data'
+    let metadata = recordedEvent ^. Fields.metadata
+
+    -- Parse and match against EventMatcher
+    -- This is where we use the matcher to find the right event handler
+    -- based on event type and version
+
+    -- Call the matched handler
+    runEventHandler matcher eventWithMeta
+```
+
+### Request Building
+
+```haskell
+buildReadRequest :: EventSelector KurrentStore -> Proto.ReadReq
+buildReadRequest selector =
+    defMessage
+        & Fields.options .~ buildReadOptions selector
+
+buildReadOptions :: EventSelector KurrentStore -> Proto.ReadReq'Options
+buildReadOptions selector =
+    defMessage
+        & Fields.maybe'streamOption .~ buildStreamOption selector.streamSelector
+        & Fields.readDirection .~ Proto.ReadReq'Options'Forwards
+        & Fields.resolveLinks .~ False
+        & Fields.maybe'countOption .~ Just (Proto.ReadReq'Options'Subscription defMessage)
+        & Fields.maybe'filterOption .~ Just (Proto.ReadReq'Options'NoFilter def)
+
+buildStreamOption :: StreamSelector -> Maybe Proto.ReadReq'Options'StreamOption
+buildStreamOption = \case
+    AllStreams ->
+        Just $ Proto.ReadReq'Options'All $
+            buildAllOptions selector.startupPosition
+    SingleStream streamId ->
+        Just $ Proto.ReadReq'Options'Stream $
+            buildStreamOptions streamId selector.startupPosition
+
+buildAllOptions :: StartupPosition KurrentCursor -> Proto.ReadReq'Options'AllOptions
+buildAllOptions = \case
+    FromBeginning ->
+        defMessage & Fields.maybe'allOption .~ Just (Proto.ReadReq'Options'AllOptions'Start def)
+    FromPosition cursor ->
+        defMessage & Fields.maybe'allOption .~ Just (Proto.ReadReq'Options'AllOptions'Position position)
+      where
+        position = defMessage
+            & Fields.commitPosition .~ cursor.commitPosition
+            & Fields.preparePosition .~ cursor.preparePosition
+```
+
+### Error Handling
+
+**Subscription Failures**:
+- **StreamNotFound**: Return error, don't retry
+- **Connection errors**: Implement exponential backoff retry
+- **gRPC errors**: Log and potentially retry based on error code
+- **Cancellation**: Clean shutdown of worker thread
+
+**Backpressure**:
+- KurrentDB provides natural backpressure through gRPC streaming
+- If event processing is slow, the stream will block at the network layer
+- No additional buffering needed in initial implementation
+
+### Testing Strategy
+
+**Unit Tests**:
+1. Request building for different selectors
+2. Event conversion from proto to Hindsight types
+3. Cursor position tracking
+
+**Integration Tests** (requires running KurrentDB):
+1. Subscribe to $all from beginning
+2. Subscribe to specific stream
+3. Subscribe from specific position
+4. Catchup subscription (write events, then subscribe from beginning)
+5. Live subscription (subscribe, then write events)
+6. Subscription cancellation
+
+**Test Plan**:
+```haskell
+testGroup "Event Subscriptions"
+    [ testCase "subscribe to $all from beginning" $ do
+        handle <- newKurrentStore config
+
+        -- Write some events first
+        _ <- insertEvents handle Nothing transaction
+
+        -- Subscribe and collect events
+        eventsRef <- newIORef []
+        let matcher = simpleEventCollector eventsRef
+        let selector = EventSelector
+                { startupPosition = FromBeginning
+                , streamSelector = AllStreams
+                }
+
+        subHandle <- subscribe handle matcher selector
+        threadDelay 1000000  -- Wait 1s for catchup
+        cancel subHandle.cancel
+
+        events <- readIORef eventsRef
+        length events > 0 @?= True
+    ]
+```
+
+### Design Decisions
+
+1. **Worker Thread per Subscription**: Each subscription runs in its own thread, similar to PostgreSQL backend. This provides:
+   - Isolation between subscriptions
+   - Independent cancellation
+   - Natural backpressure per subscription
+
+2. **No Explicit Buffering**: Initial implementation relies on gRPC's built-in flow control:
+   - Simpler implementation
+   - Natural backpressure
+   - Can add buffering later if needed
+
+3. **Position Tracking**: Use `Checkpoint` messages from KurrentDB:
+   - Server provides authoritative position information
+   - Client stores cursor for restart capability
+   - Handle both commit and prepare positions
+
+4. **Reconnection**: Not implemented in Phase 3:
+   - Subscriptions terminate on connection loss
+   - Caller can recreate subscription with last known position
+   - Future enhancement: automatic reconnection with exponential backoff
+
+### Implementation Steps
+
+1. ✅ Explore Streams.Read RPC protocol and message structures
+2. ✅ Examine how other backends implement subscribe
+3. 🚧 Design Phase 3 architecture in grpc-design.md
+4. ⏳ Implement RPC metadata instances for Streams.Read
+5. ⏳ Implement subscribe function stub
+6. ⏳ Implement subscription message handling
+7. ⏳ Add subscription tests
 
 ---
 
@@ -746,18 +1101,6 @@ aggregateErrors results =
 
 ## Future Work
 
-### Phase 3: Event Subscriptions
-
-**Goal**: Implement `subscribe` function for real-time event streams
-
-**API**: `Streams.Read` RPC with subscription options
-
-**Challenges**:
-- Long-lived bidirectional streams
-- Checkpoint management
-- Reconnection logic
-- Backpressure handling
-
 ### Phase 4: Projections Integration
 
 **Goal**: Integrate with Hindsight projection system
@@ -850,11 +1193,18 @@ aggregateErrors results =
 - ✅ Production-ready connection pooling
 - ✅ Comprehensive test coverage
 
-### Next Steps: Phase 3
-1. Event subscriptions (`Streams.Read` RPC)
-2. Projection integration
-3. Catchup subscriptions
-4. Stream metadata queries
+### Current Work: Phase 3 (In Progress)
+1. 🚧 Event subscriptions (`Streams.Read` RPC)
+   - ✅ Design architecture
+   - ⏳ Implement RPC metadata instances
+   - ⏳ Implement subscribe function
+   - ⏳ Add integration tests
+2. ⏳ Stream metadata queries (if needed)
+
+### Future: Phase 4+
+- Projection integration
+- Performance optimization
+- Advanced features
 
 ---
 
