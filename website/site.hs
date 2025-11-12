@@ -3,6 +3,7 @@
 module Main where
 
 import Hakyll
+import Hakyll.Web.Feed
 import System.FilePath (takeBaseName, (</>))
 import Text.Pandoc.Definition
 import Text.Pandoc.Highlighting (pygments)
@@ -20,6 +21,16 @@ config =
         , storeDirectory = "_cache"
         , tmpDirectory = "_cache/tmp"
         , providerDirectory = "."
+        }
+
+feedConfiguration :: FeedConfiguration
+feedConfiguration =
+    FeedConfiguration
+        { feedTitle = "Hindsight Blog"
+        , feedDescription = "Type-safe event sourcing in Haskell"
+        , feedAuthorName = "Gaël Deest"
+        , feedAuthorEmail = "[email protected]"
+        , feedRoot = "https://hindsight.events"
         }
 
 --------------------------------------------------------------------------------
@@ -76,6 +87,7 @@ main = hakyllWith config $ do
         compile $ do
             pandocMermaidCompiler
                 >>= loadAndApplyTemplate "templates/post.html" postCtx
+                >>= saveSnapshot "content"
                 >>= loadAndApplyTemplate "templates/default.html" postCtx
                 >>= relativizeUrls
 
@@ -93,6 +105,30 @@ main = hakyllWith config $ do
                 >>= loadAndApplyTemplate "templates/post-list.html" archiveCtx
                 >>= loadAndApplyTemplate "templates/default.html" archiveCtx
                 >>= relativizeUrls
+
+    -- RSS Feed
+    create ["rss.xml"] $ do
+        route idRoute
+        compile $ do
+            let feedCtx = postCtx `mappend` bodyField "description"
+            posts <- fmap (take 10) . recentFirst =<< loadAllSnapshots "content/posts/*" "content"
+            renderRss feedConfiguration feedCtx posts
+
+    -- Atom Feed
+    create ["atom.xml"] $ do
+        route idRoute
+        compile $ do
+            let feedCtx = postCtx `mappend` bodyField "description"
+            posts <- fmap (take 10) . recentFirst =<< loadAllSnapshots "content/posts/*" "content"
+            renderAtom feedConfiguration feedCtx posts
+
+    -- JSON Feed
+    create ["feed.json"] $ do
+        route idRoute
+        compile $ do
+            let feedCtx = postCtx `mappend` bodyField "description"
+            posts <- fmap (take 10) . recentFirst =<< loadAllSnapshots "content/posts/*" "content"
+            renderJson feedConfiguration feedCtx posts
 
 --------------------------------------------------------------------------------
 -- Pandoc Options & Filters
