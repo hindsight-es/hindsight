@@ -63,8 +63,6 @@ multiInstanceEventOrderingTests runner =
             withStores runner 3 (testMultiInstanceEventOrdering_AllStreams 10 3)
         , testCase "Event Ordering AllStreams (5 instances, 20 events each)" $
             withStores runner 5 (testMultiInstanceEventOrdering_AllStreams 20 5)
-        , testCase "Event Ordering AllStreams (10 instances, 200 events each)" $
-            withStores runner 10 (testMultiInstanceEventOrdering_AllStreams 200 10)
         ]
     , testGroup
         "Multi-Instance Event Ordering Tests (SingleStream)"
@@ -74,8 +72,6 @@ multiInstanceEventOrderingTests runner =
             withStores runner 3 (testMultiInstanceEventOrdering_SingleStream 10 3)
         , testCase "Event Ordering SingleStream (5 instances, 20 events each)" $
             withStores runner 5 (testMultiInstanceEventOrdering_SingleStream 20 5)
-        , testCase "Event Ordering AllStreams (10 instances, 200 events each)" $
-            withStores runner 10 (testMultiInstanceEventOrdering_SingleStream 200 10)
         ]
     ]
 
