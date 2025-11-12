@@ -182,15 +182,19 @@ However, we can't write both behaviors directly in `MigrateVersion`'s default im
 - When the `Bool` is `'True` (at latest): one instance provides identity
 - When the `Bool` is `'False` (before latest): another instance provides composition
 
+The `IsLatest` type family computes this dispatch `Bool` by comparing the current version against the maximum version.
+
 ```haskell
 type family IsLatest (ver :: PeanoNat) (event :: Symbol) :: Bool where
-    IsLatest ver event = PeanoEqual ver (MaxVersionPeano event)
+    IsLatest ver event = PeanoEqual ver (MaxVersionPeano event) {- Simplified for clarity -}
 
 class ConsecutiveUpcast (isLatest :: Bool) (ver :: PeanoNat) (event :: Symbol) where
     viaConsecutive ::
         PayloadAtVersion ver (EventVersionVector event) ->
         CurrentPayloadType event
 ```
+
+The `IsLatest` type family is the linchpin of the whole mechanism: it evaluates to `'True` when `ver` equals the max version, and `'False` otherwise. This computed `Bool` becomes a type-level parameter to `ConsecutiveUpcast`, allowing GHC to select the appropriate instance based on whether we're at the latest version or not. Without this type family, we couldn't dispatch between the two behaviors.
 
 The type class instances then pattern-match on the `Bool` parameter to provide the desired behavior.
 When `isLatest` is `'True`, we're at the latest version—return identity:
