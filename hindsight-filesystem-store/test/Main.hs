@@ -4,11 +4,8 @@ import Control.Exception (bracket)
 import Control.Monad (replicateM, void)
 import Hindsight.Store.Filesystem
 import System.Posix.Temp
+import Test.Hindsight.Store
 import Test.Hindsight.Store.Filesystem (filesystemSpecificTests)
-import Test.Hindsight.Store.OrderingTests (orderingTests)
-import Test.Hindsight.Store.PropertyTests (propertyTests)
-import Test.Hindsight.Store.StressTests (stressTests)
-import Test.Hindsight.Store.TestRunner
 import Test.Tasty
 
 -- Filesystem store test runner

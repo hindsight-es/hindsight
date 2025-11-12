@@ -2,10 +2,7 @@ module Main where
 
 import Control.Monad (void)
 import Hindsight.Store.Memory
-import Test.Hindsight.Store.OrderingTests (orderingTests)
-import Test.Hindsight.Store.PropertyTests (propertyTests)
-import Test.Hindsight.Store.StressTests (stressTests)
-import Test.Hindsight.Store.TestRunner
+import Test.Hindsight.Store
 import Test.Tasty
 
 -- Memory store test runner

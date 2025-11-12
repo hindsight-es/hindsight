@@ -84,9 +84,9 @@ library store-testing
     import:           warnings, opts
     visibility:       public
     default-extensions: OverloadedRecordDot
-    exposed-modules:  Test.Hindsight.Store.Common,
+    exposed-modules:  Test.Hindsight.Store,
+                      Test.Hindsight.Store.Common,
                       Test.Hindsight.Store.TestRunner,
-                      Test.Hindsight.Store.TestRunner.Types,
                       Test.Hindsight.Store.BasicTests,
                       Test.Hindsight.Store.ConsistencyTests,
                       Test.Hindsight.Store.CursorTests,

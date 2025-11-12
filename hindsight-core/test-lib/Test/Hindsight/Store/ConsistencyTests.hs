@@ -24,8 +24,8 @@ import Data.Map.Strict qualified as Map
 import Data.UUID.V4 qualified as UUID
 import Hindsight.Events (SomeLatestEvent)
 import Hindsight.Store
-import Test.Hindsight.Store.Common (makeUserEvent)
-import Test.Hindsight.Store.TestRunner.Types (EventStoreTestRunner (..))
+import Test.Hindsight.Examples (makeUserEvent)
+import Test.Hindsight.Store.TestRunner (EventStoreTestRunner (..))
 import Test.Tasty
 import Test.Tasty.HUnit
 import UnliftIO.Async (async, concurrently, wait)
