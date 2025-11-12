@@ -4,8 +4,10 @@ module Main where
 
 import Hakyll
 import System.FilePath (takeBaseName, (</>))
+import Text.Pandoc.Definition
 import Text.Pandoc.Highlighting (pygments)
 import Text.Pandoc.Options (WriterOptions (..))
+import Text.Pandoc.Walk (walk)
 
 --------------------------------------------------------------------------------
 -- Configuration
@@ -54,7 +56,7 @@ main = hakyllWith config $ do
     match "content/index.md" $ do
         route $ customRoute $ const "index.html"
         compile $ do
-            pandocCompilerWith defaultHakyllReaderOptions writerOptions
+            pandocMermaidCompiler
                 >>= loadAndApplyTemplate "templates/default.html" defaultContext
                 >>= relativizeUrls
 
@@ -64,7 +66,7 @@ main = hakyllWith config $ do
             let base = takeBaseName (toFilePath ident)
              in base ++ ".html"
         compile $ do
-            pandocCompiler
+            pandocMermaidCompiler
                 >>= loadAndApplyTemplate "templates/default.html" defaultContext
                 >>= relativizeUrls
 
@@ -72,7 +74,7 @@ main = hakyllWith config $ do
     match "content/posts/*" $ do
         route $ setExtension "html"
         compile $ do
-            pandocCompiler
+            pandocMermaidCompiler
                 >>= loadAndApplyTemplate "templates/post.html" postCtx
                 >>= loadAndApplyTemplate "templates/default.html" postCtx
                 >>= relativizeUrls
@@ -93,7 +95,7 @@ main = hakyllWith config $ do
                 >>= relativizeUrls
 
 --------------------------------------------------------------------------------
--- Pandoc Options
+-- Pandoc Options & Filters
 --------------------------------------------------------------------------------
 
 writerOptions :: WriterOptions
@@ -101,6 +103,21 @@ writerOptions =
     defaultHakyllWriterOptions
         { writerHighlightStyle = Just pygments
         }
+
+-- | Transform mermaid code blocks into divs that Mermaid.js can render
+mermaidTransform :: Block -> Block
+mermaidTransform (CodeBlock (_, classes, _) content)
+    | "mermaid" `elem` classes =
+        RawBlock (Format "html") $ "<div class=\"mermaid\">\n" <> content <> "\n</div>"
+mermaidTransform x = x
+
+-- | Pandoc compiler with mermaid support
+pandocMermaidCompiler :: Compiler (Item String)
+pandocMermaidCompiler =
+    pandocCompilerWithTransform
+        defaultHakyllReaderOptions
+        writerOptions
+        (walk mermaidTransform)
 
 --------------------------------------------------------------------------------
 -- Contexts
