@@ -61,7 +61,8 @@ test-suite hindsight-postgresql-store-test
     ghc-options:      -threaded -rtsopts
     hs-source-dirs:   test
     main-is:          Main.hs
-    other-modules:    Test.Hindsight.Store.PostgreSQL.VersionStress,
+    other-modules:    Test.Hindsight.Store.PostgreSQL.ParseErrorTests,
+                      Test.Hindsight.Store.PostgreSQL.VersionStress,
                       Test.Hindsight.Store.PostgreSQL.StreamHeadCorrectnessTest,
                       Test.Hindsight.Store.PostgreSQL.SyncProjectionTests,
                       Test.Hindsight.Store.PostgreSQL.SyncProjectionStateTests,

@@ -188,8 +188,9 @@ newtype ProjectionId = ProjectionId
 -- | Handle for managing a running projection's lifecycle.
 data ProjectionHandle = ProjectionHandle
     { awaitProjection :: IO ()
-    -- ^ Block until the projection completes or fails.
-    -- Re-throws any exception from the projection thread.
+    {- ^ Block until the projection completes or fails.
+    Re-throws any exception from the projection thread.
+    -}
     , cancelProjection :: IO ()
     -- ^ Cancel the projection gracefully.
     }
@@ -291,10 +292,11 @@ runProjection projId pool mbTVar store handlers = do
                 , startupPosition = maybe FromBeginning FromPosition (fmap (.lastProcessed) mbLastState)
                 }
 
-    pure ProjectionHandle
-        { awaitProjection = subHandle.wait
-        , cancelProjection = subHandle.cancel
-        }
+    pure
+        ProjectionHandle
+            { awaitProjection = subHandle.wait
+            , cancelProjection = subHandle.cancel
+            }
 
 {- | Load the current state of a projection from PostgreSQL.
 
@@ -367,11 +369,12 @@ makeEventMatcher projId pool mbTVar = go
                 -- Record error in database
                 -- TODO: If this fails, we silently lose the error record.
                 -- Wrap in try and log when logging infrastructure exists.
-                _ <- liftIO $
-                    Pool.use pool $
-                        Session.statement
-                            (projId.unProjectionId, pack $ show err)
-                            ProjectionState.recordProjectionError
+                _ <-
+                    liftIO $
+                        Pool.use pool $
+                            Session.statement
+                                (projId.unProjectionId, pack $ show err)
+                                ProjectionState.recordProjectionError
                 -- Re-throw so subscription dies with visible exception
                 liftIO $ throwIO err
             Right _ -> do

@@ -8,13 +8,14 @@
 module Test.Hindsight.Projection (projectionTests) where
 
 import Control.Exception (bracket)
-import Data.List (isInfixOf)
-import Data.Text (Text)
 import Data.Aeson qualified as Aeson
 import Data.ByteString (ByteString)
+import Data.List (isInfixOf)
 import Data.Map.Strict qualified as Map
 import Data.Proxy (Proxy (..))
+import Data.Text (Text)
 import Data.Text.Encoding (decodeUtf8)
+import Data.Time (UTCTime)
 import Data.UUID.V4 qualified as UUID
 import Database.Postgres.Temp qualified as Temp
 import Hasql.Connection qualified as Connection
@@ -39,7 +40,6 @@ import Test.Tasty
 import Test.Tasty.HUnit
 import UnliftIO.Exception (tryAny)
 import UnliftIO.STM (newTVarIO)
-import Data.Time (UTCTime)
 
 --------------------------------------------------------------------------------
 -- Test tree
