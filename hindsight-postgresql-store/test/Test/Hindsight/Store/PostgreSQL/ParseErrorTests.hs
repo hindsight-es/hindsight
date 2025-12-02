@@ -1,5 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DisambiguateRecordFields #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -64,8 +65,9 @@ tests =
             withTempPostgreSQL defaultConfig testSyncProjectionCatchUpThrowsOnMalformedEvent
         ]
 
--- | Insert a malformed event directly into the database
--- This bypasses normal insertion to create a corrupt event
+{- | Insert a malformed event directly into the database
+This bypasses normal insertion to create a corrupt event
+-}
 insertMalformedEvent ::
     SQLStoreHandle ->
     StreamId ->

@@ -296,8 +296,9 @@ catchUpProjection (SyncProjectionRegistry regMap) projId cursor = do
 
             processEvents events
 
--- | Process a stored event through projection handlers
--- Returns Nothing on success, or Just an error if parsing fails
+{- | Process a stored event through projection handlers
+Returns Nothing on success, or Just an error if parsing fails
+-}
 processStoredEvent ::
     forall ts.
     ProjectionHandlers ts SQLStore ->
