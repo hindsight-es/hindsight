@@ -7,8 +7,9 @@
 
 module Test.Hindsight.Projection (projectionTests) where
 
-import Control.Concurrent (forkIO, killThread)
 import Control.Exception (bracket)
+import Data.List (isInfixOf)
+import Data.Text (Text)
 import Data.Aeson qualified as Aeson
 import Data.ByteString (ByteString)
 import Data.Map.Strict qualified as Map
@@ -23,6 +24,7 @@ import Hasql.Pool (Pool)
 import Hasql.Pool qualified as Pool
 import Hasql.Pool.Config qualified as Config
 import Hasql.Session qualified as Session
+import Hasql.Statement qualified
 import Hasql.TH (maybeStatement, resultlessStatement)
 import Hasql.Transaction qualified as Transaction
 import Hindsight.Events
@@ -35,7 +37,9 @@ import Test.Hindsight.Examples (UserCreated, UserInformation2 (..))
 import Test.Hindsight.Store.TestRunner (EventStoreTestRunner (..))
 import Test.Tasty
 import Test.Tasty.HUnit
+import UnliftIO.Exception (tryAny)
 import UnliftIO.STM (newTVarIO)
+import Data.Time (UTCTime)
 
 --------------------------------------------------------------------------------
 -- Test tree
@@ -46,6 +50,7 @@ projectionTests =
     testGroup
         "Async Projection Tests"
         [ testCase "Basic SQL projection" testBasicProjection
+        , testCase "Projection errors are recorded and thrown" testProjectionErrorHandling
         ]
 
 --------------------------------------------------------------------------------
@@ -190,16 +195,14 @@ testBasicProjection =
         case insertionResult of
             FailedInsertion err -> assertFailure $ "Failed to insert event: " ++ show err
             SuccessfulInsertion (InsertionSuccess{finalCursor}) -> do
-                -- Start projection in background thread
-                projectionThread <-
-                    forkIO $
-                        runProjection projId pool (Just tvar) store handlers
+                -- Start projection
+                projHandle <- runProjection projId pool (Just tvar) store handlers
 
                 -- Wait for projection to process the event using LISTEN/NOTIFY
                 waitForProjectionCursor connStr projId finalCursor
 
-                -- Kill projection thread
-                killThread projectionThread
+                -- Cancel projection
+                cancelProjection projHandle
 
                 -- Verify message was stored in projection table
                 result <-
@@ -237,3 +240,73 @@ memoryStoreRunner =
         , withStores = \_ _ ->
             error "Cannot create multiple instances of a memory store sharing the same storage."
         }
+
+--------------------------------------------------------------------------------
+-- Error handling tests
+--------------------------------------------------------------------------------
+
+{- | Test that projection errors are recorded in DB and propagated
+
+When a projection handler fails (e.g., DB error), we expect:
+1. Error recorded in projections table (is_active=false, error_message set)
+2. Exception propagated so callers can observe via ProjectionHandle
+-}
+testProjectionErrorHandling :: IO ()
+testProjectionErrorHandling =
+    withProjectionTest memoryStoreRunner $ \store pool _connStr -> do
+        let projId = ProjectionId "failing_proj"
+            -- Handler that always fails (references non-existent table)
+            handler :: ProjectionHandler UserCreated MemoryStore
+            handler _ = Transaction.sql "INSERT INTO nonexistent_table VALUES (1)"
+
+            handlers = (Proxy @UserCreated, handler) :-> ProjectionEnd
+
+        -- Insert event to trigger the projection
+        streamId <- StreamId <$> UUID.nextRandom
+        let event =
+                SomeLatestEvent (Proxy @UserCreated) $
+                    UserInformation2
+                        { userId = 999
+                        , userName = "FailUser"
+                        , userEmail = Nothing
+                        , likeability = 0
+                        }
+
+        _ <-
+            insertEvents store Nothing $
+                Transaction (Map.singleton streamId (StreamWrite NoStream [event]))
+
+        -- Run projection and get handle (NEW: runProjection returns ProjectionHandle)
+        projHandle <- runProjection projId pool Nothing store handlers
+
+        -- Wait for the projection to fail
+        waitResult <- tryAny (awaitProjection projHandle)
+
+        -- Assert: projection died with an exception
+        case waitResult of
+            Left _exc -> pure () -- Expected: projection failed
+            Right () -> assertFailure "Expected projection to fail with exception"
+
+        -- Assert: error recorded in database
+        errorStateResult <- Pool.use pool $ Session.statement (unProjectionId projId) getProjectionErrorState
+
+        case errorStateResult of
+            Left err -> assertFailure $ "Failed to query projection state: " ++ show err
+            Right Nothing -> assertFailure "Expected projection row in database"
+            Right (Just (isActive, mbErrMsg, mbErrTs)) -> do
+                assertBool "Projection should be inactive" (not isActive)
+                case mbErrMsg of
+                    Nothing -> assertFailure "Expected error_message to be set"
+                    Just errMsg -> assertBool "Error message should mention table" ("nonexistent" `isInfixOf` show errMsg)
+                case mbErrTs of
+                    Nothing -> assertFailure "Expected error_timestamp to be set"
+                    Just _ -> pure ()
+
+-- | Query projection error state
+getProjectionErrorState :: Hasql.Statement.Statement Text (Maybe (Bool, Maybe Text, Maybe UTCTime))
+getProjectionErrorState =
+    [maybeStatement|
+    SELECT is_active :: bool, error_message :: text?, error_timestamp :: timestamptz?
+    FROM projections
+    WHERE id = $1 :: text
+  |]

@@ -172,14 +172,15 @@ demoPostgreSQLProjection = do
         -- Start projection in background thread
         -- Events come from MemoryStore, but projection runs in PostgreSQL!
         let projId = ProjectionId "user-directory"
-        projectionThread <- forkIO $
-          runProjection 
+        projectionThread <- forkIO $ do
+          _ <- runProjection
             projId
             pool
             Nothing
             store
             -- Define the handler list inline with concrete backend
             (match UserRegistered handleUserRegistration :-> ProjectionEnd)
+          pure ()
 
         putStrLn "✓ Started projection (subscribing to MemoryStore)"
 

@@ -119,6 +119,9 @@ module Hindsight.Projection (
     ProjectionState (..),
     ProjectionStateError (..),
 
+    -- * Projection handle
+    ProjectionHandle (..),
+
     -- * Projection results and errors
     ProjectionResult (..),
     ProjectionError (..),
@@ -168,7 +171,8 @@ import Hindsight.Store (
     EventStore (StoreConstraints, subscribe),
     StartupPosition (FromBeginning, FromPosition),
     StreamSelector (AllStreams),
-    SubscriptionResult (Continue, Stop),
+    SubscriptionHandle (..),
+    SubscriptionResult (Continue),
  )
 import UnliftIO (MonadUnliftIO (..))
 import UnliftIO.STM (TVar, atomically, writeTVar)
@@ -180,6 +184,15 @@ import UnliftIO.STM (TVar, atomically, writeTVar)
 newtype ProjectionId = ProjectionId
     {unProjectionId :: Text}
     deriving (Show, Eq, Ord)
+
+-- | Handle for managing a running projection's lifecycle.
+data ProjectionHandle = ProjectionHandle
+    { awaitProjection :: IO ()
+    -- ^ Block until the projection completes or fails.
+    -- Re-throws any exception from the projection thread.
+    , cancelProjection :: IO ()
+    -- ^ Cancel the projection gracefully.
+    }
 
 --------------------------------------------------------------------------------
 -- Projection results and errors
@@ -234,6 +247,8 @@ instance Exception ProjectionStateError
 
 The projection subscribes to events from the provided backend and executes handlers
 within PostgreSQL transactions. State is persisted after each successful event processing.
+
+Returns a 'ProjectionHandle' that can be used to await completion or cancel the projection.
 -}
 runProjection ::
     forall backend m ts.
@@ -254,8 +269,8 @@ runProjection ::
     BackendHandle backend ->
     -- | Handlers for processing events
     ProjectionHandlers ts backend ->
-    -- | Returns when subscription ends
-    m ()
+    -- | Handle for managing the projection lifecycle
+    m ProjectionHandle
 runProjection projId pool mbTVar store handlers = do
     -- Load projection state
     mbLastState <- loadProjectionState projId pool
@@ -267,8 +282,7 @@ runProjection projId pool mbTVar store handlers = do
         _ -> pure ()
 
     -- Start subscription
-
-    _ <-
+    subHandle <-
         subscribe
             store
             (makeEventMatcher projId pool mbTVar handlers)
@@ -277,7 +291,10 @@ runProjection projId pool mbTVar store handlers = do
                 , startupPosition = maybe FromBeginning FromPosition (fmap (.lastProcessed) mbLastState)
                 }
 
-    pure ()
+    pure ProjectionHandle
+        { awaitProjection = subHandle.wait
+        , cancelProjection = subHandle.cancel
+        }
 
 {- | Load the current state of a projection from PostgreSQL.
 
@@ -346,8 +363,17 @@ makeEventMatcher projId pool mbTVar = go
                     Transaction.statement state (updateProjectionStatement)
 
         case result of
-            Left _err -> do
-                pure Stop
+            Left err -> do
+                -- Record error in database
+                -- TODO: If this fails, we silently lose the error record.
+                -- Wrap in try and log when logging infrastructure exists.
+                _ <- liftIO $
+                    Pool.use pool $
+                        Session.statement
+                            (projId.unProjectionId, pack $ show err)
+                            ProjectionState.recordProjectionError
+                -- Re-throw so subscription dies with visible exception
+                liftIO $ throwIO err
             Right _ -> do
                 case mbTVar of
                     Nothing -> pure ()

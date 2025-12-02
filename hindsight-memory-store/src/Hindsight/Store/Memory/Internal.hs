@@ -369,7 +369,7 @@ subscribeToEvents ::
     TVar (StoreState backend) -> -- State variable
     EventMatcher ts backend m -> -- Event matcher
     EventSelector backend -> -- Event selector
-    m (SubscriptionHandle backend)
+    m SubscriptionHandle
 subscribeToEvents stateVar matcher selector = do
     -- Calculate initial sequence number
     startSeq <- case selector.startupPosition of

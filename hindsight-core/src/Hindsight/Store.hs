@@ -315,7 +315,7 @@ data SubscriptionResult
     deriving (Eq, Show)
 
 -- | Handle for managing a subscription lifecycle.
-data SubscriptionHandle backend = SubscriptionHandle
+data SubscriptionHandle = SubscriptionHandle
     { cancel :: IO ()
     -- ^ Cancel the subscription
     , wait :: IO ()
@@ -693,4 +693,4 @@ class EventStore (backend :: Type) where
         BackendHandle backend ->
         EventMatcher ts backend m ->
         EventSelector backend ->
-        m (SubscriptionHandle backend)
+        m SubscriptionHandle
