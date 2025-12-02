@@ -19,7 +19,7 @@ custom-setup
     , proto-lens-setup >= 0.4 && < 0.5
 
 common warnings
-    ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -Wunused-packages
+    ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -Wunused-packages -Werror=incomplete-patterns
 
 common opts
     ghc-options: -O
@@ -30,6 +30,7 @@ library
                     , Hindsight.Store.KurrentDB.Types
                     , Hindsight.Store.KurrentDB.Client
                     , Hindsight.Store.KurrentDB.RPC
+                    , Hindsight.Store.KurrentDB.Subscription
                     , Proto.Code
                     , Proto.Code_Fields
                     , Proto.Shared
@@ -81,6 +82,7 @@ test-suite hindsight-kurrentdb-store-test
       , hindsight-core:store-testing
       , tasty
       , tasty-hunit
+      , tmp-kurrentdb
       , uuid
 
 test-suite connectivity-test
@@ -117,3 +119,18 @@ test-suite append-test
       , proto-lens
       , text
       , uuid
+
+test-suite minimal-read-test
+    import:           warnings, opts
+    default-language: GHC2021
+    type:             exitcode-stdio-1.0
+    ghc-options:      -threaded -rtsopts
+    hs-source-dirs:   test
+    main-is:          MinimalReadTest.hs
+    build-depends:
+        base
+      , data-default
+      , grapesy
+      , hindsight-kurrentdb-store
+      , microlens
+      , proto-lens

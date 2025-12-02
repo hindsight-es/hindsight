@@ -71,6 +71,7 @@ module Hindsight.Store.KurrentDB (
 import Control.Concurrent.Async (async, cancel, wait)
 import Control.Monad (forM, forM_)
 import Control.Monad.IO.Class (MonadIO (..))
+import UnliftIO (MonadUnliftIO, withRunInIO)
 import Data.Aeson (encode, toJSON)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
@@ -98,6 +99,7 @@ import Hindsight.Events (SomeLatestEvent (..), getEventName, getMaxVersion)
 import Hindsight.Store
 import Hindsight.Store.KurrentDB.Client
 import Hindsight.Store.KurrentDB.RPC
+import Hindsight.Store.KurrentDB.Subscription qualified as Sub
 import Hindsight.Store.KurrentDB.Types
 import Lens.Micro ((&), (.~), (^.))
 import Network.GRPC.Client qualified as GRPC
@@ -110,7 +112,7 @@ import Proto.Streams_Fields qualified as Fields
 
 -- | EventStore instance for KurrentDB
 instance EventStore KurrentStore where
-    type StoreConstraints KurrentStore m = MonadIO m
+    type StoreConstraints KurrentStore m = MonadUnliftIO m
 
     insertEvents handle _correlationId (Transaction streams) = liftIO $ do
         case Map.toList streams of
@@ -132,10 +134,9 @@ instance EventStore KurrentStore where
                                              StreamWrite expectedVer (toList events)) streams
                 in insertMultiStream handle listStreams
 
-    subscribe _handle _matcher _selector = liftIO $ do
-        -- TODO: Implement actual subscription using Streams.Read RPC
-        -- For now, return a stub that does nothing
-        workerThread <- async $ pure ()
+    subscribe handle matcher selector = withRunInIO $ \runInIO -> do
+        -- Phase 3b: Full event deserialization and handler invocation
+        workerThread <- async $ runInIO $ Sub.workerLoop handle matcher selector
         pure $ SubscriptionHandle
             { cancel = cancel workerThread
             , wait = wait workerThread
@@ -208,6 +209,8 @@ setExpectedRevision expectedVer opts = case expectedVer of
         opts & #maybe'expectedStreamRevision .~ Just (Proto.AppendReq'Options'NoStream defMessage)
     StreamExists ->
         opts & #maybe'expectedStreamRevision .~ Just (Proto.AppendReq'Options'StreamExists defMessage)
+    Any ->
+        opts & #maybe'expectedStreamRevision .~ Just (Proto.AppendReq'Options'Any defMessage)
     ExactVersion cursor ->
         -- KurrentDB Append uses stream revision, not global position
         -- This is a limitation - we'll need to track stream revisions separately
@@ -435,6 +438,8 @@ setBatchExpectedPosition expectedVer opts = case expectedVer of
         opts & #maybe'expectedStreamPosition .~ Just (Proto.BatchAppendReq'Options'NoStream defMessage)
     StreamExists ->
         opts & #maybe'expectedStreamPosition .~ Just (Proto.BatchAppendReq'Options'StreamExists defMessage)
+    Any ->
+        opts & #maybe'expectedStreamPosition .~ Just (Proto.BatchAppendReq'Options'Any defMessage)
     ExactVersion _ ->
         error "ExactVersion with global cursor not supported in BatchAppend - use ExactStreamVersion"
     ExactStreamVersion (StreamVersion rev) ->
