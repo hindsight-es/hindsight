@@ -260,13 +260,6 @@ insertEventsWithSyncProjections syncRegistry correlationId eventBatches = do
                     -- Process with unified metadata (database insert + sync projections)
                     processEventWithUnifiedMetadata eventId streamId cursor corrId createdAtTime streamVer event
 
-            -- Update sync projection state for all registered projections
-            let SyncProjectionRegistry projMap = registry
-                finalSeqNo = seqNoOffset + fromIntegral numEvents - 1
-                finalCursor = SQLCursor txNo finalSeqNo
-            forM_ (Map.keys projMap) $ \projId ->
-                updateSyncProjectionState projId finalCursor
-
             -- Capture last event metadata for this stream (for stream head update)
             -- Only update metadata if there are events in this stream
             let updatedMetadata = case streamEventIds of
