@@ -576,7 +576,7 @@ subscribeFilesystem ::
     FilesystemStoreHandle ->
     EventMatcher ts FilesystemStore m ->
     EventSelector FilesystemStore ->
-    m (SubscriptionHandle FilesystemStore)
+    m SubscriptionHandle
 subscribeFilesystem handle matcher selector =
     -- Subscribe directly to in-memory state
     -- The notifier's reload thread updates stateVar when files change

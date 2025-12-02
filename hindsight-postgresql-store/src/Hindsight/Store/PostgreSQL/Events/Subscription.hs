@@ -200,7 +200,7 @@ subscribe ::
     SQLStoreHandle ->
     EventMatcher ts SQLStore m ->
     EventSelector SQLStore ->
-    m (Store.SubscriptionHandle SQLStore)
+    m Store.SubscriptionHandle
 subscribe handle matcher selector = do
     runInIO <- askRunInIO
     liftIO $ do

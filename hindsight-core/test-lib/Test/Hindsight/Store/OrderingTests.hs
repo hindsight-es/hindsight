@@ -487,7 +487,7 @@ startHashTrackingSubscription ::
     Text ->
     UTCTime ->
     Maybe ProgressManager ->
-    IO (SubscriptionHandle backend, IORef (SubscriptionState (Cursor backend)))
+    IO (SubscriptionHandle, IORef (SubscriptionState (Cursor backend)))
 startHashTrackingSubscription store subId startTime mProgressManager =
     startHashTrackingSubscriptionWithPosition store subId startTime mProgressManager FromBeginning
 
@@ -500,7 +500,7 @@ startHashTrackingSubscriptionWithPosition ::
     UTCTime ->
     Maybe ProgressManager ->
     StartupPosition backend ->
-    IO (SubscriptionHandle backend, IORef (SubscriptionState (Cursor backend)))
+    IO (SubscriptionHandle, IORef (SubscriptionState (Cursor backend)))
 startHashTrackingSubscriptionWithPosition store subId startTime mProgressManager startPos = do
     completionMVar <- newEmptyMVar
     stateRef <-

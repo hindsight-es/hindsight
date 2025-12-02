@@ -36,6 +36,7 @@ module Hindsight.Projection.State (
     -- * State Update Operations
     upsertProjectionCursor,
     registerProjection,
+    recordProjectionError,
 )
 where
 
@@ -81,4 +82,23 @@ registerProjection =
     INSERT INTO projections (id, last_updated, is_active)
     VALUES ($1 :: text, NOW(), true)
     ON CONFLICT (id) DO NOTHING
+  |]
+
+{- | Record a projection error in the database.
+
+This operation:
+- Creates the projection row if it doesn't exist
+- Marks the projection as inactive
+- Records the error message
+- Sets the error timestamp to NOW()
+-}
+recordProjectionError :: Statement (Text, Text) ()
+recordProjectionError =
+    [resultlessStatement|
+    INSERT INTO projections (id, last_updated, is_active, error_message, error_timestamp)
+    VALUES ($1 :: text, NOW(), false, $2 :: text, NOW())
+    ON CONFLICT (id) DO UPDATE SET
+      is_active = false,
+      error_message = EXCLUDED.error_message,
+      error_timestamp = NOW()
   |]
