@@ -78,6 +78,13 @@ data CatchUpError
     = ProjectionExecutionError ProjectionId Text
     | DatabaseError Text
     | NoActiveProjections
+    | EventParseError
+        { eventParseErrorMessage :: Text
+        , eventParseFailedEventId :: EventId
+        , eventParseFailedEventName :: Text
+        , eventParseFailedEventVersion :: Int32
+        , eventParseFailedStreamId :: StreamId
+        }
     deriving (Show, Eq, Typeable)
 
 instance Exception CatchUpError
@@ -272,29 +279,36 @@ catchUpProjection (SyncProjectionRegistry regMap) projId cursor = do
             -- Get unprocessed events
             events <- getUnprocessedEvents cursor
 
-            -- Process each event
-            forM_ events $ \storedEvent -> do
-                -- Process this event through the projection handlers
-                processStoredEvent handlers storedEvent
+            -- Process each event, stopping on first error
+            let processEvents [] = pure $ Right ()
+                processEvents (storedEvent : rest) = do
+                    -- Process this event through the projection handlers
+                    result <- processStoredEvent handlers storedEvent
 
-                -- Update projection state after successful processing
-                let eventCursor = SQLCursor storedEvent.transactionXid8 storedEvent.seqNo
-                updateSyncProjectionState projId eventCursor
+                    case result of
+                        Just err -> pure $ Left err -- Stop on parse error
+                        Nothing -> do
+                            -- Update projection state after successful processing
+                            let eventCursor = SQLCursor storedEvent.transactionXid8 storedEvent.seqNo
+                            updateSyncProjectionState projId eventCursor
+                            -- Continue with remaining events
+                            processEvents rest
 
-            pure $ Right ()
+            processEvents events
 
 -- | Process a stored event through projection handlers
+-- Returns Nothing on success, or Just an error if parsing fails
 processStoredEvent ::
     forall ts.
     ProjectionHandlers ts SQLStore ->
     StoredEvent ->
-    HasqlTransaction.Transaction ()
+    HasqlTransaction.Transaction (Maybe CatchUpError)
 processStoredEvent handlers storedEvent = do
     -- Find matching handlers for the event
     let matchingHandlers = handlersForEventName storedEvent.eventName handlers
 
-    -- Process each matching handler
-    forM_ matchingHandlers $ \(SomeProjectionHandler eventProxy handler) -> do
+    -- Process each matching handler, collecting any parse errors
+    errors <- forM matchingHandlers $ \(SomeProjectionHandler eventProxy handler) -> do
         -- Try to parse and process the event
         case parseStoredEventToEnvelope
             eventProxy
@@ -306,8 +320,25 @@ processStoredEvent handlers storedEvent = do
             storedEvent.createdAt
             storedEvent.payload
             (fromIntegral storedEvent.eventVersion) of
-            Just envelope -> handler envelope
-            Nothing -> pure () -- Skip if parsing fails
+            Just envelope -> do
+                handler envelope
+                pure Nothing
+            Nothing ->
+                -- Parsing failed - return error instead of silently skipping
+                pure $
+                    Just $
+                        EventParseError
+                            { eventParseErrorMessage = "Failed to parse event during sync projection catch-up"
+                            , eventParseFailedEventId = storedEvent.eventId
+                            , eventParseFailedEventName = storedEvent.eventName
+                            , eventParseFailedEventVersion = storedEvent.eventVersion
+                            , eventParseFailedStreamId = storedEvent.streamId
+                            }
+
+    -- Return the first error if any
+    pure $ case [e | Just e <- errors] of
+        (err : _) -> Just err
+        [] -> Nothing
 
 -- | Get unprocessed events from the database
 getUnprocessedEvents ::

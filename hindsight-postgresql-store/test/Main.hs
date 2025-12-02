@@ -14,6 +14,7 @@ import Hindsight.Store.PostgreSQL (SQLStore, getPool, newSQLStore, shutdownSQLSt
 import Hindsight.Store.PostgreSQL.Core.Schema qualified as SQLStore
 import System.Timeout (timeout)
 import Test.Hindsight.Store
+import Test.Hindsight.Store.PostgreSQL.ParseErrorTests qualified
 import Test.Hindsight.Store.PostgreSQL.StreamHeadCorrectnessTest qualified
 import Test.Hindsight.Store.PostgreSQL.SyncProjectionStateTests qualified
 import Test.Hindsight.Store.PostgreSQL.SyncProjectionTests qualified
@@ -198,6 +199,7 @@ sqlStoreTests = do
                 , Test.Hindsight.Store.PostgreSQL.SyncProjectionStateTests.tests
                 , Test.Hindsight.SyncProjection.syncProjectionTests
                 ]
+            , Test.Hindsight.Store.PostgreSQL.ParseErrorTests.tests
             ]
 
 main :: IO ()
