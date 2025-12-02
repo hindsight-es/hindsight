@@ -1,3 +1,4 @@
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
@@ -202,6 +203,14 @@ newSQLStoreWithProjections connectionString syncProjRegistry = do
                         pack "Database error during sync projection catch-up: " <> msg
                     NoActiveProjections ->
                         pack "No active sync projections found in database"
+                    EventParseError{..} ->
+                        pack "Event parse error during sync projection catch-up: "
+                            <> eventParseErrorMessage
+                            <> pack " (event: "
+                            <> eventParseFailedEventName
+                            <> pack " v"
+                            <> pack (show eventParseFailedEventVersion)
+                            <> pack ")"
             throwIO $ userError $ Data.Text.unpack errorMsg
         Right () -> do
             -- Create centralized notifier for efficient resource use

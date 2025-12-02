@@ -120,6 +120,7 @@ module Hindsight.Store (
     ConsistencyErrorInfo (..),
     VersionMismatch (..),
     HandlerException (..),
+    EventParseException (..),
 
     -- * Event Subscriptions
 
@@ -286,6 +287,62 @@ instance Show HandlerException where
             <> displayException e.originalException
 
 instance Exception HandlerException
+
+{- | Exception thrown when an event fails to parse during subscription processing.
+
+This exception is thrown when:
+- The event's JSON payload doesn't match the expected schema (parse failure)
+- The event's version is not known by the current code (unknown version)
+
+This represents a data integrity issue that requires investigation. Unlike handler
+exceptions which indicate bugs in processing logic, parse exceptions indicate
+issues with stored event data or schema evolution.
+
+The subscription will die immediately (fail-fast) when encountering unparseable
+events rather than silently skipping them.
+-}
+data EventParseException = EventParseException
+    { parseErrorMessage :: Text
+    -- ^ Description of the parse failure
+    , failedEventPosition :: Text
+    -- ^ Cursor position where it failed (serialized)
+    , failedEventId :: EventId
+    -- ^ Unique identifier of the failed event
+    , failedEventName :: Text
+    -- ^ The name of the event that failed
+    , failedEventVersion :: Integer
+    -- ^ The stored version of the event
+    , failedEventStreamId :: StreamId
+    -- ^ Which stream the event came from
+    , failedEventStreamVersion :: StreamVersion
+    -- ^ Local version within the stream
+    , failedEventCorrelationId :: Maybe CorrelationId
+    -- ^ Correlation ID if present
+    , failedEventCreatedAt :: UTCTime
+    -- ^ When the event was stored
+    }
+    deriving (Typeable)
+
+instance Show EventParseException where
+    show e =
+        "Event parse exception at position "
+            <> T.unpack e.failedEventPosition
+            <> " for event '"
+            <> T.unpack e.failedEventName
+            <> "' version "
+            <> show e.failedEventVersion
+            <> " (eventId: "
+            <> show e.failedEventId
+            <> ")"
+            <> " in stream "
+            <> show e.failedEventStreamId
+            <> " (stream version: "
+            <> show e.failedEventStreamVersion
+            <> ")"
+            <> ": "
+            <> T.unpack e.parseErrorMessage
+
+instance Exception EventParseException
 
 {- | Success data from an event insertion operation.
 

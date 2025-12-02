@@ -393,12 +393,32 @@ processEventBatch matcher batch = do
                                     case result of
                                         Store.Stop -> writeIORef stopRef True
                                         Store.Continue -> pure ()
-                                Left err -> do
-                                    liftIO $ putStrLn $ "Failed to parse event payload: " <> show err
-                                    writeIORef lastCursorRef (Just cursor)
-                        Nothing -> do
-                            liftIO $ putStrLn $ "Unknown event version for " <> show (eventData.eventName)
-                            writeIORef lastCursorRef (Just cursor)
+                                Left err ->
+                                    throwIO $
+                                        Store.EventParseException
+                                            { Store.parseErrorMessage = "JSON parse error: " <> T.pack err
+                                            , Store.failedEventPosition = T.pack $ show cursor
+                                            , Store.failedEventId = EventId eventData.eventId
+                                            , Store.failedEventName = eventData.eventName
+                                            , Store.failedEventVersion = fromIntegral eventData.eventVersion
+                                            , Store.failedEventStreamId = StreamId eventData.streamId
+                                            , Store.failedEventStreamVersion = StreamVersion eventData.streamVersion
+                                            , Store.failedEventCorrelationId = CorrelationId <$> eventData.correlationId
+                                            , Store.failedEventCreatedAt = eventData.createdAt
+                                            }
+                        Nothing ->
+                            throwIO $
+                                Store.EventParseException
+                                    { Store.parseErrorMessage = "Unknown event version: " <> T.pack (show eventData.eventVersion)
+                                    , Store.failedEventPosition = T.pack $ show cursor
+                                    , Store.failedEventId = EventId eventData.eventId
+                                    , Store.failedEventName = eventData.eventName
+                                    , Store.failedEventVersion = fromIntegral eventData.eventVersion
+                                    , Store.failedEventStreamId = StreamId eventData.streamId
+                                    , Store.failedEventStreamVersion = StreamVersion eventData.streamVersion
+                                    , Store.failedEventCorrelationId = CorrelationId <$> eventData.correlationId
+                                    , Store.failedEventCreatedAt = eventData.createdAt
+                                    }
                 else do
                     -- This matcher doesn't match, try next matcher
                     tryMatchers rest eventData
