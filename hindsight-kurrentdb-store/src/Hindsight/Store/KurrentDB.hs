@@ -45,14 +45,6 @@ main = do
   shutdownKurrentStore store
 @
 
-= Implementation Status
-
-🚧 Phase 0: Basic package structure created
-  - Types defined
-  - Package compiles
-  - TODO: gRPC integration
-  - TODO: EventStore instance
-  - TODO: Subscription support
 -}
 module Hindsight.Store.KurrentDB (
     -- * Store Creation
@@ -69,9 +61,11 @@ module Hindsight.Store.KurrentDB (
     module Hindsight.Store,
 ) where
 
+import Control.Concurrent.Async (async, cancel, wait)
 import Control.Exception (try)
 import Control.Monad (forM, forM_)
 import Control.Monad.IO.Class (MonadIO (..))
+import UnliftIO (MonadUnliftIO, withRunInIO)
 import Data.Aeson (encode)
 import Data.Aeson qualified as Aeson
 import Data.ByteString.Lazy qualified as BL
@@ -92,6 +86,7 @@ import Hindsight.Events (SomeLatestEvent (..), getEventName, getMaxVersion)
 import Hindsight.Store
 import Hindsight.Store.KurrentDB.Client
 import Hindsight.Store.KurrentDB.RPC
+import Hindsight.Store.KurrentDB.Subscription qualified as Sub
 import Hindsight.Store.KurrentDB.Types
 import Lens.Micro ((&), (.~), (^.))
 import Network.GRPC.Client qualified as GRPC
@@ -108,7 +103,7 @@ import Proto.V2.Streams_Fields qualified as V2Fields
 
 -- | EventStore instance for KurrentDB
 instance EventStore KurrentStore where
-    type StoreConstraints KurrentStore m = MonadIO m
+    type StoreConstraints KurrentStore m = MonadUnliftIO m
 
     insertEvents handle correlationId (Transaction streams) = liftIO $ do
         case Map.toList streams of
@@ -121,18 +116,19 @@ instance EventStore KurrentStore where
                             , streamCursors = Map.empty
                             }
             [(streamId, streamWrite)] ->
-                -- Phase 1: Single-stream append
                 insertSingleStream handle correlationId streamId streamWrite
             _multipleStreams ->
-                -- Phase 2: Multi-stream atomic append
-                -- Convert Traversable container to list for BatchAppend
+                -- Convert Traversable container to list for multi-stream append
                 let listStreams = Map.map (\(StreamWrite expectedVer events) ->
                                              StreamWrite expectedVer (toList events)) streams
                 in insertMultiStream handle correlationId listStreams
 
-    subscribe _handle _matcher _selector =
-        -- Subscriptions not yet implemented
-        error "KurrentDB subscriptions not yet implemented"
+    subscribe handle matcher selector = withRunInIO $ \runInIO -> do
+        workerThread <- async $ runInIO $ Sub.workerLoop handle matcher selector
+        pure $ SubscriptionHandle
+            { cancel = cancel workerThread
+            , wait = wait workerThread
+            }
 
 -- | Insert events into a single stream using Streams.Append RPC
 insertSingleStream ::
@@ -353,9 +349,7 @@ parseAppendResponse streamId resp = do
                                     ]
 
 {- |
-Insert events into multiple streams atomically using V2 AppendSession RPC
-
-Phase 2: Multi-stream atomic appends (V2 Protocol)
+Insert events into multiple streams atomically using V2 AppendSession RPC.
 
 This uses KurrentDB's V2 AppendSession RPC which provides atomic all-or-nothing
 semantics across multiple streams. The protocol is client-streaming:
@@ -513,10 +507,9 @@ serializeAppendRecord _correlationId (SomeLatestEvent (proxy :: Proxy event) pay
             & #format .~ V2.SCHEMA_FORMAT_JSON
             & #name .~ eventName
 
-    -- TODO: V2 uses 'properties' field instead of customMetadata
-    -- Need to verify how V2 properties map to V1 RecordedEvent.customMetadata when reading
-    -- For now, multi-stream atomic writes (V2) don't preserve version/correlationId in metadata
-    -- Single-stream writes (V1) still preserve these properly
+    -- Note: V2 protocol uses 'properties' field instead of customMetadata.
+    -- Multi-stream atomic writes (V2) don't preserve version/correlationId in metadata,
+    -- while single-stream writes (V1) preserve these properly.
 
     pure $
         defMessage
