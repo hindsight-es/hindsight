@@ -1,0 +1,99 @@
+// KurrentDB Protocol V2 - Streams
+// Multi-stream atomic append via appendSession RPC
+
+syntax = "proto3";
+
+package kurrentdb.protocol.v2.streams;
+
+import "google/protobuf/struct.proto";
+
+// StreamsService provides atomic multi-stream append operations
+service StreamsService {
+    // Appends records to multiple streams atomically within a single transaction.
+    //
+    // Client-streaming RPC where the client sends multiple AppendRequest messages
+    // (one per stream) and receives a single AppendSessionResponse upon commit.
+    //
+    // Guarantees:
+    // - Atomicity: All writes succeed or all fail together
+    // - Optimistic Concurrency: Expected revisions are validated for all streams before commit
+    // - Ordering: Records within each stream maintain send order
+    rpc AppendSession (stream AppendRequest) returns (AppendSessionResponse);
+}
+
+// Request to append records to a single stream (part of multi-stream session)
+message AppendRequest {
+    // Stream name to append to
+    string stream = 1;
+
+    // Records to append to this stream
+    repeated AppendRecord records = 2;
+
+    // Expected revision for optimistic concurrency control
+    // Special values:
+    //   -1 = NoStream (stream must not exist)
+    //   -2 = Any (no version check)
+    //   -4 = StreamExists (stream must exist)
+    //   0, 1, etc. = exact stream revision expected
+    // NOTE: Using 'optional' to ensure the field is always sent on the wire,
+    // even when value is 0 (proto3 default). Without this, proto3 would skip
+    // sending the field when it equals 0, causing KurrentDB to interpret
+    // it as "Any" (no version check) instead of "exact revision 0".
+    optional sint64 expected_revision = 3;
+}
+
+// A single record/event to append
+message AppendRecord {
+    // Unique ID for this record (UUID as string)
+    string record_id = 1;
+
+    // Properties/metadata as key-value pairs
+    map<string, google.protobuf.Value> properties = 2;
+
+    // Schema information (event type and format)
+    SchemaInfo schema = 3;
+
+    // Event data (base64 encoded for JSON, raw for binary)
+    bytes data = 4;
+
+    // Custom metadata bytes (preserved by KurrentDB and available when reading via V1)
+    bytes custom_metadata = 5;
+}
+
+// Schema information for a record
+message SchemaInfo {
+    // Data format
+    SchemaFormat format = 1;
+
+    // Event type name
+    string name = 2;
+}
+
+// Data format enum
+enum SchemaFormat {
+    SCHEMA_FORMAT_UNSPECIFIED = 0;
+    SCHEMA_FORMAT_JSON = 1;
+    SCHEMA_FORMAT_BINARY = 2;
+}
+
+// Response for a single stream append
+message AppendResponse {
+    // Stream name
+    string stream = 1;
+
+    // New stream revision after append (sint64 for wire compatibility)
+    sint64 stream_revision = 2;
+
+    // Global position (optional, sint64 for wire compatibility)
+    optional sint64 position = 3;
+}
+
+// Response for the entire append session
+message AppendSessionResponse {
+    // Results for each stream in the session
+    repeated AppendResponse output = 1;
+
+    // Global commit position (sint64 for wire compatibility)
+    sint64 position = 2;
+}
+

@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  kurrentdb:
+    # KurrentDB 25.1 with multi-stream atomic appends support
+    image: kurrentplatform/kurrentdb:25.1.0
+    container_name: kurrentdb-test
+    environment:
+      # Single-node cluster
+      - EVENTSTORE_CLUSTER_SIZE=1
+
+      # Enable projections
+      - EVENTSTORE_RUN_PROJECTIONS=All
+      - EVENTSTORE_START_STANDARD_PROJECTIONS=true
+
+      # Insecure mode for testing (DO NOT use in production)
+      - EVENTSTORE_INSECURE=true
+
+      # Disable deprecated AtomPub HTTP API
+      - EVENTSTORE_ENABLE_ATOM_PUB_OVER_HTTP=false
+
+    ports:
+      - "2113:2113"  # HTTP API (admin UI and health checks)
+      - "1113:1113"  # gRPC (primary interface for clients)
+
+    volumes:
+      - kurrentdb-data:/var/lib/eventstore
+      - kurrentdb-logs:/var/log/eventstore
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:2113/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+    networks:
+      - kurrentdb-network
+
+networks:
+  kurrentdb-network:
+    driver: bridge
+
+volumes:
+  kurrentdb-data:
+  kurrentdb-logs:

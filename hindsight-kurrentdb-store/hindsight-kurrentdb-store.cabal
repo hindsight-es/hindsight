@@ -1,0 +1,44 @@
+cabal-version:      3.8
+name:               hindsight-kurrentdb-store
+version:            0.1.0.0
+synopsis:           KurrentDB event store backend for Hindsight
+description:        KurrentDB implementation of event store using gRPC. Supports multi-stream atomic appends (KurrentDB 25.1+), optimistic concurrency control, and real-time subscriptions.
+license:            BSD-3-Clause
+license-file:       LICENSE
+author:             Gaël Deest
+maintainer:         gael@hindsight.events
+copyright:          (c) 2025 Gaël Deest
+category:           Web
+build-type:         Custom
+extra-source-files: proto/*.proto
+                    proto/v2/*.proto
+
+custom-setup
+  setup-depends:
+      base >= 4.20
+    , Cabal
+    , proto-lens-setup >= 0.4 && < 0.5
+
+common warnings
+    ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -Wunused-packages -Werror=incomplete-patterns
+
+common opts
+    ghc-options: -O
+
+library
+    import:           warnings, opts
+    exposed-modules:  Proto.Code
+                    , Proto.Code_Fields
+                    , Proto.Shared
+                    , Proto.Shared_Fields
+                    , Proto.Status
+                    , Proto.Status_Fields
+                    , Proto.Streams
+                    , Proto.Streams_Fields
+                    , Proto.V2.Streams
+                    , Proto.V2.Streams_Fields
+    build-depends:    proto-lens-protobuf-types >= 0.7 && < 0.8
+                    , proto-lens-runtime >= 0.7 && < 0.8
+    hs-source-dirs:   src
+    default-language: GHC2021
+    default-extensions: OverloadedRecordDot, DataKinds, DuplicateRecordFields, StrictData, Strict, RequiredTypeArguments
