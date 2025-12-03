@@ -3,22 +3,60 @@
 
 module Main where
 
+import Control.Monad (replicateM)
 import Data.Map.Strict qualified as Map
 import Data.UUID.V4 qualified as UUID
 import Hindsight.Store
 import Hindsight.Store.KurrentDB
 import Test.Hindsight.Examples (makeUserEvent)
 import Test.Hindsight.Store (EventStoreTestRunner (..), genericEventStoreTests, multiInstanceTests, stressTests, propertyTests, orderingTests)
-import Test.KurrentDB.Tmp (KurrentDBConfig (..), withTmpKurrentDB)
+import Test.KurrentDB.Tmp (KurrentDBConfig (..), Pool, defaultPoolConfig, withInstance, withPool, withTmpKurrentDB)
 import Test.Tasty
 import Test.Tasty.HUnit
 
 main :: IO ()
-main = defaultMain tests
+main = withPool defaultPoolConfig $ \pool -> do
+    let runner = pooledTestRunner pool
+    defaultMain (tests runner)
 
--- | Test runner for KurrentDB backend using tmp-kurrentdb for isolation
-kurrentTestRunner :: EventStoreTestRunner KurrentStore
-kurrentTestRunner =
+-- | Test runner for KurrentDB backend using a pool for faster tests.
+--
+-- Instances are reused across tests. When released, the KurrentDB process
+-- is restarted to clear in-memory state (~1-3s vs ~5-15s for full container).
+pooledTestRunner :: Pool -> EventStoreTestRunner KurrentStore
+pooledTestRunner pool =
+    EventStoreTestRunner
+        { withStore = \action -> do
+            withInstance pool $ \tmpConfig -> do
+                let config =
+                        KurrentConfig
+                            { host = tmpConfig.host
+                            , port = tmpConfig.port
+                            , secure = False
+                            }
+                handle <- newKurrentStore config
+                _ <- action handle
+                shutdownKurrentStore handle
+        , withStores = \n action -> do
+            -- Acquire ONE instance, create N handles to it
+            -- Multi-instance tests need multiple handles to the SAME server
+            withInstance pool $ \tmpConfig -> do
+                let config =
+                        KurrentConfig
+                            { host = tmpConfig.host
+                            , port = tmpConfig.port
+                            , secure = False
+                            }
+                handles <- replicateM n (newKurrentStore config)
+                _ <- action handles
+                mapM_ shutdownKurrentStore handles
+        }
+
+-- | Legacy test runner using fresh containers per test (slower).
+--
+-- Kept for backward compatibility and debugging isolated issues.
+legacyTestRunner :: EventStoreTestRunner KurrentStore
+legacyTestRunner =
     EventStoreTestRunner
         { withStore = \action -> do
             withTmpKurrentDB $ \tmpConfig -> do
@@ -45,15 +83,15 @@ kurrentTestRunner =
                 mapM_ shutdownKurrentStore handles
         }
 
-tests :: TestTree
-tests =
+tests :: EventStoreTestRunner KurrentStore -> TestTree
+tests runner =
     testGroup
         "KurrentDB Store Tests"
-        [ testGroup "Generic Event Store Tests" (genericEventStoreTests @KurrentStore kurrentTestRunner)
-        , testGroup "Multi-Instance Tests" (multiInstanceTests @KurrentStore kurrentTestRunner)
-        , testGroup "Stress Tests" (stressTests @KurrentStore kurrentTestRunner)
-        , propertyTests @KurrentStore kurrentTestRunner
-        , testGroup "Ordering Tests" (orderingTests @KurrentStore kurrentTestRunner)
+        [ testGroup "Generic Event Store Tests" (genericEventStoreTests @KurrentStore runner)
+        , testGroup "Multi-Instance Tests" (multiInstanceTests @KurrentStore runner)
+        , testGroup "Stress Tests" (stressTests @KurrentStore runner)
+        , propertyTests @KurrentStore runner
+        , testGroup "Ordering Tests" (orderingTests @KurrentStore runner)
         , testGroup "KurrentDB-Specific Tests" kurrentDbSpecificTests
         ]
 

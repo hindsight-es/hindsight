@@ -90,7 +90,6 @@ import Data.Text.Encoding qualified as Text
 import Data.UUID qualified as UUID
 import Data.UUID.V4 qualified as UUID
 import Data.Word (Word64)
-import Debug.Trace (trace)
 import Hindsight.Events (SomeLatestEvent (..), getEventName, getMaxVersion)
 import Hindsight.Store
 import Hindsight.Store.KurrentDB.Client
@@ -151,16 +150,7 @@ insertSingleStream ::
     StreamWrite t SomeLatestEvent KurrentStore ->
     IO (InsertionResult KurrentStore)
 insertSingleStream handle correlationId (StreamId streamUUID) (StreamWrite expectedVer eventsContainer) = do
-    -- Debug: show V1 append being called
     let streamNameText = UUID.toText streamUUID
-    let expectedRevInfo = case expectedVer of
-            NoStream -> "NoStream"
-            StreamExists -> "StreamExists"
-            Any -> "Any"
-            ExactVersion c -> "ExactVersion(streamRev=" ++ show c.streamRevision ++ ")"
-            ExactStreamVersion v -> "ExactStreamVersion(" ++ show v ++ ")"
-    let numEvents = length (toList eventsContainer)
-    trace ("[V1] insertSingleStream: streamName=" ++ T.unpack streamNameText ++ ", expectedVer=" ++ expectedRevInfo ++ ", numEvents=" ++ show numEvents) $ pure ()
     -- Get connection from pool
     result <- withResource handle.connectionPool $ \conn -> do
         -- Open RPC
@@ -212,13 +202,7 @@ insertSingleStream handle correlationId (StreamId streamUUID) (StreamWrite expec
                                             { errorMessage = "Server sent no response (only trailing metadata)"
                                             , exception = Nothing
                                             }
-    -- Debug: show V1 result with details
-    let resultInfo = case result of
-            SuccessfulInsertion (InsertionSuccess{finalCursor}) ->
-                "Success(streamRev=" ++ show finalCursor.streamRevision ++ ")"
-            FailedInsertion err ->
-                "Failed(" ++ show err ++ ")"
-    trace ("[V1] Result: " ++ resultInfo) $ pure result
+    pure result
 
 -- | Set expected revision in stream options
 setExpectedRevision :: ExpectedVersion KurrentStore -> Proto.AppendReq'Options -> Proto.AppendReq'Options
@@ -413,13 +397,10 @@ insertMultiStream handle correlationId streams = do
                     respElem <- GRPC.recvOutput call
                     case respElem of
                         StreamElem (Proto resp) ->
-                            trace "[V2] Got StreamElem response" $
                             pure $ parseAppendSessionResponse nonEmptyStreams resp
                         FinalElem (Proto resp) _trailing ->
-                            trace "[V2] Got FinalElem response" $
                             pure $ parseAppendSessionResponse nonEmptyStreams resp
                         NoMoreElems _trailing ->
-                            trace "[V2] Got NoMoreElems (trailers-only response)" $
                             pure $ FailedInsertion $ OtherError $
                                 ErrorInfo
                                     { errorMessage = "No response from AppendSession"
@@ -428,15 +409,8 @@ insertMultiStream handle correlationId streams = do
 
             -- Handle gRPC exceptions
             case result of
-                Right insertResult ->
-                    trace ("[V2] Result: " ++ show (isSuccess insertResult)) $
-                    pure insertResult
-                Left grpcEx ->
-                    trace ("[V2] Exception caught: " ++ show grpcEx) $
-                    pure $ handleGrpcException grpcEx
-          where
-            isSuccess (SuccessfulInsertion _) = True
-            isSuccess (FailedInsertion _) = False
+                Right insertResult -> pure insertResult
+                Left grpcEx -> pure $ handleGrpcException grpcEx
 
 -- | Convert gRPC exceptions to store errors
 handleGrpcException :: GrpcException -> InsertionResult KurrentStore
@@ -505,9 +479,6 @@ buildAppendRequest correlationId (StreamId streamUUID) (StreamWrite expectedVer 
     let streamName = UUID.toText streamUUID
     let expRev = expectedRevisionToInt64 expectedVer
 
-    -- Debug: show what expected_revision we're sending
-    trace ("[V2] Building request for stream " ++ T.unpack streamName ++ " with expected_revision=" ++ show expRev) $ pure ()
-
     -- Serialize all events for this stream
     records <- forM events (serializeAppendRecord correlationId)
 
@@ -525,10 +496,6 @@ expectedRevisionToInt64 = \case
     Any -> -2
     StreamExists -> -4
     ExactVersion cursor ->
-        -- Extract stream revision from cursor (embedded during successful inserts)
-        trace ("[V2] ExactVersion cursor: commitPos=" ++ show cursor.commitPosition ++
-               ", preparePos=" ++ show cursor.preparePosition ++
-               ", streamRev=" ++ show cursor.streamRevision) $
         case cursor.streamRevision of
             Just rev -> fromIntegral rev
             Nothing -> error "ExactVersion cursor missing streamRevision - use ExactStreamVersion or ensure cursor came from a stream insert"
@@ -573,10 +540,7 @@ parseAppendSessionResponse streams resp =
     let outputs = resp ^. V2Fields.output
         -- V2 response uses sint64 for position, convert directly
         globalPosition = fromIntegral (resp ^. V2Fields.position) :: Word64
-        -- Debug: show what revisions came back
-        responseInfo = [(output ^. V2Fields.stream, output ^. V2Fields.streamRevision) | output <- outputs]
-    in trace ("[V2] Response revisions: " ++ show responseInfo) $
-       if null outputs
+    in if null outputs
         then
             -- Empty outputs might indicate an error
             FailedInsertion $ OtherError $
