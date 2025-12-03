@@ -40,10 +40,13 @@ jobs:
       - name: Prepare dependencies
         run: |
           set -e
-          echo "???? Preparing dependencies from Nix..."
+          echo "Preparing dependencies from Nix..."
           # Remove freeze file - Nix provides all dependencies at correct versions
           rm -f cabal.project.freeze
-          nix develop .#ci --command echo "??? Dependencies ready (cached or built)"
+          nix develop .#ci --command echo "Dependencies ready (cached or built)"
+          # Fetch Hackage index for packages Cabal needs to resolve (http2-tls, grapesy deps)
+          echo "Fetching Hackage package index..."
+          nix develop .#ci --command cabal update
 
       - name: Build all packages
         run: |
@@ -55,11 +58,11 @@ jobs:
       - name: Check code formatting
         run: |
           set -e
-          echo "???? Checking code formatting with fourmolu..."
+          echo "Checking code formatting with fourmolu..."
           nix develop .#ci --command bash -c "
-            fourmolu --mode check \$(find . -name '*.hs' -not -path '*/dist-newstyle/*' -not -path '*/result/*')
+            fourmolu --mode check \$(find . -name '*.hs' -not -path '*/dist-newstyle/*' -not -path '*/result/*' -not -path '*/Proto/*')
           "
-          echo "??? Code formatting check passed"
+          echo "Code formatting check passed"
 
       - name: Run test suite
         run: |
@@ -105,6 +108,7 @@ jobs:
           set -e
           rm -f cabal.project.freeze
           nix develop .#ci --command echo "Dependencies ready"
+          nix develop .#ci --command cabal update
 
       - name: Build KurrentDB packages
         run: |
