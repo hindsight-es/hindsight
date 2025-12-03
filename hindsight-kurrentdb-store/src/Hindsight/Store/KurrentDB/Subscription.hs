@@ -28,6 +28,7 @@ import Data.Aeson.Types qualified as Aeson
 import Data.Default (def)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
+import Text.Read (readMaybe)
 import Data.ProtoLens (defMessage)
 import Data.Proxy (Proxy (..))
 import Data.String (fromString)
@@ -344,21 +345,28 @@ handleReadResponse runInIO matcher resp =
                                             -- Failed to decode event JSON - skip
                                             pure True
                                         Just eventJson -> do
-                                            -- Parse customMetadata JSON to extract version and correlationId
-                                            -- customMetadata is stored as JSON: {"version": N, "correlationId": "uuid-string"}
+                                            -- Extract version and correlationId from metadata map
+                                            -- V2 properties are returned as string entries in the V1 metadata map
+                                            -- Fallback to customMetadata for V1-written events (JSON bytes)
                                             let customMeta = Aeson.decodeStrict' customMetaBytes :: Maybe (Map.Map T.Text Aeson.Value)
-                                            let mbVersion :: Maybe Integer = do
-                                                    cm <- customMeta
-                                                    verVal <- Map.lookup "version" cm
-                                                    case verVal of
-                                                        Aeson.Number n -> Just (round n)
-                                                        _ -> Nothing
-                                            let mbCorrId :: Maybe CorrelationId = do
-                                                    cm <- customMeta
-                                                    corrVal <- Map.lookup "correlationId" cm
-                                                    case corrVal of
-                                                        Aeson.String corrText -> CorrelationId <$> UUID.fromText corrText
-                                                        _ -> Nothing
+                                            let mbVersion :: Maybe Integer =
+                                                    -- First try metadata map (V2 properties)
+                                                    case Map.lookup "version" metadataMap of
+                                                        Just verText -> readMaybe (T.unpack verText)
+                                                        Nothing ->
+                                                            -- Fallback to customMetadata (V1 JSON)
+                                                            customMeta >>= Map.lookup "version" >>= \case
+                                                                Aeson.Number n -> Just (round n)
+                                                                _ -> Nothing
+                                            let mbCorrId :: Maybe CorrelationId =
+                                                    -- First try metadata map (V2 properties)
+                                                    case Map.lookup "correlationId" metadataMap of
+                                                        Just corrText -> CorrelationId <$> UUID.fromText corrText
+                                                        Nothing ->
+                                                            -- Fallback to customMetadata (V1 JSON)
+                                                            customMeta >>= Map.lookup "correlationId" >>= \case
+                                                                Aeson.String corrText -> CorrelationId <$> UUID.fromText corrText
+                                                                _ -> Nothing
                                             -- Get timestamp for exception enrichment
                                             timestamp <- getCurrentTime
                                             -- Run handler with exception wrapping
