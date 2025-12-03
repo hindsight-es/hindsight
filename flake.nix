@@ -28,18 +28,7 @@
 
           # Extend Haskell package set with our local packages + git deps
           # Using ghc910 which has excellent version alignment with cabal.project.freeze
-          # IMPORTANT: http2-tls override must come BEFORE other package overrides
-          haskellPackages = (pkgs.haskell.packages.ghc910.override {
-            overrides = self: super: {
-              # Override http2-tls FIRST so all dependencies use this version
-              http2-tls = pkgs.haskell.lib.dontCheck (pkgs.haskell.lib.doJailbreak (self.callCabal2nix "http2-tls" (pkgs.fetchFromGitHub {
-                owner = "kazu-yamamoto";
-                repo = "http2-tls";
-                rev = "e4297d0fb932bde750f817f34c2ea9c4810bb2ee";  # PR#15 - drops old tls support
-                sha256 = "sha256-JUBn0Dn9dKoE9nqm5WrjQmVrSF85foApvbCGI04gobU=";
-              }) {}));
-            };
-          }).extend (self: super:
+          haskellPackages = pkgs.haskell.packages.ghc910.extend (self: super:
             let
               # Source overrides for local and git packages
               sources = pkgs.haskell.lib.compose.packageSourceOverrides {
@@ -49,8 +38,6 @@
                 hindsight-filesystem-store = ./hindsight-filesystem-store;
                 hindsight-postgresql-store = ./hindsight-postgresql-store;
                 hindsight-postgresql-projections = ./hindsight-postgresql-projections;
-                hindsight-kurrentdb-store = ./hindsight-kurrentdb-store;
-                tmp-kurrentdb = ./tmp-kurrentdb;
                 hindsight-tutorials = ./hindsight-tutorials;
                 hindsight-website = ./website;
                 munihac = ./munihac;
@@ -70,14 +57,6 @@
               tmp-postgres = pkgs.haskell.lib.dontCheck sources.tmp-postgres;
               postgresql-syntax = pkgs.haskell.lib.dontCheck super.postgresql-syntax;
 
-              # Fetch http2-tls from source to get version compatible with tls >= 2.1
-              http2-tls = pkgs.haskell.lib.dontCheck (pkgs.haskell.lib.doJailbreak (self.callCabal2nix "http2-tls" (pkgs.fetchFromGitHub {
-                owner = "kazu-yamamoto";
-                repo = "http2-tls";
-                rev = "e4297d0fb932bde750f817f34c2ea9c4810bb2ee";  # PR#15 - drops old tls support
-                sha256 = "sha256-JUBn0Dn9dKoE9nqm5WrjQmVrSF85foApvbCGI04gobU=";
-              }) {}));
-
               grapesy = pkgs.haskell.lib.dontCheck (pkgs.haskell.lib.doJailbreak super.grapesy);
 
               # Jailbreak proto-lens packages to allow newer base/ghc-prim
@@ -94,8 +73,6 @@
               hindsight-filesystem-store = pkgs.haskell.lib.dontCheck sources.hindsight-filesystem-store;
               hindsight-postgresql-store = pkgs.haskell.lib.dontCheck sources.hindsight-postgresql-store;
               hindsight-postgresql-projections = pkgs.haskell.lib.dontCheck sources.hindsight-postgresql-projections;
-              hindsight-kurrentdb-store = pkgs.haskell.lib.dontCheck sources.hindsight-kurrentdb-store;
-              tmp-kurrentdb = pkgs.haskell.lib.dontCheck sources.tmp-kurrentdb;
               hindsight-tutorials = pkgs.haskell.lib.dontCheck sources.hindsight-tutorials;
               hindsight-website = pkgs.haskell.lib.dontCheck sources.hindsight-website;
             }
@@ -107,8 +84,6 @@
           hindsight-filesystem-store-pkg = pkgs.haskell.lib.dontCheck haskellPackages.hindsight-filesystem-store;
           hindsight-postgresql-store-pkg = pkgs.haskell.lib.dontCheck haskellPackages.hindsight-postgresql-store;
           hindsight-postgresql-projections-pkg = pkgs.haskell.lib.dontCheck haskellPackages.hindsight-postgresql-projections;
-          hindsight-kurrentdb-store-pkg = pkgs.haskell.lib.dontCheck haskellPackages.hindsight-kurrentdb-store;
-          tmp-kurrentdb-pkg = pkgs.haskell.lib.dontCheck haskellPackages.tmp-kurrentdb;
           hindsight-tutorials-pkg = pkgs.haskell.lib.dontCheck haskellPackages.hindsight-tutorials;
           hindsight-website-exe = pkgs.haskell.lib.dontCheck haskellPackages.hindsight-website;
 
@@ -119,8 +94,6 @@
           hindsight-filesystem-store = hindsight-filesystem-store-pkg;
           hindsight-postgresql-store = hindsight-postgresql-store-pkg;
           hindsight-postgresql-projections = hindsight-postgresql-projections-pkg;
-          hindsight-kurrentdb-store = hindsight-kurrentdb-store-pkg;
-          tmp-kurrentdb = tmp-kurrentdb-pkg;
           hindsight-tutorials = hindsight-tutorials-pkg;
 
           # Website static site generator (used by GitHub Actions to build hindsight.events)
@@ -145,18 +118,7 @@
           pkgs = nixpkgs.legacyPackages.${system};
 
           # Same extended package set as above (ghc910 for version alignment)
-          # IMPORTANT: http2-tls override must come BEFORE other package overrides
-          haskellPackages = (pkgs.haskell.packages.ghc910.override {
-            overrides = self: super: {
-              # Override http2-tls FIRST so all dependencies use this version
-              http2-tls = pkgs.haskell.lib.dontCheck (pkgs.haskell.lib.doJailbreak (self.callCabal2nix "http2-tls" (pkgs.fetchFromGitHub {
-                owner = "kazu-yamamoto";
-                repo = "http2-tls";
-                rev = "e4297d0fb932bde750f817f34c2ea9c4810bb2ee";  # PR#15 - drops old tls support
-                sha256 = "sha256-JUBn0Dn9dKoE9nqm5WrjQmVrSF85foApvbCGI04gobU=";
-              }) {}));
-            };
-          }).extend (self: super:
+          haskellPackages = pkgs.haskell.packages.ghc910.extend (self: super:
             let
               sources = pkgs.haskell.lib.compose.packageSourceOverrides {
                 hindsight-core = ./hindsight-core;
@@ -164,8 +126,6 @@
                 hindsight-filesystem-store = ./hindsight-filesystem-store;
                 hindsight-postgresql-store = ./hindsight-postgresql-store;
                 hindsight-postgresql-projections = ./hindsight-postgresql-projections;
-                hindsight-kurrentdb-store = ./hindsight-kurrentdb-store;
-                tmp-kurrentdb = ./tmp-kurrentdb;
                 hindsight-tutorials = ./hindsight-tutorials;
                 hindsight-website = ./website;
                 munihac = ./munihac;
@@ -181,7 +141,6 @@
             sources // {
               # Disable tests for all overridden packages
               tmp-postgres = pkgs.haskell.lib.dontCheck sources.tmp-postgres;
-              tmp-kurrentdb = pkgs.haskell.lib.dontCheck sources.tmp-kurrentdb;
 
               grapesy = pkgs.haskell.lib.dontCheck (pkgs.haskell.lib.doJailbreak super.grapesy);
 
@@ -195,15 +154,13 @@
             }
           );
 
-          # All Hindsight packages (shared between dev shells)
+          # All Hindsight packages (excludes KurrentDB - built via Cabal due to http2-tls issues)
           hindsightPackages = p: [
             p.hindsight-core
             p.hindsight-memory-store
             p.hindsight-filesystem-store
             p.hindsight-postgresql-store
             p.hindsight-postgresql-projections
-            p.hindsight-kurrentdb-store
-            p.tmp-kurrentdb
             p.hindsight-tutorials
             p.hindsight-website
           ];
@@ -267,7 +224,8 @@
             '';
           };
 
-          # Minimal CI shell
+          # CI shell - same packages as default
+          # KurrentDB packages are built entirely by Cabal (http2-tls incompatible with nixpkgs tls)
           ci = haskellPackages.shellFor {
             packages = hindsightPackages;
             buildInputs = ciTools;
