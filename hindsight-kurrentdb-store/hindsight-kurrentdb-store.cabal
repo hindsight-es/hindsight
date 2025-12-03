@@ -11,6 +11,7 @@ copyright:          (c) 2025 Gaël Deest
 category:           Web
 build-type:         Custom
 extra-source-files: proto/*.proto
+                    proto/v2/*.proto
 
 custom-setup
   setup-depends:
@@ -39,6 +40,8 @@ library
                     , Proto.Status_Fields
                     , Proto.Streams
                     , Proto.Streams_Fields
+                    , Proto.V2.Streams
+                    , Proto.V2.Streams_Fields
     build-depends:    base >= 4.20.1 && < 5
                     , aeson >= 2.2.3 && < 2.3
                     , async >= 2.2.5 && < 2.3
@@ -80,6 +83,7 @@ test-suite hindsight-kurrentdb-store-test
       , hindsight-core
       , hindsight-kurrentdb-store
       , hindsight-core:store-testing
+      , hindsight-core:event-examples
       , tasty
       , tasty-hunit
       , tmp-kurrentdb

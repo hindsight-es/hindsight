@@ -13,21 +13,21 @@ License     : BSD3
 Maintainer  : gael@hindsight.events
 Stability   : experimental
 
-Phase 3: Event subscriptions using KurrentDB's Streams.Read RPC.
+Event subscriptions using KurrentDB's Streams.Read RPC.
 -}
 module Hindsight.Store.KurrentDB.Subscription (
     buildReadRequest,
     workerLoop,
 ) where
 
+import Control.Exception (SomeException, bracket, catch, throwIO)
 import Control.Monad.IO.Class (MonadIO (..))
 import UnliftIO (MonadUnliftIO, withRunInIO)
 import Data.Aeson qualified as Aeson
-import Data.ByteString qualified as BS
-import Data.ByteString.Lazy qualified as BL
+import Data.Aeson.Types qualified as Aeson
 import Data.Default (def)
 import Data.Map.Strict qualified as Map
-import Data.Pool (withResource)
+import Data.Maybe (fromMaybe)
 import Data.ProtoLens (defMessage)
 import Data.Proxy (Proxy (..))
 import Data.String (fromString)
@@ -36,22 +36,21 @@ import Data.Text qualified as T
 import Data.Text.Encoding qualified as Text
 import Data.Time (getCurrentTime)
 import Data.UUID qualified as UUID
-import GHC.TypeLits (Symbol)
-import Hindsight.Events (Event, getEventName)
+import Hindsight.Events (Event, getMaxVersion, parseMapFromProxy)
 import Hindsight.Store
+import Hindsight.Store qualified as Store
+import Hindsight.Store.KurrentDB.Client (serverFromConfig)
 import Hindsight.Store.KurrentDB.RPC ()
 import Hindsight.Store.KurrentDB.Types
-import Hindsight.Store.Parsing (parseStoredEventToEnvelope)
+import Hindsight.Store.Parsing (createEventEnvelope)
 import Lens.Micro ((&), (.~), (^.))
 import Network.GRPC.Client qualified as GRPC
-import Network.GRPC.Common (NoMetadata (..))
 import Network.GRPC.Common.Protobuf (Proto (..), Protobuf)
 import Network.GRPC.Common.StreamElem (StreamElem (..))
 import Proto.Shared qualified
 import Proto.Streams (Streams)
 import Proto.Streams qualified as Proto
 import Proto.Streams_Fields qualified as Fields
-import System.IO (hFlush, stdout)
 
 {- | Build a ReadReq for subscribing to events
 
@@ -116,9 +115,9 @@ buildAllOptions = \case
 
 {- | Build options for single stream subscription
 
-Note: Single streams use stream-specific revision numbers, not global positions.
-For Phase 3a, FromPosition with SingleStream will start from beginning.
-This is a known limitation to be addressed in Phase 3b.
+Single streams use stream-specific revision numbers for positioning.
+When FromPosition is used with a cursor that has streamRevision, we use that revision.
+If the cursor lacks streamRevision (e.g., from AllStreams read), we fall back to start.
 -}
 buildStreamOptions :: StreamId -> StartupPosition KurrentStore -> Proto.ReadReq'Options'StreamOptions
 buildStreamOptions (StreamId streamUuid) startPos =
@@ -129,10 +128,14 @@ buildStreamOptions (StreamId streamUuid) startPos =
         revisionOpt = case startPos of
             FromBeginning ->
                 Proto.ReadReq'Options'StreamOptions'Start defMessage
-            FromPosition _cursor ->
-                -- TODO: Single stream subscriptions need stream-specific revision, not global position
-                -- For now, start from beginning. This is a Phase 3b improvement.
-                Proto.ReadReq'Options'StreamOptions'Start defMessage
+            FromPosition cursor ->
+                -- Use stream revision if available in cursor
+                case cursor.streamRevision of
+                    Just rev ->
+                        Proto.ReadReq'Options'StreamOptions'Revision (fromIntegral rev)
+                    Nothing ->
+                        -- Fallback: cursor from AllStreams read lacks stream revision
+                        Proto.ReadReq'Options'StreamOptions'Start defMessage
      in defMessage
             & #streamIdentifier .~ streamIdentifier
             & #maybe'revisionOption .~ Just revisionOpt
@@ -141,12 +144,17 @@ buildStreamOptions (StreamId streamUuid) startPos =
 
 This function walks through the EventMatcher GADT recursively, attempting to:
 1. Match the event type name against each handler's event type
-2. Parse the event payload at the correct version
+2. Parse the event payload at the correct version (using parseMapFromProxy)
 3. Invoke the matched handler
 
 Returns:
 - Just Continue/Stop if event was matched and handled
 - Nothing if no handler matched this event type
+
+This follows the same pattern as the PostgreSQL store's processEventBatch:
+- Use parseMapFromProxy to get versioned parsers
+- Look up the stored version in the parse map
+- If version not stored, default to the event's MaxVersion
 -}
 tryMatchAndHandle ::
     forall ts m.
@@ -155,8 +163,8 @@ tryMatchAndHandle ::
     -- ^ Event type name from metadata
     Aeson.Value ->
     -- ^ Event data JSON
-    Integer ->
-    -- ^ Event payload version
+    Maybe Integer ->
+    -- ^ Event payload version (Nothing = use MaxVersion)
     EventId ->
     -- ^ Unique event identifier
     StreamId ->
@@ -170,37 +178,48 @@ tryMatchAndHandle ::
     EventMatcher ts KurrentStore m ->
     -- ^ Event matcher with handlers
     m (Maybe SubscriptionResult)
-tryMatchAndHandle eventTypeName eventJson eventVersion eventId streamId cursor streamVer corrId matcher =
+tryMatchAndHandle eventTypeName eventJson mbVersion eventId streamId cursor streamVer corrId matcher =
     case matcher of
         MatchEnd -> pure Nothing
         ((proxy :: Proxy event), handler) :? rest -> do
             let thisEventName = fromString $ symbolVal (Proxy @event) :: T.Text
             if thisEventName == eventTypeName
                 then do
-                    -- Found matching event type - try to parse and handle
-                    timestamp <- liftIO getCurrentTime
-                    case parseStoredEventToEnvelope proxy eventId streamId cursor streamVer corrId timestamp eventJson eventVersion of
-                        Just envelope -> do
-                            -- Successfully parsed - invoke handler
-                            result <- handler envelope
-                            pure (Just result)
+                    -- Found matching event type - use parseMapFromProxy like PostgreSQL does
+                    let parserMap = parseMapFromProxy proxy
+                    -- Use stored version if available, otherwise use MaxVersion of this event type
+                    let eventVersion = fromMaybe (fromIntegral $ getMaxVersion proxy) mbVersion
+                    case Map.lookup (fromIntegral eventVersion) parserMap of
+                        Just parser ->
+                            case Aeson.parseEither parser eventJson of
+                                Right parsedPayload -> do
+                                    -- Successfully parsed - create envelope and invoke handler
+                                    timestamp <- liftIO getCurrentTime
+                                    let envelope = createEventEnvelope eventId streamId cursor streamVer corrId timestamp parsedPayload
+                                    result <- handler envelope
+                                    pure (Just result)
+                                Left _err ->
+                                    -- JSON parse failed - skip this event
+                                    pure Nothing
                         Nothing ->
-                            -- Parse failed (version mismatch or malformed data) - silently skip
+                            -- Unknown version - skip this event
                             pure Nothing
                 else
                     -- Not a match - try next handler
-                    tryMatchAndHandle eventTypeName eventJson eventVersion eventId streamId cursor streamVer corrId rest
+                    tryMatchAndHandle eventTypeName eventJson mbVersion eventId streamId cursor streamVer corrId rest
 
 {- | Worker loop for subscription
 
 This function:
-1. Gets a connection from the pool
+1. Creates a dedicated connection (not from pool - subscriptions are long-lived)
 2. Builds the ReadReq
 3. Opens a server-streaming RPC call
 4. Processes the stream of ReadResp messages
 5. Deserializes events and invokes handlers
 
-Phase 3b: Full event deserialization and handler invocation
+Note: Subscriptions use dedicated connections instead of borrowing from the pool
+because gRPC streaming holds the connection for the subscription's entire lifetime.
+Using pool connections would exhaust the pool and block transactions.
 -}
 workerLoop ::
     forall ts m.
@@ -210,25 +229,21 @@ workerLoop ::
     EventSelector KurrentStore ->
     m ()
 workerLoop handle matcher selector = withRunInIO $ \runInIO -> do
-    putStrLn "Starting subscription worker..."
-    hFlush stdout
+    -- Create dedicated connection for this subscription (not from pool)
+    -- Subscriptions hold connections for their lifetime, so using the pool
+    -- would exhaust it and block transactions
+    bracket
+        (GRPC.openConnection def (serverFromConfig handle.config))
+        GRPC.closeConnection
+        $ \conn -> do
+            let request = buildReadRequest selector
 
-    withResource handle.connectionPool $ \conn -> do
-        let request = buildReadRequest selector
+            GRPC.withRPC conn def (Proxy @(Protobuf Streams "read")) $ \call -> do
+                -- Send the subscription request
+                GRPC.sendFinalInput call (Proto request)
 
-        putStrLn "Opening gRPC stream..."
-        hFlush stdout
-
-        GRPC.withRPC conn def (Proxy @(Protobuf Streams "read")) $ \call -> do
-            -- Send the subscription request
-            putStrLn "Sending subscription request..."
-            hFlush stdout
-            GRPC.sendFinalInput call (Proto request)
-
-            -- Process response stream
-            putStrLn "Processing response stream..."
-            hFlush stdout
-            processResponseStream runInIO matcher call
+                -- Process response stream
+                processResponseStream runInIO matcher call
 
 {- | Process stream of ReadResp messages
 
@@ -242,37 +257,25 @@ processResponseStream ::
     EventMatcher ts KurrentStore m ->
     GRPC.Call (Protobuf Streams "read") ->
     IO ()
-processResponseStream runInIO matcher call = loop 0
+processResponseStream runInIO matcher call = loop
   where
-    loop :: Int -> IO ()
-    loop count = do
+    loop :: IO ()
+    loop = do
         mbResp <- GRPC.recvOutput call
         case mbResp of
             StreamElem (Proto resp) -> do
-                shouldContinue <- handleReadResponse runInIO matcher count resp
+                shouldContinue <- handleReadResponse runInIO matcher resp
                 if shouldContinue
-                    then loop (count + 1)
-                    else do
-                        putStrLn "Subscription stopped by handler"
-                        hFlush stdout
+                    then loop
+                    else pure ()
             FinalElem (Proto resp) _ -> do
                 -- Final element with trailing metadata
-                shouldContinue <- handleReadResponse runInIO matcher count resp
-                if shouldContinue
-                    then do
-                        putStrLn $ "Subscription stream ended after " ++ show (count + 1) ++ " messages (final element)"
-                        hFlush stdout
-                    else do
-                        putStrLn "Subscription stopped by handler (on final element)"
-                        hFlush stdout
-            NoMoreElems _ -> do
-                putStrLn $ "Subscription stream ended after " ++ show count ++ " messages"
-                hFlush stdout
+                _ <- handleReadResponse runInIO matcher resp
+                pure ()
+            NoMoreElems _ ->
                 pure ()
 
 {- | Handle a single ReadResp message
-
-Phase 3b: Full event deserialization and handler invocation
 
 Returns True to continue processing, False to stop subscription
 -}
@@ -281,10 +284,9 @@ handleReadResponse ::
     (MonadIO m) =>
     (forall a. m a -> IO a) ->
     EventMatcher ts KurrentStore m ->
-    Int ->
     Proto.ReadResp ->
     IO Bool
-handleReadResponse runInIO matcher msgNum resp =
+handleReadResponse runInIO matcher resp =
     case resp ^. #maybe'content of
         Just (Proto.ReadResp'Event readEvent) -> do
             let recordedEvent = readEvent ^. #event
@@ -295,103 +297,121 @@ handleReadResponse runInIO matcher msgNum resp =
                     Just (Proto.Shared.UUID'String str) -> str
                     _ -> ""
 
+            -- Extract stream name
+            let protoStreamName = recordedEvent ^. #streamIdentifier . #streamName
+            let streamNameText = Text.decodeUtf8 protoStreamName
+            let metadataMap = recordedEvent ^. #metadata
+
             case UUID.fromText eventIdText of
-                Nothing -> do
-                    putStrLn $ "[" ++ show msgNum ++ "] WARNING: Invalid event UUID: " ++ T.unpack eventIdText
-                    hFlush stdout
+                Nothing ->
+                    -- Invalid event UUID - skip
                     pure True
                 Just eventUuid -> do
                     let eventId = EventId eventUuid
 
                     -- Extract stream ID
-                    let protoStreamName = recordedEvent ^. #streamIdentifier . #streamName
-                    case UUID.fromText (Text.decodeUtf8 protoStreamName) of
+                    case UUID.fromText streamNameText of
                         Nothing ->
                             -- Skip non-UUID streams (e.g. system streams like $settings, $stats in $all)
                             pure True
                         Just streamUuid -> do
                             let streamId = StreamId streamUuid
 
-                            -- Extract positions
+                            -- Extract positions and stream revision
                             let commitPos = recordedEvent ^. #commitPosition
                             let preparePos = recordedEvent ^. #preparePosition
-                            let cursor = KurrentCursor{commitPosition = commitPos, preparePosition = preparePos}
+                            let streamRev = fromIntegral $ recordedEvent ^. #streamRevision
+                            let cursor = KurrentCursor{commitPosition = commitPos, preparePosition = preparePos, streamRevision = Just streamRev}
 
-                            -- Extract stream version
+                            -- Extract stream version (0-indexed, same as KurrentDB)
                             let streamVer = StreamVersion $ fromIntegral $ recordedEvent ^. #streamRevision
 
-                            -- Extract event data and metadata
+                            -- Extract event data
                             let eventData = recordedEvent ^. #data'
-                            let metadataMap = recordedEvent ^. #metadata
+
+                            -- Extract customMetadata (bytes field containing JSON with version)
+                            let customMetaBytes = recordedEvent ^. #customMetadata
 
                             -- Get event type from metadata
                             case Map.lookup "type" metadataMap of
-                                Nothing -> do
-                                    putStrLn $ "[" ++ show msgNum ++ "] WARNING: Event missing 'type' in metadata"
-                                    hFlush stdout
+                                Nothing ->
+                                    -- Event missing type - skip
                                     pure True
                                 Just eventTypeName -> do
                                     -- Parse JSON event data
                                     case Aeson.decodeStrict' eventData of
-                                        Nothing -> do
-                                            putStrLn $ "[" ++ show msgNum ++ "] WARNING: Failed to decode event JSON"
-                                            hFlush stdout
+                                        Nothing ->
+                                            -- Failed to decode event JSON - skip
                                             pure True
                                         Just eventJson -> do
-                                            -- Try to match and handle the event
-                                            -- For now, assume version 1 (TODO: extract from metadata if stored)
-                                            result <- runInIO $ tryMatchAndHandle eventTypeName eventJson 1 eventId streamId cursor streamVer Nothing matcher
+                                            -- Parse customMetadata JSON to extract version and correlationId
+                                            -- customMetadata is stored as JSON: {"version": N, "correlationId": "uuid-string"}
+                                            let customMeta = Aeson.decodeStrict' customMetaBytes :: Maybe (Map.Map T.Text Aeson.Value)
+                                            let mbVersion :: Maybe Integer = do
+                                                    cm <- customMeta
+                                                    verVal <- Map.lookup "version" cm
+                                                    case verVal of
+                                                        Aeson.Number n -> Just (round n)
+                                                        _ -> Nothing
+                                            let mbCorrId :: Maybe CorrelationId = do
+                                                    cm <- customMeta
+                                                    corrVal <- Map.lookup "correlationId" cm
+                                                    case corrVal of
+                                                        Aeson.String corrText -> CorrelationId <$> UUID.fromText corrText
+                                                        _ -> Nothing
+                                            -- Get timestamp for exception enrichment
+                                            timestamp <- getCurrentTime
+                                            -- Run handler with exception wrapping
+                                            result <- (runInIO $ tryMatchAndHandle eventTypeName eventJson mbVersion eventId streamId cursor streamVer mbCorrId matcher)
+                                                `catch` \(e :: SomeException) ->
+                                                    throwIO $ Store.HandlerException
+                                                        { Store.originalException = e
+                                                        , Store.failedEventPosition = T.pack $ show cursor
+                                                        , Store.failedEventId = eventId
+                                                        , Store.failedEventName = eventTypeName
+                                                        , Store.failedEventStreamId = streamId
+                                                        , Store.failedEventStreamVersion = streamVer
+                                                        , Store.failedEventCorrelationId = mbCorrId
+                                                        , Store.failedEventCreatedAt = timestamp
+                                                        }
                                             case result of
                                                 Nothing ->
-                                                    -- No handler matched - silently skip
+                                                    -- No handler matched - continue
                                                     pure True
-                                                Just Continue -> pure True
-                                                Just Stop -> pure False
+                                                Just Continue ->
+                                                    pure True
+                                                Just Stop ->
+                                                    pure False
 
-        Just (Proto.ReadResp'Confirmation confirmation) -> do
-            let subId = confirmation ^. #subscriptionId
-            putStrLn $ "[" ++ show msgNum ++ "] Subscription confirmed: " ++ T.unpack subId
-            hFlush stdout
+        Just (Proto.ReadResp'Confirmation _) ->
+            -- Subscription confirmed - continue
             pure True
 
-        Just (Proto.ReadResp'Checkpoint' checkpoint) -> do
-            let commitPos = checkpoint ^. #commitPosition
-            let preparePos = checkpoint ^. #preparePosition
-            putStrLn $ "[" ++ show msgNum ++ "] Checkpoint: commit=" ++ show commitPos ++ " prepare=" ++ show preparePos
-            hFlush stdout
+        Just (Proto.ReadResp'Checkpoint' _) ->
+            -- Checkpoint - continue
             pure True
 
-        Just (Proto.ReadResp'CaughtUp' _) -> do
-            putStrLn $ "[" ++ show msgNum ++ "] *** Caught up to live ***"
-            hFlush stdout
+        Just (Proto.ReadResp'CaughtUp' _) ->
+            -- Caught up to live - continue
             pure True
 
-        Just (Proto.ReadResp'FellBehind' _) -> do
-            putStrLn $ "[" ++ show msgNum ++ "] *** Fell behind ***"
-            hFlush stdout
+        Just (Proto.ReadResp'FellBehind' _) ->
+            -- Fell behind - continue
             pure True
 
-        Just (Proto.ReadResp'StreamNotFound' _) -> do
-            putStrLn $ "[" ++ show msgNum ++ "] ERROR: Stream not found"
-            hFlush stdout
-            pure False  -- Stop on stream not found
+        Just (Proto.ReadResp'StreamNotFound' _) ->
+            -- Stream not found - stop
+            pure False
 
-        Just (Proto.ReadResp'FirstStreamPosition pos) -> do
-            putStrLn $ "[" ++ show msgNum ++ "] First stream position: " ++ show pos
-            hFlush stdout
+        Just (Proto.ReadResp'FirstStreamPosition _) ->
             pure True
 
-        Just (Proto.ReadResp'LastStreamPosition pos) -> do
-            putStrLn $ "[" ++ show msgNum ++ "] Last stream position: " ++ show pos
-            hFlush stdout
+        Just (Proto.ReadResp'LastStreamPosition _) ->
             pure True
 
-        Just (Proto.ReadResp'LastAllStreamPosition pos) -> do
-            putStrLn $ "[" ++ show msgNum ++ "] Last $all position: " ++ show pos
-            hFlush stdout
+        Just (Proto.ReadResp'LastAllStreamPosition _) ->
             pure True
 
-        Nothing -> do
-            putStrLn $ "[" ++ show msgNum ++ "] WARNING: Malformed response (no content)"
-            hFlush stdout
+        Nothing ->
+            -- Malformed response - continue
             pure True

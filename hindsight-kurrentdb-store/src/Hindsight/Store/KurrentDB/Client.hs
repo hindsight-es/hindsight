@@ -11,6 +11,7 @@ Low-level gRPC client operations for KurrentDB.
 module Hindsight.Store.KurrentDB.Client (
     newKurrentStore,
     shutdownKurrentStore,
+    serverFromConfig,
 ) where
 
 import Data.ByteString (ByteString)
@@ -67,3 +68,21 @@ Destroys the connection pool, closing all active connections.
 shutdownKurrentStore :: KurrentHandle -> IO ()
 shutdownKurrentStore handle = do
     destroyAllResources handle.connectionPool
+
+{- | Create server address from config.
+
+Exposed for subscriptions which need dedicated connections (not from pool).
+gRPC streaming subscriptions hold connections for their lifetime, so they
+should not borrow from the shared pool to avoid exhausting it.
+-}
+serverFromConfig :: KurrentConfig -> GRPC.Server
+serverFromConfig config =
+    if config.secure
+        then error "TLS not yet implemented"
+        else
+            GRPC.ServerInsecure $
+                GRPC.Address
+                    { GRPC.addressHost = BS.unpack config.host
+                    , GRPC.addressPort = fromIntegral config.port
+                    , GRPC.addressAuthority = Nothing
+                    }

@@ -25,6 +25,7 @@ import Data.Default (Default (..))
 import Network.GRPC.Common (BuildMetadata (..), CustomMetadata (..), NoMetadata, RequestMetadata, ResponseInitialMetadata, ResponseTrailingMetadata)
 import Network.GRPC.Common.Protobuf (Protobuf)
 import Proto.Streams (Streams)
+import Proto.V2.Streams (StreamsService)
 
 -- | Metadata required by KurrentDB for event append operations.
 -- KurrentDB requires event type and content-type to be specified
@@ -67,3 +68,9 @@ type instance ResponseTrailingMetadata (Protobuf Streams "read") = NoMetadata
 type instance RequestMetadata (Protobuf Streams "batchAppend") = NoMetadata
 type instance ResponseInitialMetadata (Protobuf Streams "batchAppend") = NoMetadata
 type instance ResponseTrailingMetadata (Protobuf Streams "batchAppend") = NoMetadata
+
+-- | Metadata type instances for V2 StreamsService.AppendSession RPC
+-- V2 protocol for multi-stream atomic appends with proper atomicity guarantees
+type instance RequestMetadata (Protobuf StreamsService "appendSession") = NoMetadata
+type instance ResponseInitialMetadata (Protobuf StreamsService "appendSession") = NoMetadata
+type instance ResponseTrailingMetadata (Protobuf StreamsService "appendSession") = NoMetadata

@@ -228,7 +228,17 @@ testCursorCompleteness store = do
 
                     case (resultA, resultB, resultC) of
                         (SuccessfulInsertion _, SuccessfulInsertion _, SuccessfulInsertion _) -> pure ()
-                        _ -> assertFailure "One or more stream cursors were not usable"
+                        _ -> assertFailure $ "One or more stream cursors were not usable\n"
+                            ++ "  cursorA: " ++ show cursorA ++ "\n"
+                            ++ "  cursorB: " ++ show cursorB ++ "\n"
+                            ++ "  cursorC: " ++ show cursorC ++ "\n"
+                            ++ "  resultA success: " ++ showSuccess resultA ++ "\n"
+                            ++ "  resultB success: " ++ showSuccess resultB ++ "\n"
+                            ++ "  resultC success: " ++ showSuccess resultC
+                  where
+                    showSuccess :: InsertionResult backend -> String
+                    showSuccess (SuccessfulInsertion _) = "True"
+                    showSuccess (FailedInsertion _) = "False"
                 _ -> assertFailure "Failed to extract all cursors from map"
 
 {- | Test that streams with EMPTY event lists still get proper cursor handling

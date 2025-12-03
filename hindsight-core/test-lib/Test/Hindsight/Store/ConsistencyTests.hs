@@ -144,18 +144,18 @@ testExactStreamVersionCondition store = do
     case result1 of
         FailedInsertion err -> assertFailure $ "First write failed: " ++ show err
         SuccessfulInsertion _ -> do
-            -- Try with correct stream version
+            -- Try with correct stream version (first event is at version 0)
             result2 <-
                 insertEvents store Nothing $
-                    singleEvent streamId (ExactStreamVersion (StreamVersion 1)) (makeUserEvent 2)
+                    singleEvent streamId (ExactStreamVersion (StreamVersion 0)) (makeUserEvent 2)
 
             case result2 of
                 FailedInsertion err -> assertFailure $ "Second write with correct stream version failed: " ++ show err
                 SuccessfulInsertion _ -> do
-                    -- Try with wrong stream version (still expecting version 1)
+                    -- Try with wrong stream version (still expecting version 0, but now at version 1)
                     result3 <-
                         insertEvents store Nothing $
-                            singleEvent streamId (ExactStreamVersion (StreamVersion 1)) (makeUserEvent 3)
+                            singleEvent streamId (ExactStreamVersion (StreamVersion 0)) (makeUserEvent 3)
 
                     case result3 of
                         FailedInsertion (ConsistencyError _) -> pure ()
@@ -325,7 +325,7 @@ testMixedVersionExpectations store = do
                         ( Map.fromList
                             [ (s1, StreamWrite StreamExists [makeUserEvent 11]) -- Should succeed
                             , (s2, StreamWrite NoStream [makeUserEvent 12]) -- Should succeed
-                            , (s3, StreamWrite (ExactStreamVersion (StreamVersion 2)) [makeUserEvent 13]) -- Should fail (wrong version)
+                            , (s3, StreamWrite (ExactStreamVersion (StreamVersion 2)) [makeUserEvent 13]) -- Should fail (stream at version 0, expecting 2)
                             , (s4, StreamWrite Any [makeUserEvent 14]) -- Would succeed if batch succeeds
                             , (s5, StreamWrite StreamExists [makeUserEvent 15]) -- Would fail (stream doesn't exist)
                             ]

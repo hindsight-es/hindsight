@@ -37,13 +37,16 @@ type instance BackendHandle KurrentStore = KurrentHandle
 {- | Cursor position in KurrentDB global event log.
 
 KurrentDB uses a dual-position cursor with commit and prepare positions
-for distributed transaction coordination.
+for distributed transaction coordination. For per-stream operations,
+we also track the stream revision to enable ExactVersion checks.
 -}
 data KurrentCursor = KurrentCursor
     { commitPosition :: Word64
     -- ^ Commit position in the global log
     , preparePosition :: Word64
     -- ^ Prepare position (for distributed tx coordination)
+    , streamRevision :: Maybe Word64
+    -- ^ Stream revision (when cursor is from a single-stream insert)
     }
     deriving stock (Eq, Ord, Show, Generic)
     deriving anyclass (FromJSON, ToJSON)

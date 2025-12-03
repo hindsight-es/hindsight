@@ -7,8 +7,8 @@ import Data.Map.Strict qualified as Map
 import Data.UUID.V4 qualified as UUID
 import Hindsight.Store
 import Hindsight.Store.KurrentDB
-import Test.Hindsight.Store.Common (makeUserEvent)
-import Test.Hindsight.Store.TestRunner (EventStoreTestRunner (..), genericEventStoreTests)
+import Test.Hindsight.Examples (makeUserEvent)
+import Test.Hindsight.Store (EventStoreTestRunner (..), genericEventStoreTests, multiInstanceTests, stressTests, propertyTests, orderingTests)
 import Test.KurrentDB.Tmp (KurrentDBConfig (..), withTmpKurrentDB)
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -50,6 +50,10 @@ tests =
     testGroup
         "KurrentDB Store Tests"
         [ testGroup "Generic Event Store Tests" (genericEventStoreTests @KurrentStore kurrentTestRunner)
+        , testGroup "Multi-Instance Tests" (multiInstanceTests @KurrentStore kurrentTestRunner)
+        , testGroup "Stress Tests" (stressTests @KurrentStore kurrentTestRunner)
+        , propertyTests @KurrentStore kurrentTestRunner
+        , testGroup "Ordering Tests" (orderingTests @KurrentStore kurrentTestRunner)
         , testGroup "KurrentDB-Specific Tests" kurrentDbSpecificTests
         ]
 
@@ -89,11 +93,7 @@ kurrentDbSpecificTests =
 
             -- Verify successful insertion
             case result of
-                SuccessfulInsertion success -> do
-                    -- Verify we got a cursor back
-                    let cursor = success.finalCursor
-                    -- Both streams should exist now
-                    pure ()
+                SuccessfulInsertion _ -> pure ()
                 FailedInsertion err ->
                     assertFailure $ "Multi-stream insertion failed: " ++ show err
 
@@ -202,17 +202,21 @@ kurrentDbSpecificTests =
 
             result1 <- insertEvents @KurrentStore handle Nothing initialTransaction
 
-            initialCursor <- case result1 of
-                SuccessfulInsertion success -> pure success.finalCursor
+            case result1 of
+                SuccessfulInsertion _ -> pure ()
                 FailedInsertion err ->
                     assertFailure $ "Initial insertion should succeed but got error: " ++ show err
 
             -- Now append to all three streams with different expectations
+            -- Stream versions after initial insert (0-indexed):
+            -- streamId1: 1 event -> revision 0
+            -- streamId2: 2 events -> revision 1
+            -- streamId3: 3 events -> revision 2
             let mixedTransaction =
                     Transaction $
                         Map.fromList
                             [ (streamId1, StreamWrite{expectedVersion = StreamExists, events = [makeUserEvent 10]}) -- Any version OK
-                            , (streamId2, StreamWrite{expectedVersion = ExactVersion initialCursor, events = [makeUserEvent 11]}) -- Exact cursor from previous append
+                            , (streamId2, StreamWrite{expectedVersion = ExactStreamVersion (StreamVersion 1), events = [makeUserEvent 11]}) -- Exact stream version
                             , (streamId3, StreamWrite{expectedVersion = StreamExists, events = [makeUserEvent 12]}) -- Any version OK
                             ]
 
