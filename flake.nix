@@ -50,6 +50,7 @@
                 hindsight-postgresql-store = ./hindsight-postgresql-store;
                 hindsight-postgresql-projections = ./hindsight-postgresql-projections;
                 hindsight-kurrentdb-store = ./hindsight-kurrentdb-store;
+                tmp-kurrentdb = ./tmp-kurrentdb;
                 hindsight-tutorials = ./hindsight-tutorials;
                 hindsight-website = ./website;
                 munihac = ./munihac;
@@ -94,6 +95,7 @@
               hindsight-postgresql-store = pkgs.haskell.lib.dontCheck sources.hindsight-postgresql-store;
               hindsight-postgresql-projections = pkgs.haskell.lib.dontCheck sources.hindsight-postgresql-projections;
               hindsight-kurrentdb-store = pkgs.haskell.lib.dontCheck sources.hindsight-kurrentdb-store;
+              tmp-kurrentdb = pkgs.haskell.lib.dontCheck sources.tmp-kurrentdb;
               hindsight-tutorials = pkgs.haskell.lib.dontCheck sources.hindsight-tutorials;
               hindsight-website = pkgs.haskell.lib.dontCheck sources.hindsight-website;
             }
@@ -106,6 +108,7 @@
           hindsight-postgresql-store-pkg = pkgs.haskell.lib.dontCheck haskellPackages.hindsight-postgresql-store;
           hindsight-postgresql-projections-pkg = pkgs.haskell.lib.dontCheck haskellPackages.hindsight-postgresql-projections;
           hindsight-kurrentdb-store-pkg = pkgs.haskell.lib.dontCheck haskellPackages.hindsight-kurrentdb-store;
+          tmp-kurrentdb-pkg = pkgs.haskell.lib.dontCheck haskellPackages.tmp-kurrentdb;
           hindsight-tutorials-pkg = pkgs.haskell.lib.dontCheck haskellPackages.hindsight-tutorials;
           hindsight-website-exe = pkgs.haskell.lib.dontCheck haskellPackages.hindsight-website;
 
@@ -116,6 +119,8 @@
           hindsight-filesystem-store = hindsight-filesystem-store-pkg;
           hindsight-postgresql-store = hindsight-postgresql-store-pkg;
           hindsight-postgresql-projections = hindsight-postgresql-projections-pkg;
+          hindsight-kurrentdb-store = hindsight-kurrentdb-store-pkg;
+          tmp-kurrentdb = tmp-kurrentdb-pkg;
           hindsight-tutorials = hindsight-tutorials-pkg;
 
           # Website static site generator (used by GitHub Actions to build hindsight.events)
@@ -160,6 +165,7 @@
                 hindsight-postgresql-store = ./hindsight-postgresql-store;
                 hindsight-postgresql-projections = ./hindsight-postgresql-projections;
                 hindsight-kurrentdb-store = ./hindsight-kurrentdb-store;
+                tmp-kurrentdb = ./tmp-kurrentdb;
                 hindsight-tutorials = ./hindsight-tutorials;
                 hindsight-website = ./website;
                 munihac = ./munihac;
@@ -175,6 +181,7 @@
             sources // {
               # Disable tests for all overridden packages
               tmp-postgres = pkgs.haskell.lib.dontCheck sources.tmp-postgres;
+              tmp-kurrentdb = pkgs.haskell.lib.dontCheck sources.tmp-kurrentdb;
 
               grapesy = pkgs.haskell.lib.dontCheck (pkgs.haskell.lib.doJailbreak super.grapesy);
 
@@ -195,8 +202,8 @@
             p.hindsight-filesystem-store
             p.hindsight-postgresql-store
             p.hindsight-postgresql-projections
-            # Temporarily excluded due to gRPC dependency issues - build manually with cabal
-            # p.hindsight-kurrentdb-store
+            p.hindsight-kurrentdb-store
+            p.tmp-kurrentdb
             p.hindsight-tutorials
             p.hindsight-website
           ];
