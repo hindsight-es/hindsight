@@ -27,7 +27,10 @@ common opts
 
 library
     import:           warnings, opts
-    exposed-modules:  Proto.Code
+    exposed-modules:  Hindsight.Store.KurrentDB.Types
+                    , Hindsight.Store.KurrentDB.Client
+                    , Hindsight.Store.KurrentDB.RPC
+                    , Proto.Code
                     , Proto.Code_Fields
                     , Proto.Shared
                     , Proto.Shared_Fields
@@ -37,8 +40,31 @@ library
                     , Proto.Streams_Fields
                     , Proto.V2.Streams
                     , Proto.V2.Streams_Fields
-    build-depends:    proto-lens-protobuf-types >= 0.7 && < 0.8
+    build-depends:    base >= 4.20.1 && < 5
+                    , aeson >= 2.2.3 && < 2.3
+                    , bytestring >= 0.12.1 && < 0.13
+                    , data-default
+                    , grapesy >= 1.1 && < 1.2
+                    , hindsight-core >= 0.1.0 && < 0.2
+                    , network
+                    , proto-lens-protobuf-types >= 0.7 && < 0.8
                     , proto-lens-runtime >= 0.7 && < 0.8
+                    , resource-pool >= 0.4 && < 0.5
     hs-source-dirs:   src
     default-language: GHC2021
     default-extensions: OverloadedRecordDot, DataKinds, DuplicateRecordFields, StrictData, Strict, RequiredTypeArguments
+
+test-suite connectivity-test
+    import:           warnings, opts
+    default-language: GHC2021
+    type:             exitcode-stdio-1.0
+    ghc-options:      -threaded -rtsopts
+    hs-source-dirs:   test
+    main-is:          ConnectivityTest.hs
+    build-depends:
+        base
+      , data-default
+      , grapesy
+      , hindsight-kurrentdb-store
+      , proto-lens
+      , text
