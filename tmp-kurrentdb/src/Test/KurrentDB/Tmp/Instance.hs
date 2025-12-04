@@ -50,12 +50,13 @@ data Instance = Instance
 kurrentDbImage :: String
 kurrentDbImage = case arch of
     "aarch64" -> "kurrentplatform/kurrentdb:25.1.0-experimental-arm64-8.0-jammy"
-    _         -> "kurrentplatform/kurrentdb:25.1.0-experimental-8.0-jammy"
+    _ -> "kurrentplatform/kurrentdb:25.1.0-experimental-8.0-jammy"
 
--- | Start a new KurrentDB Docker container on the specified port.
---
--- The container runs with in-memory database mode for fast testing.
--- Returns the Instance handle for managing the container.
+{- | Start a new KurrentDB Docker container on the specified port.
+
+The container runs with in-memory database mode for fast testing.
+Returns the Instance handle for managing the container.
+-}
 startInstance :: Int -> IO Instance
 startInstance grpcPort = do
     containerId <-
@@ -93,13 +94,14 @@ stopInstance inst = do
     _ <- readProcess "docker" ["rm", inst.containerId] ""
     pure ()
 
--- | Restart the KurrentDB process inside the container.
---
--- This clears all in-memory state (since EVENTSTORE_MEM_DB=true) without
--- the overhead of destroying and recreating the Docker container.
--- Much faster than stop/start cycle (~1-3s vs ~5-15s).
---
--- Returns True if restart succeeded and instance is ready.
+{- | Restart the KurrentDB process inside the container.
+
+This clears all in-memory state (since EVENTSTORE_MEM_DB=true) without
+the overhead of destroying and recreating the Docker container.
+Much faster than stop/start cycle (~1-3s vs ~5-15s).
+
+Returns True if restart succeeded and instance is ready.
+-}
 restartInstance :: Instance -> Int -> IO Bool
 restartInstance inst timeout = do
     -- Use docker restart with 1 second grace period
@@ -124,9 +126,10 @@ waitForReady inst = do
         then pure ()
         else error $ "KurrentDB failed to start after 60 seconds on port " ++ show inst.config.port
 
--- | Wait for instance to become ready with specified timeout.
---
--- Returns True if instance became ready within timeout.
+{- | Wait for instance to become ready with specified timeout.
+
+Returns True if instance became ready within timeout.
+-}
 waitForReadyWithTimeout :: Instance -> Int -> IO Bool
 waitForReadyWithTimeout inst maxAttempts = go 1
   where
@@ -140,9 +143,10 @@ waitForReadyWithTimeout inst maxAttempts = go 1
                     threadDelay 1000000 -- 1 second
                     go (attempt + 1)
 
--- | Try to fetch from HTTP health endpoint.
---
--- Returns True if curl succeeds, False otherwise.
+{- | Try to fetch from HTTP health endpoint.
+
+Returns True if curl succeeds, False otherwise.
+-}
 tryHttp :: Int -> IO Bool
 tryHttp port = do
     catch attempt handler

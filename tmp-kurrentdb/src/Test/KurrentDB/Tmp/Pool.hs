@@ -81,10 +81,11 @@ data Pool = Pool
     -- ^ Queue of available instances (FIFO for fairness)
     }
 
--- | Create and start a pool of KurrentDB instances.
---
--- Starts all containers in parallel, waits for readiness.
--- Throws if any container fails to start within timeout.
+{- | Create and start a pool of KurrentDB instances.
+
+Starts all containers in parallel, waits for readiness.
+Throws if any container fails to start within timeout.
+-}
 createPool :: PoolConfig -> IO Pool
 createPool cfg = do
     hPutStrLn stderr $ "Creating KurrentDB pool with " ++ show cfg.poolSize ++ " instances..."
@@ -119,9 +120,10 @@ createPool cfg = do
         readyVar <- newTMVarIO () -- Start ready
         pure PooledInstance{instance_ = inst, ready = readyVar}
 
--- | Gracefully shutdown the pool.
---
--- Stops all containers and cleans up resources.
+{- | Gracefully shutdown the pool.
+
+Stops all containers and cleans up resources.
+-}
 destroyPool :: Pool -> IO ()
 destroyPool pool = do
     hPutStrLn stderr "Destroying KurrentDB pool..."
@@ -129,16 +131,18 @@ destroyPool pool = do
     mapConcurrently_ (stopInstance . instance_) pooledInsts
     hPutStrLn stderr "KurrentDB pool destroyed"
 
--- | Bracket-style pool usage.
---
--- Creates pool, runs action, destroys pool (even on exception).
+{- | Bracket-style pool usage.
+
+Creates pool, runs action, destroys pool (even on exception).
+-}
 withPool :: PoolConfig -> (Pool -> IO a) -> IO a
 withPool cfg = bracket (createPool cfg) destroyPool
 
--- | Acquire an instance from the pool.
---
--- Takes an instance from the queue and waits for it to be ready.
--- If a restart is in progress, blocks until complete.
+{- | Acquire an instance from the pool.
+
+Takes an instance from the queue and waits for it to be ready.
+If a restart is in progress, blocks until complete.
+-}
 acquireInstance :: Pool -> IO Instance
 acquireInstance pool = do
     pooledInst <- atomically $ readTQueue pool.available
@@ -146,11 +150,12 @@ acquireInstance pool = do
     atomically $ takeTMVar pooledInst.ready
     pure pooledInst.instance_
 
--- | Release an instance back to the pool.
---
--- Kicks off async restart and immediately returns.
--- The restart happens in background; instance goes back to queue.
--- Next acquireInstance will wait if restart not yet complete.
+{- | Release an instance back to the pool.
+
+Kicks off async restart and immediately returns.
+The restart happens in background; instance goes back to queue.
+Next acquireInstance will wait if restart not yet complete.
+-}
 releaseInstance :: Pool -> Instance -> IO ()
 releaseInstance pool inst = do
     -- Find the PooledInstance wrapper
@@ -166,10 +171,11 @@ releaseInstance pool inst = do
             pure ()
         [] -> pure () -- Instance not found, ignore
 
--- | Bracket-style instance usage.
---
--- Acquires instance, runs action, releases instance.
--- Guarantees the instance is released even if action throws.
+{- | Bracket-style instance usage.
+
+Acquires instance, runs action, releases instance.
+Guarantees the instance is released even if action throws.
+-}
 withInstance :: Pool -> (KurrentDBConfig -> IO a) -> IO a
 withInstance pool action = mask $ \restore -> do
     inst <- acquireInstance pool

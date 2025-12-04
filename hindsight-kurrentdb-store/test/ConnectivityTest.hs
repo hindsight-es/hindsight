@@ -7,9 +7,9 @@ This test verifies that we can establish a gRPC connection to KurrentDB.
 -}
 module Main where
 
+import Data.Default (def)
 import Network.GRPC.Client qualified as GRPC
 import System.Exit (exitFailure, exitSuccess)
-import Data.Default (def)
 
 main :: IO ()
 main = do
@@ -18,11 +18,13 @@ main = do
 
     -- Create server address for KurrentDB
     -- KurrentDB listens on port 2113 for gRPC (insecure in dev mode)
-    let server = GRPC.ServerInsecure $ GRPC.Address
-            { GRPC.addressHost = "localhost"
-            , GRPC.addressPort = 2113
-            , GRPC.addressAuthority = Nothing
-            }
+    let server =
+            GRPC.ServerInsecure $
+                GRPC.Address
+                    { GRPC.addressHost = "localhost"
+                    , GRPC.addressPort = 2113
+                    , GRPC.addressAuthority = Nothing
+                    }
 
     -- Test connection with default connection parameters
     result <- GRPC.withConnection def server $ \conn -> do

@@ -9,7 +9,7 @@ import Data.UUID.V4 qualified as UUID
 import Hindsight.Store
 import Hindsight.Store.KurrentDB
 import Test.Hindsight.Examples (makeUserEvent)
-import Test.Hindsight.Store (EventStoreTestRunner (..), genericEventStoreTests, multiInstanceTests, stressTests, propertyTests, orderingTests)
+import Test.Hindsight.Store (EventStoreTestRunner (..), genericEventStoreTests, multiInstanceTests, orderingTests, propertyTests, stressTests)
 import Test.KurrentDB.Tmp (KurrentDBConfig (..), Pool, defaultPoolConfig, withInstance, withPool, withTmpKurrentDB)
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -19,10 +19,11 @@ main = withPool defaultPoolConfig $ \pool -> do
     let runner = pooledTestRunner pool
     defaultMain (tests runner)
 
--- | Test runner for KurrentDB backend using a pool for faster tests.
---
--- Instances are reused across tests. When released, the KurrentDB process
--- is restarted to clear in-memory state (~1-3s vs ~5-15s for full container).
+{- | Test runner for KurrentDB backend using a pool for faster tests.
+
+Instances are reused across tests. When released, the KurrentDB process
+is restarted to clear in-memory state (~1-3s vs ~5-15s for full container).
+-}
 pooledTestRunner :: Pool -> EventStoreTestRunner KurrentStore
 pooledTestRunner pool =
     EventStoreTestRunner
@@ -52,9 +53,10 @@ pooledTestRunner pool =
                 mapM_ shutdownKurrentStore handles
         }
 
--- | Legacy test runner using fresh containers per test (slower).
---
--- Kept for backward compatibility and debugging isolated issues.
+{- | Legacy test runner using fresh containers per test (slower).
+
+Kept for backward compatibility and debugging isolated issues.
+-}
 legacyTestRunner :: EventStoreTestRunner KurrentStore
 legacyTestRunner =
     EventStoreTestRunner

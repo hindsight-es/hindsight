@@ -22,21 +22,19 @@ module Hindsight.Store.KurrentDB.Subscription (
 
 import Control.Exception (SomeException, bracket, catch, throwIO)
 import Control.Monad.IO.Class (MonadIO (..))
-import UnliftIO (MonadUnliftIO, withRunInIO)
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Types qualified as Aeson
 import Data.Default (def)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
-import Text.Read (readMaybe)
 import Data.ProtoLens (defMessage)
 import Data.Proxy (Proxy (..))
 import Data.String (fromString)
-import GHC.TypeLits (symbolVal)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as Text
 import Data.Time (getCurrentTime)
 import Data.UUID qualified as UUID
+import GHC.TypeLits (symbolVal)
 import Hindsight.Events (Event, getMaxVersion, parseMapFromProxy)
 import Hindsight.Store
 import Hindsight.Store qualified as Store
@@ -52,6 +50,8 @@ import Proto.Shared qualified
 import Proto.Streams (Streams)
 import Proto.Streams qualified as Proto
 import Proto.Streams_Fields qualified as Fields
+import Text.Read (readMaybe)
+import UnliftIO (MonadUnliftIO, withRunInIO)
 
 {- | Build a ReadReq for subscribing to events
 
@@ -160,24 +160,24 @@ This follows the same pattern as the PostgreSQL store's processEventBatch:
 tryMatchAndHandle ::
     forall ts m.
     (MonadIO m) =>
+    -- | Event type name from metadata
     T.Text ->
-    -- ^ Event type name from metadata
+    -- | Event data JSON
     Aeson.Value ->
-    -- ^ Event data JSON
+    -- | Event payload version (Nothing = use MaxVersion)
     Maybe Integer ->
-    -- ^ Event payload version (Nothing = use MaxVersion)
+    -- | Unique event identifier
     EventId ->
-    -- ^ Unique event identifier
+    -- | Stream this event belongs to
     StreamId ->
-    -- ^ Stream this event belongs to
+    -- | Global position
     KurrentCursor ->
-    -- ^ Global position
+    -- | Stream version
     StreamVersion ->
-    -- ^ Stream version
+    -- | Optional correlation ID
     Maybe CorrelationId ->
-    -- ^ Optional correlation ID
+    -- | Event matcher with handlers
     EventMatcher ts KurrentStore m ->
-    -- ^ Event matcher with handlers
     m (Maybe SubscriptionResult)
 tryMatchAndHandle eventTypeName eventJson mbVersion eventId streamId cursor streamVer corrId matcher =
     case matcher of
@@ -370,18 +370,20 @@ handleReadResponse runInIO matcher resp =
                                             -- Get timestamp for exception enrichment
                                             timestamp <- getCurrentTime
                                             -- Run handler with exception wrapping
-                                            result <- (runInIO $ tryMatchAndHandle eventTypeName eventJson mbVersion eventId streamId cursor streamVer mbCorrId matcher)
-                                                `catch` \(e :: SomeException) ->
-                                                    throwIO $ Store.HandlerException
-                                                        { Store.originalException = e
-                                                        , Store.failedEventPosition = T.pack $ show cursor
-                                                        , Store.failedEventId = eventId
-                                                        , Store.failedEventName = eventTypeName
-                                                        , Store.failedEventStreamId = streamId
-                                                        , Store.failedEventStreamVersion = streamVer
-                                                        , Store.failedEventCorrelationId = mbCorrId
-                                                        , Store.failedEventCreatedAt = timestamp
-                                                        }
+                                            result <-
+                                                (runInIO $ tryMatchAndHandle eventTypeName eventJson mbVersion eventId streamId cursor streamVer mbCorrId matcher)
+                                                    `catch` \(e :: SomeException) ->
+                                                        throwIO $
+                                                            Store.HandlerException
+                                                                { Store.originalException = e
+                                                                , Store.failedEventPosition = T.pack $ show cursor
+                                                                , Store.failedEventId = eventId
+                                                                , Store.failedEventName = eventTypeName
+                                                                , Store.failedEventStreamId = streamId
+                                                                , Store.failedEventStreamVersion = streamVer
+                                                                , Store.failedEventCorrelationId = mbCorrId
+                                                                , Store.failedEventCreatedAt = timestamp
+                                                                }
                                             case result of
                                                 Nothing ->
                                                     -- No handler matched - continue
@@ -390,36 +392,27 @@ handleReadResponse runInIO matcher resp =
                                                     pure True
                                                 Just Stop ->
                                                     pure False
-
         Just (Proto.ReadResp'Confirmation _) ->
             -- Subscription confirmed - continue
             pure True
-
         Just (Proto.ReadResp'Checkpoint' _) ->
             -- Checkpoint - continue
             pure True
-
         Just (Proto.ReadResp'CaughtUp' _) ->
             -- Caught up to live - continue
             pure True
-
         Just (Proto.ReadResp'FellBehind' _) ->
             -- Fell behind - continue
             pure True
-
         Just (Proto.ReadResp'StreamNotFound' _) ->
             -- Stream not found - stop
             pure False
-
         Just (Proto.ReadResp'FirstStreamPosition _) ->
             pure True
-
         Just (Proto.ReadResp'LastStreamPosition _) ->
             pure True
-
         Just (Proto.ReadResp'LastAllStreamPosition _) ->
             pure True
-
         Nothing ->
             -- Malformed response - continue
             pure True

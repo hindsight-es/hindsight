@@ -44,7 +44,6 @@ main = do
   -- Cleanup
   shutdownKurrentStore store
 @
-
 -}
 module Hindsight.Store.KurrentDB (
     -- * Store Creation
@@ -65,7 +64,6 @@ import Control.Concurrent.Async (async, cancel, wait)
 import Control.Exception (try)
 import Control.Monad (forM, forM_)
 import Control.Monad.IO.Class (MonadIO (..))
-import UnliftIO (MonadUnliftIO, withRunInIO)
 import Data.Aeson (encode)
 import Data.ByteString.Lazy qualified as BL
 import Data.Default (def)
@@ -88,13 +86,14 @@ import Hindsight.Store.KurrentDB.Subscription qualified as Sub
 import Hindsight.Store.KurrentDB.Types
 import Lens.Micro ((&), (.~), (^.))
 import Network.GRPC.Client qualified as GRPC
-import Network.GRPC.Common (GrpcException (..), GrpcError (..))
+import Network.GRPC.Common (GrpcError (..), GrpcException (..))
 import Network.GRPC.Common.Protobuf (Proto (..))
 import Network.GRPC.Common.StreamElem (StreamElem (..))
+import Proto.Google.Protobuf.Struct qualified as Struct
 import Proto.V2.Streams (StreamsService)
 import Proto.V2.Streams qualified as V2
 import Proto.V2.Streams_Fields qualified as V2Fields
-import Proto.Google.Protobuf.Struct qualified as Struct
+import UnliftIO (MonadUnliftIO, withRunInIO)
 
 -- | EventStore instance for KurrentDB
 instance EventStore KurrentStore where
@@ -113,16 +112,21 @@ instance EventStore KurrentStore where
             else
                 -- Always use V2 AppendSession for all writes (single or multi-stream)
                 -- V2 uses properties field which KurrentDB preserves when reading via V1
-                let listStreams = Map.map (\(StreamWrite expectedVer events) ->
-                                             StreamWrite expectedVer (toList events)) streams
-                in insertMultiStream handle correlationId listStreams
+                let listStreams =
+                        Map.map
+                            ( \(StreamWrite expectedVer events) ->
+                                StreamWrite expectedVer (toList events)
+                            )
+                            streams
+                 in insertMultiStream handle correlationId listStreams
 
     subscribe handle matcher selector = withRunInIO $ \runInIO -> do
         workerThread <- async $ runInIO $ Sub.workerLoop handle matcher selector
-        pure $ SubscriptionHandle
-            { cancel = cancel workerThread
-            , wait = wait workerThread
-            }
+        pure $
+            SubscriptionHandle
+                { cancel = cancel workerThread
+                , wait = wait workerThread
+                }
 
 {- |
 Insert events into multiple streams atomically using V2 AppendSession RPC.
@@ -145,10 +149,13 @@ insertMultiStream handle correlationId streams = do
 
     -- If all streams are empty, return success (nothing to write)
     if Map.null nonEmptyStreams
-        then pure $ SuccessfulInsertion $ InsertionSuccess
-            { finalCursor = KurrentCursor{commitPosition = 0, preparePosition = 0, streamRevision = Nothing}
-            , streamCursors = Map.empty
-            }
+        then
+            pure $
+                SuccessfulInsertion $
+                    InsertionSuccess
+                        { finalCursor = KurrentCursor{commitPosition = 0, preparePosition = 0, streamRevision = Nothing}
+                        , streamCursors = Map.empty
+                        }
         else do
             -- Open gRPC connection and execute append session with exception handling
             result <- try $ withResource handle.connectionPool $ \conn ->
@@ -164,11 +171,13 @@ insertMultiStream handle correlationId streams = do
                         FinalElem (Proto resp) _trailing ->
                             pure $ parseAppendSessionResponse nonEmptyStreams resp
                         NoMoreElems _trailing ->
-                            pure $ FailedInsertion $ OtherError $
-                                ErrorInfo
-                                    { errorMessage = "No response from AppendSession"
-                                    , exception = Nothing
-                                    }
+                            pure $
+                                FailedInsertion $
+                                    OtherError $
+                                        ErrorInfo
+                                            { errorMessage = "No response from AppendSession"
+                                            , exception = Nothing
+                                            }
 
             -- Handle gRPC exceptions
             case result of
@@ -183,28 +192,32 @@ handleGrpcException GrpcException{grpcError, grpcErrorMessage} =
             -- Version mismatch / optimistic concurrency conflict
             -- Parse stream ID and version info from error message
             let mismatches = parseVersionMismatch grpcErrorMessage
-            in FailedInsertion $ ConsistencyError $ ConsistencyErrorInfo mismatches
+             in FailedInsertion $ ConsistencyError $ ConsistencyErrorInfo mismatches
         _ ->
             -- Other gRPC errors
             let msg = maybe (T.pack $ show grpcError) id grpcErrorMessage
-            in FailedInsertion $ OtherError $
-                ErrorInfo
-                    { errorMessage = "gRPC error: " <> msg
-                    , exception = Nothing
-                    }
+             in FailedInsertion $
+                    OtherError $
+                        ErrorInfo
+                            { errorMessage = "gRPC error: " <> msg
+                            , exception = Nothing
+                            }
 
--- | Parse stream ID and version info from gRPC error message
--- Message format: "Append failed due to a revision conflict on stream 'UUID'. Expected revision: X. Actual revision: Y."
+{- | Parse stream ID and version info from gRPC error message
+Message format: "Append failed due to a revision conflict on stream 'UUID'. Expected revision: X. Actual revision: Y."
+-}
 parseVersionMismatch :: Maybe T.Text -> [VersionMismatch KurrentStore]
 parseVersionMismatch Nothing = []
 parseVersionMismatch (Just msg) =
     case parseStreamUUID msg of
         Nothing -> []
-        Just streamId -> [VersionMismatch
-            { streamId = streamId
-            , expectedVersion = NoStream  -- Simplified - actual expected version not critical for test
-            , actualVersion = Nothing  -- Would need to parse actual revision
-            }]
+        Just streamId ->
+            [ VersionMismatch
+                { streamId = streamId
+                , expectedVersion = NoStream -- Simplified - actual expected version not critical for test
+                , actualVersion = Nothing -- Would need to parse actual revision
+                }
+            ]
 
 -- | Extract stream UUID from error message
 parseStreamUUID :: T.Text -> Maybe StreamId
@@ -215,8 +228,8 @@ parseStreamUUID msg =
             | T.null rest -> Nothing
             | otherwise ->
                 let afterQuote = T.drop (T.length "on stream '") rest
-                in case T.breakOn "'" afterQuote of
-                    (uuidText, _) -> StreamId <$> UUID.fromText uuidText
+                 in case T.breakOn "'" afterQuote of
+                        (uuidText, _) -> StreamId <$> UUID.fromText uuidText
 
 -- | Send all append requests (V2 protocol)
 sendAppendRequests ::
@@ -246,13 +259,15 @@ buildAppendRequest correlationId (StreamId streamUUID) (StreamWrite expectedVer 
     records <- forM events (serializeAppendRecord correlationId)
 
     -- Build the request
-    pure $ defMessage
+    pure $
+        defMessage
             & #stream .~ streamName
             & #records .~ records
             & #expectedRevision .~ expRev
 
--- | Convert ExpectedVersion to V2 protocol's sint64 format
--- Special values: -1 = NoStream, -2 = Any, -4 = StreamExists
+{- | Convert ExpectedVersion to V2 protocol's sint64 format
+Special values: -1 = NoStream, -2 = Any, -4 = StreamExists
+-}
 expectedRevisionToInt64 :: ExpectedVersion KurrentStore -> Int64
 expectedRevisionToInt64 = \case
     NoStream -> -1
@@ -265,9 +280,10 @@ expectedRevisionToInt64 = \case
     ExactStreamVersion (StreamVersion rev) ->
         fromIntegral rev
 
--- | Serialize a single event for V2 AppendSession
--- Uses properties (map<string, Value>) to store version and correlationId,
--- which KurrentDB preserves and returns when reading via V1's Streams.Read.
+{- | Serialize a single event for V2 AppendSession
+Uses properties (map<string, Value>) to store version and correlationId,
+which KurrentDB preserves and returns when reading via V1's Streams.Read.
+-}
 serializeAppendRecord :: Maybe CorrelationId -> SomeLatestEvent -> IO V2.AppendRecord
 serializeAppendRecord correlationId (SomeLatestEvent (proxy :: Proxy event) payload) = do
     eventId <- UUID.nextRandom
@@ -278,9 +294,10 @@ serializeAppendRecord correlationId (SomeLatestEvent (proxy :: Proxy event) payl
 
     -- Build schema info
     let schemaInfo :: V2.SchemaInfo
-        schemaInfo = defMessage
-            & #format .~ V2.SCHEMA_FORMAT_JSON
-            & #name .~ eventName
+        schemaInfo =
+            defMessage
+                & #format .~ V2.SCHEMA_FORMAT_JSON
+                & #name .~ eventName
 
     -- Build properties map with version and optional correlationId
     -- V2 uses properties (map<string, google.protobuf.Value>) which KurrentDB
@@ -289,11 +306,12 @@ serializeAppendRecord correlationId (SomeLatestEvent (proxy :: Proxy event) payl
         mkStringValue s = defMessage & #maybe'kind .~ Just (Struct.Value'StringValue s)
 
     let propsMap :: Map T.Text Struct.Value
-        propsMap = Map.fromList $
-            [("version", mkStringValue (T.pack $ show eventVersion))] ++
-            case correlationId of
-                Just (CorrelationId cid) -> [("correlationId", mkStringValue (UUID.toText cid))]
-                Nothing -> []
+        propsMap =
+            Map.fromList $
+                [("version", mkStringValue (T.pack $ show eventVersion))]
+                    ++ case correlationId of
+                        Just (CorrelationId cid) -> [("correlationId", mkStringValue (UUID.toText cid))]
+                        Nothing -> []
 
     pure $
         defMessage
@@ -311,55 +329,60 @@ parseAppendSessionResponse streams resp =
     let outputs = resp ^. V2Fields.output
         -- V2 response uses sint64 for position, convert directly
         globalPosition = fromIntegral (resp ^. V2Fields.position) :: Word64
-    in if null outputs
-        then
-            -- Empty outputs might indicate an error
-            FailedInsertion $ OtherError $
-                ErrorInfo
-                    { errorMessage = "Empty response from AppendSession"
-                    , exception = Nothing
-                    }
-        else
-            -- Success! Build cursors for all streams with per-stream revisions
-            let -- Build a map from stream name (Text) to stream revision
-                -- V2 response uses sint64 for stream_revision, convert directly
-                outputRevisions :: Map T.Text Word64
-                outputRevisions = Map.fromList
-                    [ (output ^. V2Fields.stream, fromIntegral (output ^. V2Fields.streamRevision) :: Word64)
-                    | output <- outputs
-                    ]
+     in if null outputs
+            then
+                -- Empty outputs might indicate an error
+                FailedInsertion $
+                    OtherError $
+                        ErrorInfo
+                            { errorMessage = "Empty response from AppendSession"
+                            , exception = Nothing
+                            }
+            else
+                -- Success! Build cursors for all streams with per-stream revisions
+                let
+                    -- Build a map from stream name (Text) to stream revision
+                    -- V2 response uses sint64 for stream_revision, convert directly
+                    outputRevisions :: Map T.Text Word64
+                    outputRevisions =
+                        Map.fromList
+                            [ (output ^. V2Fields.stream, fromIntegral (output ^. V2Fields.streamRevision) :: Word64)
+                            | output <- outputs
+                            ]
 
-                -- Compute max revision for finalCursor ordering invariant
-                -- This ensures finalCursor >= all stream cursors
-                maxRevision :: Word64
-                maxRevision = maximum (0 : Map.elems outputRevisions)
+                    -- Compute max revision for finalCursor ordering invariant
+                    -- This ensures finalCursor >= all stream cursors
+                    maxRevision :: Word64
+                    maxRevision = maximum (0 : Map.elems outputRevisions)
 
-                -- Global cursor with max stream revision
-                -- Using max revision ensures finalCursor >= streamCursors (Ord invariant)
-                globalCursor = KurrentCursor
-                    { commitPosition = globalPosition
-                    , preparePosition = globalPosition
-                    , streamRevision = Just maxRevision
-                    }
+                    -- Global cursor with max stream revision
+                    -- Using max revision ensures finalCursor >= streamCursors (Ord invariant)
+                    globalCursor =
+                        KurrentCursor
+                            { commitPosition = globalPosition
+                            , preparePosition = globalPosition
+                            , streamRevision = Just maxRevision
+                            }
 
-                -- Stream cursors with per-stream revisions for ExactVersion support
-                streamCursors = Map.fromList
-                    [ (sid, makeCursorForStream sid)
-                    | (sid, _) <- Map.toList streams
-                    ]
+                    -- Stream cursors with per-stream revisions for ExactVersion support
+                    streamCursors =
+                        Map.fromList
+                            [ (sid, makeCursorForStream sid)
+                            | (sid, _) <- Map.toList streams
+                            ]
 
-                makeCursorForStream :: StreamId -> KurrentCursor
-                makeCursorForStream (StreamId streamUUID) =
-                    let streamName = UUID.toText streamUUID
-                        mbRev = Map.lookup streamName outputRevisions
-                    in KurrentCursor
-                        { commitPosition = globalPosition
-                        , preparePosition = globalPosition
-                        , streamRevision = mbRev
-                        }
-
-            in SuccessfulInsertion $
-                InsertionSuccess
-                    { finalCursor = globalCursor
-                    , streamCursors = streamCursors
-                    }
+                    makeCursorForStream :: StreamId -> KurrentCursor
+                    makeCursorForStream (StreamId streamUUID) =
+                        let streamName = UUID.toText streamUUID
+                            mbRev = Map.lookup streamName outputRevisions
+                         in KurrentCursor
+                                { commitPosition = globalPosition
+                                , preparePosition = globalPosition
+                                , streamRevision = mbRev
+                                }
+                 in
+                    SuccessfulInsertion $
+                        InsertionSuccess
+                            { finalCursor = globalCursor
+                            , streamCursors = streamCursors
+                            }
