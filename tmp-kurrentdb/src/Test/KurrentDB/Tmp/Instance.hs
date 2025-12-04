@@ -50,7 +50,7 @@ data Instance = Instance
 kurrentDbImage :: String
 kurrentDbImage = case arch of
     "aarch64" -> "kurrentplatform/kurrentdb:25.1.0-experimental-arm64-8.0-jammy"
-    _ -> "kurrentplatform/kurrentdb:25.1.0-experimental-8.0-jammy"
+    _ -> "kurrentplatform/kurrentdb:25.1.0-x64-8.0-jammy"
 
 {- | Start a new KurrentDB Docker container on the specified port.
 
