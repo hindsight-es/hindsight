@@ -68,13 +68,15 @@ jobs:
         run: |
           set -e
           echo "???? Running test suite (excluding KurrentDB integration tests)..."
-          # Exclude KurrentDB tests - they require Docker and run separately on Linux
-          nix develop .#ci --command bash -c "
-            cabal test all \
-              --test-show-details=streaming \
-              --project-file=cabal.project.ci \
-              --test-option='--pattern=!/KurrentDB/'
-          "
+          # Explicitly list packages to test - excludes KurrentDB packages which require Docker
+          nix develop .#ci --command cabal test \
+            hindsight-core \
+            hindsight-memory-store \
+            hindsight-filesystem-store \
+            hindsight-postgresql-store \
+            hindsight-postgresql-projections \
+            --test-show-details=streaming \
+            --project-file=cabal.project.ci
           echo "??? Tests completed"
 
       - name: Check for dead code (weeder)
