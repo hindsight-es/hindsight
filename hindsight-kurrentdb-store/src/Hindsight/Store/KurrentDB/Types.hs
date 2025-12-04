@@ -32,6 +32,7 @@ data KurrentStore
 
 -- | Type family instances for KurrentDB backend
 type instance Cursor KurrentStore = KurrentCursor
+
 type instance BackendHandle KurrentStore = KurrentHandle
 
 {- | Cursor position in KurrentDB global event log.
@@ -51,8 +52,7 @@ data KurrentCursor = KurrentCursor
     deriving stock (Eq, Ord, Show, Generic)
     deriving anyclass (FromJSON, ToJSON)
 
-{- | Configuration for connecting to KurrentDB.
--}
+-- | Configuration for connecting to KurrentDB.
 data KurrentConfig = KurrentConfig
     { host :: ByteString
     -- ^ KurrentDB hostname (e.g., "localhost")

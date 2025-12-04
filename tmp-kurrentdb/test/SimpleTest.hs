@@ -1,8 +1,8 @@
 module Main where
 
-import Test.KurrentDB.Tmp
-import System.Process (readProcess)
 import Control.Concurrent (threadDelay)
+import System.Process (readProcess)
+import Test.KurrentDB.Tmp
 
 main :: IO ()
 main = do

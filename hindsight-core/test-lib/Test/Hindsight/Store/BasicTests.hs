@@ -248,11 +248,12 @@ testCorrelationIdPreservation store = do
             events <- readIORef receivedEvents
             mapM_ (\evt -> evt.correlationId @?= Just corrId) events
 
--- | Test correlation ID preservation for multi-stream atomic writes
---
--- This is distinct from 'testCorrelationIdPreservation' because some backends
--- (like KurrentDB) use different code paths for single-stream vs multi-stream
--- appends. This test ensures correlationId is preserved in multi-stream writes.
+{- | Test correlation ID preservation for multi-stream atomic writes
+
+This is distinct from 'testCorrelationIdPreservation' because some backends
+(like KurrentDB) use different code paths for single-stream vs multi-stream
+appends. This test ensures correlationId is preserved in multi-stream writes.
+-}
 testMultiStreamCorrelationIdPreservation :: forall backend. (EventStore backend, StoreConstraints backend IO, Show (Cursor backend)) => BackendHandle backend -> IO ()
 testMultiStreamCorrelationIdPreservation store = do
     streamId1 <- StreamId <$> UUID.nextRandom
@@ -264,10 +265,17 @@ testMultiStreamCorrelationIdPreservation store = do
     -- Use two streams to trigger multi-stream code path
     let events1 = map makeUserEvent [1, 2]
         events2 = map makeUserEvent [3, 4] ++ [makeTombstone]
-    result <- insertEvents store (Just corrId) (Transaction (Map.fromList
-        [ (streamId1, StreamWrite Any events1)
-        , (streamId2, StreamWrite Any events2)
-        ]))
+    result <-
+        insertEvents
+            store
+            (Just corrId)
+            ( Transaction
+                ( Map.fromList
+                    [ (streamId1, StreamWrite Any events1)
+                    , (streamId2, StreamWrite Any events2)
+                    ]
+                )
+            )
 
     case result of
         FailedInsertion err -> assertFailure $ "Failed to insert events: " ++ show err

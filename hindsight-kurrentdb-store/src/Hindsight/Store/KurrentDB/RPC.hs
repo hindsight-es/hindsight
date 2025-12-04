@@ -27,9 +27,10 @@ import Network.GRPC.Common.Protobuf (Protobuf)
 import Proto.Streams (Streams)
 import Proto.V2.Streams (StreamsService)
 
--- | Metadata required by KurrentDB for event append operations.
--- KurrentDB requires event type and content-type to be specified
--- in the ProposedMessage.metadata map field (not as gRPC headers).
+{- | Metadata required by KurrentDB for event append operations.
+KurrentDB requires event type and content-type to be specified
+in the ProposedMessage.metadata map field (not as gRPC headers).
+-}
 data KurrentMetadata = KurrentMetadata
     { eventType :: ByteString
     -- ^ Event type name
@@ -39,10 +40,11 @@ data KurrentMetadata = KurrentMetadata
     deriving (Show, Eq)
 
 instance Default KurrentMetadata where
-    def = KurrentMetadata
-        { eventType = "Event"
-        , contentType = "application/json"
-        }
+    def =
+        KurrentMetadata
+            { eventType = "Event"
+            , contentType = "application/json"
+            }
 
 instance BuildMetadata KurrentMetadata where
     buildMetadata KurrentMetadata{..} =
@@ -52,24 +54,30 @@ instance BuildMetadata KurrentMetadata where
         , CustomMetadata "es-content-type" contentType
         ]
 
--- | Metadata type instances for Streams.Append RPC
--- KurrentDB uses NoMetadata for gRPC-level metadata
+{- | Metadata type instances for Streams.Append RPC
+KurrentDB uses NoMetadata for gRPC-level metadata
+-}
 type instance RequestMetadata (Protobuf Streams "append") = NoMetadata
+
 type instance ResponseInitialMetadata (Protobuf Streams "append") = NoMetadata
 type instance ResponseTrailingMetadata (Protobuf Streams "append") = NoMetadata
 
 -- | Metadata type instances for Streams.Read RPC
 type instance RequestMetadata (Protobuf Streams "read") = NoMetadata
+
 type instance ResponseInitialMetadata (Protobuf Streams "read") = NoMetadata
 type instance ResponseTrailingMetadata (Protobuf Streams "read") = NoMetadata
 
 -- | Metadata type instances for Streams.BatchAppend RPC
 type instance RequestMetadata (Protobuf Streams "batchAppend") = NoMetadata
+
 type instance ResponseInitialMetadata (Protobuf Streams "batchAppend") = NoMetadata
 type instance ResponseTrailingMetadata (Protobuf Streams "batchAppend") = NoMetadata
 
--- | Metadata type instances for V2 StreamsService.AppendSession RPC
--- V2 protocol for multi-stream atomic appends with proper atomicity guarantees
+{- | Metadata type instances for V2 StreamsService.AppendSession RPC
+V2 protocol for multi-stream atomic appends with proper atomicity guarantees
+-}
 type instance RequestMetadata (Protobuf StreamsService "appendSession") = NoMetadata
+
 type instance ResponseInitialMetadata (Protobuf StreamsService "appendSession") = NoMetadata
 type instance ResponseTrailingMetadata (Protobuf StreamsService "appendSession") = NoMetadata

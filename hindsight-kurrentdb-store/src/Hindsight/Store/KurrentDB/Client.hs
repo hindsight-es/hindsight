@@ -43,8 +43,8 @@ newKurrentStore config = do
                 else
                     GRPC.ServerInsecure $
                         GRPC.Address
-                            { GRPC.addressHost = BS.unpack config.host  -- Convert ByteString to String
-                            , GRPC.addressPort = fromIntegral config.port  -- Convert Int to PortNumber
+                            { GRPC.addressHost = BS.unpack config.host -- Convert ByteString to String
+                            , GRPC.addressPort = fromIntegral config.port -- Convert Int to PortNumber
                             , GRPC.addressAuthority = Nothing
                             }
 
@@ -52,13 +52,12 @@ newKurrentStore config = do
     -- Pool parameters: create function, destroy function, idle timeout, max resources
     pool <-
         newPool $
-            setNumStripes (Just 1) $  -- 1 stripe is fine for gRPC
+            setNumStripes (Just 1) $ -- 1 stripe is fine for gRPC
                 Pool.defaultPoolConfig
-                    (GRPC.openConnection def server)  -- Create connection
-                    GRPC.closeConnection  -- Destroy connection
-                    60  -- Idle timeout in seconds
-                    10  -- Max connections in pool
-
+                    (GRPC.openConnection def server) -- Create connection
+                    GRPC.closeConnection -- Destroy connection
+                    60 -- Idle timeout in seconds
+                    10 -- Max connections in pool
     pure $ KurrentHandle{config, connectionPool = pool}
 
 {- | Shutdown the KurrentDB store and close all connections.
