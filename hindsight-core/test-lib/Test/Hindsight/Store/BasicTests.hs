@@ -258,13 +258,16 @@ testMultiStreamCorrelationIdPreservation :: forall backend. (EventStore backend,
 testMultiStreamCorrelationIdPreservation store = do
     streamId1 <- StreamId <$> UUID.nextRandom
     streamId2 <- StreamId <$> UUID.nextRandom
+    tombstoneStreamId <- StreamId <$> UUID.nextRandom
     corrId <- CorrelationId <$> UUID.nextRandom
     receivedEvents <- newIORef []
     completionVar <- newEmptyMVar
 
     -- Use two streams to trigger multi-stream code path
+    -- Note: tombstone is inserted separately to ensure it gets a higher sequence
+    -- number than all UserCreated events (Map iteration order depends on UUID)
     let events1 = map makeUserEvent [1, 2]
-        events2 = map makeUserEvent [3, 4] ++ [makeTombstone]
+        events2 = map makeUserEvent [3, 4]
     result <-
         insertEvents
             store
@@ -280,6 +283,13 @@ testMultiStreamCorrelationIdPreservation store = do
     case result of
         FailedInsertion err -> assertFailure $ "Failed to insert events: " ++ show err
         SuccessfulInsertion _ -> do
+            -- Insert tombstone separately to ensure it has highest seqNo
+            _ <-
+                insertEvents
+                    store
+                    Nothing
+                    (Transaction (Map.singleton tombstoneStreamId (StreamWrite Any [makeTombstone])))
+
             handle <-
                 subscribe
                     store
