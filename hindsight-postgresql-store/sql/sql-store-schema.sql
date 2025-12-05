@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS stream_heads (
     latest_transaction_xid8 xid8 NOT NULL,
     latest_seq_no INT NOT NULL,
     last_event_id UUID NOT NULL,
-    stream_version BIGINT NOT NULL DEFAULT 0, -- Local stream version (1, 2, 3, ...)
+    stream_version BIGINT NOT NULL DEFAULT 0, -- Local stream version (0, 1, 2, ...)
     CONSTRAINT stream_heads_latest_transaction_xid8
         FOREIGN KEY (latest_transaction_xid8)
         REFERENCES event_transactions (transaction_xid8)
