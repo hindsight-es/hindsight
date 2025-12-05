@@ -57,6 +57,16 @@
               tmp-postgres = pkgs.haskell.lib.dontCheck sources.tmp-postgres;
               postgresql-syntax = pkgs.haskell.lib.dontCheck super.postgresql-syntax;
 
+              grapesy = pkgs.haskell.lib.dontCheck (pkgs.haskell.lib.doJailbreak super.grapesy);
+
+              # Jailbreak proto-lens packages to allow newer base/ghc-prim
+              proto-lens = pkgs.haskell.lib.doJailbreak super.proto-lens;
+              proto-lens-runtime = pkgs.haskell.lib.doJailbreak super.proto-lens-runtime;
+              proto-lens-protobuf-types = pkgs.haskell.lib.doJailbreak super.proto-lens-protobuf-types;
+              proto-lens-setup = pkgs.haskell.lib.doJailbreak super.proto-lens-setup;
+              proto-lens-protoc = pkgs.haskell.lib.doJailbreak super.proto-lens-protoc;
+              snappy-c = pkgs.haskell.lib.doJailbreak super.snappy-c;
+
               # Disable tests for all hindsight packages (critical: prevents test execution during inter-package builds)
               hindsight-core = pkgs.haskell.lib.dontCheck sources.hindsight-core;
               hindsight-memory-store = pkgs.haskell.lib.dontCheck sources.hindsight-memory-store;
@@ -131,10 +141,20 @@
             sources // {
               # Disable tests for all overridden packages
               tmp-postgres = pkgs.haskell.lib.dontCheck sources.tmp-postgres;
+
+              grapesy = pkgs.haskell.lib.dontCheck (pkgs.haskell.lib.doJailbreak super.grapesy);
+
+              # Jailbreak proto-lens packages to allow newer base/ghc-prim
+              proto-lens = pkgs.haskell.lib.doJailbreak super.proto-lens;
+              proto-lens-runtime = pkgs.haskell.lib.doJailbreak super.proto-lens-runtime;
+              proto-lens-protobuf-types = pkgs.haskell.lib.doJailbreak super.proto-lens-protobuf-types;
+              proto-lens-setup = pkgs.haskell.lib.doJailbreak super.proto-lens-setup;
+              proto-lens-protoc = pkgs.haskell.lib.doJailbreak super.proto-lens-protoc;
+              snappy-c = pkgs.haskell.lib.doJailbreak super.snappy-c;
             }
           );
 
-          # All Hindsight packages (shared between dev shells)
+          # All Hindsight packages (excludes KurrentDB - built via Cabal due to http2-tls issues)
           hindsightPackages = p: [
             p.hindsight-core
             p.hindsight-memory-store
@@ -148,7 +168,11 @@
           # Core dependencies
           coreBuildInputs = with pkgs; [
             haskellPackages.cabal-install
+            haskellPackages.proto-lens-protoc  # For proto-lens code generation
+            pkg-config
             postgresql.dev
+            protobuf  # For proto-lens code generation
+            snappy  # For grapesy (gRPC compression)
             zlib.dev
             zstd
           ];
@@ -179,7 +203,7 @@
             ]);
 
             shellHook = ''
-              export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath [ pkgs.zstd pkgs.zlib ]}"''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+              export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath [ pkgs.zstd pkgs.zlib pkgs.snappy ]}"''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
 
               echo "🚀 Hindsight development environment (full)"
               echo "Using GHC: $(ghc --version)"
@@ -200,13 +224,14 @@
             '';
           };
 
-          # Minimal CI shell
+          # CI shell - same packages as default
+          # KurrentDB packages are built entirely by Cabal (http2-tls incompatible with nixpkgs tls)
           ci = haskellPackages.shellFor {
             packages = hindsightPackages;
             buildInputs = ciTools;
 
             shellHook = ''
-              export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath [ pkgs.zstd pkgs.zlib ]}"''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+              export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath [ pkgs.zstd pkgs.zlib pkgs.snappy ]}"''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
 
               echo "📦 Hindsight CI environment (minimal)"
               echo "Using GHC: $(ghc --version)"

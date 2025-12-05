@@ -144,18 +144,18 @@ testExactStreamVersionCondition store = do
     case result1 of
         FailedInsertion err -> assertFailure $ "First write failed: " ++ show err
         SuccessfulInsertion _ -> do
-            -- Try with correct stream version
+            -- Try with correct stream version (0-based, so first event is at version 0)
             result2 <-
                 insertEvents store Nothing $
-                    singleEvent streamId (ExactStreamVersion (StreamVersion 1)) (makeUserEvent 2)
+                    singleEvent streamId (ExactStreamVersion (StreamVersion 0)) (makeUserEvent 2)
 
             case result2 of
                 FailedInsertion err -> assertFailure $ "Second write with correct stream version failed: " ++ show err
                 SuccessfulInsertion _ -> do
-                    -- Try with wrong stream version (still expecting version 1)
+                    -- Try with wrong stream version (still expecting version 0, but it's now at 1)
                     result3 <-
                         insertEvents store Nothing $
-                            singleEvent streamId (ExactStreamVersion (StreamVersion 1)) (makeUserEvent 3)
+                            singleEvent streamId (ExactStreamVersion (StreamVersion 0)) (makeUserEvent 3)
 
                     case result3 of
                         FailedInsertion (ConsistencyError _) -> pure ()

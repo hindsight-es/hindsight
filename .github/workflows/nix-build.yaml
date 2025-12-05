@@ -29,6 +29,10 @@ jobs:
           - hindsight-filesystem-store
           - hindsight-postgresql-store
           - hindsight-postgresql-projections
+          # KurrentDB packages excluded: http2-tls/tls version incompatibility with nixpkgs
+          # These are built via Cabal in test.yaml using Hackage packages
+          # - hindsight-kurrentdb-store
+          # - tmp-kurrentdb
           - hindsight-tutorials
           - hindsight-website
       # Don't cancel other matrix jobs if one fails

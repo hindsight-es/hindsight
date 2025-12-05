@@ -146,7 +146,7 @@ calculateStreamVersions eventBatches = do
     getCurrentStreamVersion :: StreamId -> HasqlTransaction.Transaction StreamVersion
     getCurrentStreamVersion (StreamId streamUUID) = do
         result <- HasqlTransaction.statement streamUUID getCurrentStreamVersionStmt
-        pure $ maybe (StreamVersion 0) id result
+        pure $ maybe (StreamVersion (-1)) id result
 
 -- | Calculate next stream versions for each stream
 nextStreamVersions ::
@@ -158,7 +158,7 @@ nextStreamVersions eventBatches currentVersions =
     Map.mapWithKey calculateNextVersionsForStream eventBatches
   where
     calculateNextVersionsForStream streamId batch =
-        let currentVersion = Map.findWithDefault (StreamVersion 0) streamId currentVersions
+        let currentVersion = Map.findWithDefault (StreamVersion (-1)) streamId currentVersions
             eventCount = length $ Foldable.toList batch.events
          in [currentVersion + 1 .. currentVersion + fromIntegral eventCount]
 

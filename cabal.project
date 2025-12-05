@@ -1,5 +1,9 @@
 packages:
   ./*/*.cabal
+
+-- Temporarily disable weeder due to GHC version conflicts
+optional-packages:
+  ./deps/*/*.cabal
 -- Uncomment this line and use:
 --
 --   cabal get --destdir=./deps <somedep>-<version>
@@ -25,18 +29,35 @@ package hindsight-core
   profiling-detail: all-functions
   ghc-options: -fprof-auto -fprof-auto-top -rtsopts -threaded
 
+package snappy-c
+  extra-lib-dirs: /nix/store/6b75fk5nx8b1pr9dcfpmknqq8bxb9mik-snappy-1.2.1/lib
+
+-- Preferences for grapesy dependencies (weaker than freeze file)
+preferences:
+    tls >= 2.1.10
+  , http2-tls >= 0.4.9
+
 allow-newer:
     hasql-notifications:hasql-pool
+  , grapesy:http2
+  , grapesy:tls
+  , grapesy:http2-tls
+  , http2-tls:tls
+  , *:tls
+  , *:base
+  , *:ghc-prim
+  , *:optparse-applicative
 
 source-repository-package
     type: git
     location: https://github.com/jfischoff/tmp-postgres.git
     tag: 7f2467a6d6d5f6db7eed59919a6773fe006cf22b
 
-source-repository-package
-   type:     git
-   location: https://github.com/ocharles/weeder.git
-   tag: fb052ddad9a69442937feed5958fe9bab03b1fc1
+-- Temporarily disabled due to GHC version conflicts
+-- source-repository-package
+--    type:     git
+--    location: https://github.com/ocharles/weeder.git
+--    tag: fb052ddad9a69442937feed5958fe9bab03b1fc1
 
 multi-repl: True
 
