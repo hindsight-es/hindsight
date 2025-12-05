@@ -248,7 +248,7 @@ makeStoredEvents ::
 makeStoredEvents state mbCorrId now eventIds streamId batch =
     let baseSeq = state.nextSequence
         seqNos = [baseSeq .. baseSeq + fromIntegral (length batch.events) - 1]
-        currentStreamVersion = Map.findWithDefault (StreamVersion 0) streamId state.streamLocalVersions
+        currentStreamVersion = Map.findWithDefault (StreamVersion (-1)) streamId state.streamLocalVersions
         streamVersions = [currentStreamVersion + 1 .. currentStreamVersion + fromIntegral (length batch.events)]
         mkStoredEvent (sn, (eid, SomeLatestEvent (proxy :: Proxy event) payload), streamVer) =
             let name = getEventName event
