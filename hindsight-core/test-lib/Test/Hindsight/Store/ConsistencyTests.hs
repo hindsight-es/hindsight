@@ -41,6 +41,7 @@ consistencyTests runner =
     , testCase "Stream Exists Condition" $ withStore runner testStreamExistsCondition
     , testCase "Exact Version Condition" $ withStore runner testExactVersionCondition
     , testCase "Exact Stream Version Condition" $ withStore runner testExactStreamVersionCondition
+    , testCase "Exact Stream Version On Non-Existent Stream" $ withStore runner testExactStreamVersionOnNonExistentStream
     , testCase "Concurrent Writes" $ withStore runner testConcurrentWrites
     , testCase "Batch Atomicity" $ withStore runner testBatchAtomicity
     , testCase "Multi-Stream Consistency" $ withStore runner testMultiStreamConsistency
@@ -161,6 +162,25 @@ testExactStreamVersionCondition store = do
                         FailedInsertion (ConsistencyError _) -> pure ()
                         FailedInsertion err -> assertFailure $ "Unexpected error: " ++ show err
                         SuccessfulInsertion _ -> assertFailure "Third write should have failed with wrong stream version"
+
+-- | Test that ExactStreamVersion fails on non-existent stream
+-- This is the critical test for the Maybe StreamVersion distinction:
+-- - Nothing (stream doesn't exist) is NOT the same as Just (StreamVersion 0)
+-- - Expecting version 0 on a non-existent stream should fail
+testExactStreamVersionOnNonExistentStream :: forall backend. (EventStore backend, StoreConstraints backend IO, Show (Cursor backend)) => BackendHandle backend -> IO ()
+testExactStreamVersionOnNonExistentStream store = do
+    streamId <- StreamId <$> UUID.nextRandom
+
+    -- Try to write with ExactStreamVersion 0 to a stream that doesn't exist
+    -- This should FAIL - the stream doesn't exist, it's not "at version 0"
+    result <-
+        insertEvents store Nothing $
+            singleEvent streamId (ExactStreamVersion (StreamVersion 0)) (makeUserEvent 1)
+
+    case result of
+        FailedInsertion (ConsistencyError _) -> pure () -- Expected: stream doesn't exist
+        FailedInsertion err -> assertFailure $ "Unexpected error type: " ++ show err
+        SuccessfulInsertion _ -> assertFailure "ExactStreamVersion 0 should fail on non-existent stream"
 
 testConcurrentWrites :: forall backend. (EventStore backend, StoreConstraints backend IO, Show (Cursor backend)) => BackendHandle backend -> IO ()
 testConcurrentWrites store = do
