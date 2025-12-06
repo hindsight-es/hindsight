@@ -198,7 +198,7 @@ or external system boundaries.
 newtype CorrelationId = CorrelationId {toUUID :: UUID}
     deriving (Eq, Ord, Show, FromJSON, ToJSON)
 
--- | Local stream version - simple incrementing number per stream (1, 2, 3, ...)
+-- | Local stream version - simple incrementing number per stream (0, 1, 2, ...)
 newtype StreamVersion = StreamVersion Int64
     deriving (Show, Eq, Ord, Generic, FromJSON, ToJSON, Num, Enum)
 

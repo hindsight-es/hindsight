@@ -7,7 +7,7 @@
 {- | Stream version tests
 
 Tests stream version functionality:
-- Stream versions start at 1
+- Stream versions start at 0
 - Stream versions are contiguous (no gaps)
 - Stream versions are exposed in subscription envelopes
 - Multiple streams have independent version sequences
@@ -32,7 +32,7 @@ streamVersionTests ::
     EventStoreTestRunner backend ->
     [TestTree]
 streamVersionTests runner =
-    [ testCase "Stream Versions Start At 1" $ withStore runner testStreamVersionsStartAt1
+    [ testCase "Stream Versions Start At 0" $ withStore runner testStreamVersionsStartAt0
     , testCase "Stream Versions Are Contiguous" $ withStore runner testStreamVersionsContiguous
     , testCase "Stream Versions Exposed In Subscription" $ withStore runner testStreamVersionExposedInSubscription
     , testCase "Multiple Streams Have Independent Versions" $ withStore runner testIndependentStreamVersions
@@ -40,9 +40,9 @@ streamVersionTests runner =
 
 -- * Test Implementations
 
--- | Test that stream versions start at 1
-testStreamVersionsStartAt1 :: forall backend. (EventStore backend, StoreConstraints backend IO) => BackendHandle backend -> IO ()
-testStreamVersionsStartAt1 store = do
+-- | Test that stream versions start at 0
+testStreamVersionsStartAt0 :: forall backend. (EventStore backend, StoreConstraints backend IO) => BackendHandle backend -> IO ()
+testStreamVersionsStartAt0 store = do
     streamId <- StreamId <$> UUID.nextRandom
     receivedVersions <- newIORef []
     completionVar <- newEmptyMVar
@@ -67,7 +67,7 @@ testStreamVersionsStartAt1 store = do
     handle.cancel
 
     versions <- reverse <$> readIORef receivedVersions
-    versions @?= [StreamVersion 1]
+    versions @?= [StreamVersion 0]
 
 -- | Test that stream versions are contiguous (no gaps)
 testStreamVersionsContiguous :: forall backend. (EventStore backend, StoreConstraints backend IO) => BackendHandle backend -> IO ()
@@ -98,8 +98,8 @@ testStreamVersionsContiguous store = do
     handle.cancel
 
     versions <- reverse <$> readIORef receivedVersions
-    -- Should be contiguous: 1, 2, 3, 4, 5
-    versions @?= [StreamVersion 1, StreamVersion 2, StreamVersion 3, StreamVersion 4, StreamVersion 5]
+    -- Should be contiguous: 0, 1, 2, 3, 4
+    versions @?= [StreamVersion 0, StreamVersion 1, StreamVersion 2, StreamVersion 3, StreamVersion 4]
 
 -- | Test that stream versions are exposed in subscriptions
 testStreamVersionExposedInSubscription :: forall backend. (EventStore backend, StoreConstraints backend IO) => BackendHandle backend -> IO ()
@@ -127,7 +127,7 @@ testStreamVersionExposedInSubscription store = do
     handle.cancel
 
     mbVersion <- readIORef receivedVersionRef
-    mbVersion @?= Just (StreamVersion 1)
+    mbVersion @?= Just (StreamVersion 0)
 
 -- | Test that multiple streams have independent version sequences
 testIndependentStreamVersions :: forall backend. (EventStore backend, StoreConstraints backend IO) => BackendHandle backend -> IO ()
@@ -150,9 +150,9 @@ testIndependentStreamVersions store = do
         insertEvents store Nothing $
             Transaction
                 ( Map.fromList
-                    [ (streamA, StreamWrite NoStream [makeUserEvent 1, makeUserEvent 2]) -- A: versions 1, 2
-                    , (streamB, StreamWrite NoStream [makeUserEvent 10]) -- B: version 1
-                    , (streamC, StreamWrite NoStream [makeUserEvent 100, makeUserEvent 101, makeUserEvent 102]) -- C: versions 1, 2, 3
+                    [ (streamA, StreamWrite NoStream [makeUserEvent 1, makeUserEvent 2]) -- A: versions 0, 1
+                    , (streamB, StreamWrite NoStream [makeUserEvent 10]) -- B: version 0
+                    , (streamC, StreamWrite NoStream [makeUserEvent 100, makeUserEvent 101, makeUserEvent 102]) -- C: versions 0, 1, 2
                     ]
                 )
 
@@ -161,8 +161,8 @@ testIndependentStreamVersions store = do
         insertEvents store Nothing $
             Transaction
                 ( Map.fromList
-                    [ (streamA, StreamWrite StreamExists [makeUserEvent 3]) -- A: version 3
-                    , (streamB, StreamWrite StreamExists [makeUserEvent 11, makeUserEvent 12]) -- B: versions 2, 3
+                    [ (streamA, StreamWrite StreamExists [makeUserEvent 3]) -- A: version 2
+                    , (streamB, StreamWrite StreamExists [makeUserEvent 11, makeUserEvent 12]) -- B: versions 1, 2
                     ]
                 )
 
@@ -212,6 +212,6 @@ testIndependentStreamVersions store = do
     vB <- reverse <$> readIORef versionsB
     vC <- reverse <$> readIORef versionsC
 
-    vA @?= [StreamVersion 1, StreamVersion 2, StreamVersion 3]
-    vB @?= [StreamVersion 1, StreamVersion 2, StreamVersion 3]
-    vC @?= [StreamVersion 1, StreamVersion 2, StreamVersion 3]
+    vA @?= [StreamVersion 0, StreamVersion 1, StreamVersion 2]
+    vB @?= [StreamVersion 0, StreamVersion 1, StreamVersion 2]
+    vC @?= [StreamVersion 0, StreamVersion 1, StreamVersion 2]
