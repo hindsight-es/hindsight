@@ -160,7 +160,7 @@ nextStreamVersions eventBatches currentVersions =
   where
     calculateNextVersionsForStream streamId batch =
         let mbCurrentVersion = Map.findWithDefault Nothing streamId currentVersions
-            eventCount = length $ Foldable.toList batch.events
+            eventCount = length batch.events
          in nextVersionsFrom mbCurrentVersion eventCount
 
 -- | Generate the next N stream versions starting from current state
