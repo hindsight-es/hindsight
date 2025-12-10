@@ -12,6 +12,12 @@ build-website: build-docs
 	@echo "  Output: website/_site/"
 	@echo "  Preview: cd website && cabal run site -- watch"
 
+# Format all source code using fourmolu
+format:
+	@echo "Formatting Haskell source files with fourmolu..."
+	fourmolu --mode inplace $$(find . -name '*.hs' -not -path '*/dist-newstyle/*' -not -path '*/result/*' -not -path '*/Proto/*')
+
+
 # Build Sphinx documentation (and Haddock)
 build-docs:
 	@echo "Building documentation..."
@@ -44,7 +50,7 @@ rebuild: clean all
 
 # Show help
 help:
-	@echo "Hindsight Website Build System"
+	@echo "Hindsight Makefile commands"
 	@echo ""
 	@echo "Targets:"
 	@echo "  all            Build complete website (default)"
