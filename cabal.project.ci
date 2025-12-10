@@ -1,10 +1,19 @@
 -- CI-specific cabal.project for Nix-based builds
--- This file is used in GitHub Actions workflows where all dependencies
--- come from nixpkgs. We don't need source-repository-package overrides
--- or allow-newer constraints since Nix handles dependency resolution.
+-- This file is used in GitHub Actions workflows where dependencies
+-- mostly come from nixpkgs, but some packages need to be built from git
+-- due to version incompatibilities with nixpkgs.
 
 packages:
   ./*/*.cabal
+
+-- Let Cabal fetch http2-tls and its dependencies (including tls) from Hackage
+-- The nixpkgs tls version is incompatible with http2-tls, so we need Cabal
+-- to manage the entire grapesy/http2-tls/tls dependency tree
+-- Note: http2-tls 0.5.1 on Hackage has the proper Monitor.hs file that's missing from git
+
+-- Disable devel flag for http2-tls to avoid building the h2-client/h2-server executables
+package http2-tls
+  flags: -devel
 
 -- Enable HIE file generation for all packages (needed for weeder)
 program-options

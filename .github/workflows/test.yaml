@@ -40,10 +40,13 @@ jobs:
       - name: Prepare dependencies
         run: |
           set -e
-          echo "???? Preparing dependencies from Nix..."
+          echo "Preparing dependencies from Nix..."
           # Remove freeze file - Nix provides all dependencies at correct versions
           rm -f cabal.project.freeze
-          nix develop .#ci --command echo "??? Dependencies ready (cached or built)"
+          nix develop .#ci --command echo "Dependencies ready (cached or built)"
+          # Fetch Hackage index for packages Cabal needs to resolve (http2-tls, grapesy deps)
+          echo "Fetching Hackage package index..."
+          nix develop .#ci --command cabal update
 
       - name: Build all packages
         run: |
@@ -55,17 +58,25 @@ jobs:
       - name: Check code formatting
         run: |
           set -e
-          echo "???? Checking code formatting with fourmolu..."
+          echo "Checking code formatting with fourmolu..."
           nix develop .#ci --command bash -c "
-            fourmolu --mode check \$(find . -name '*.hs' -not -path '*/dist-newstyle/*' -not -path '*/result/*')
+            fourmolu --mode check \$(find . -name '*.hs' -not -path '*/dist-newstyle/*' -not -path '*/result/*' -not -path '*/Proto/*')
           "
-          echo "??? Code formatting check passed"
+          echo "Code formatting check passed"
 
       - name: Run test suite
         run: |
           set -e
-          echo "???? Running test suite..."
-          nix develop .#ci --command bash -c "cabal test all --test-show-details=streaming --project-file=cabal.project.ci"
+          echo "???? Running test suite (excluding KurrentDB integration tests)..."
+          # Explicitly list packages to test - excludes KurrentDB packages which require Docker
+          nix develop .#ci --command cabal test \
+            hindsight-core \
+            hindsight-memory-store \
+            hindsight-filesystem-store \
+            hindsight-postgresql-store \
+            hindsight-postgresql-projections \
+            --test-show-details=streaming \
+            --project-file=cabal.project.ci
           echo "??? Tests completed"
 
       - name: Check for dead code (weeder)
@@ -74,3 +85,46 @@ jobs:
           echo "???? Checking for dead code..."
           # HIE files generated during build, use full cabal.project for weeder source-repository-package
           nix develop .#ci --command bash -c "weeder" || echo "??????  Weeder found dead code (non-fatal)"
+
+  # KurrentDB integration tests - runs only on Linux where Docker is available
+  test-kurrentdb:
+    name: KurrentDB Integration Tests
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@main
+
+      - name: Setup Cachix
+        uses: cachix/cachix-action@v15
+        with:
+          name: hindsight-es
+          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+
+      - name: Prepare dependencies
+        run: |
+          set -e
+          rm -f cabal.project.freeze
+          nix develop .#ci --command echo "Dependencies ready"
+          nix develop .#ci --command cabal update
+
+      - name: Build KurrentDB packages
+        run: |
+          nix develop .#ci --command cabal build \
+            hindsight-kurrentdb-store \
+            tmp-kurrentdb \
+            --project-file=cabal.project.ci
+
+      - name: Run KurrentDB tests
+        run: |
+          set -e
+          echo "???? Running KurrentDB integration tests..."
+          nix develop .#ci --command cabal test \
+            hindsight-kurrentdb-store-test \
+            --test-show-details=streaming \
+            --project-file=cabal.project.ci
+          echo "??? KurrentDB tests completed"

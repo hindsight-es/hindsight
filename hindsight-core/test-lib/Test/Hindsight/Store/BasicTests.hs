@@ -118,6 +118,7 @@ basicTests ::
 basicTests runner =
     [ testCase "Basic Event Reception" $ withStore runner testBasicEventReception
     , testCase "Correlation ID Preservation" $ withStore runner testCorrelationIdPreservation
+    , testCase "Multi-Stream Correlation ID Preservation" $ withStore runner testMultiStreamCorrelationIdPreservation
     , testCase "Single Stream Selection" $ withStore runner testSingleStreamSelection
     , testCase "Start From Position" $ withStore runner testStartFromPosition
     , repeatTest 20 "Async Subscription Reception" $ withStore runner testAsyncSubscription
@@ -245,6 +246,64 @@ testCorrelationIdPreservation store = do
             takeMVar completionVar
             handle.cancel -- Cancel subscription after completion
             events <- readIORef receivedEvents
+            mapM_ (\evt -> evt.correlationId @?= Just corrId) events
+
+{- | Test correlation ID preservation for multi-stream atomic writes
+
+This is distinct from 'testCorrelationIdPreservation' because some backends
+(like KurrentDB) use different code paths for single-stream vs multi-stream
+appends. This test ensures correlationId is preserved in multi-stream writes.
+-}
+testMultiStreamCorrelationIdPreservation :: forall backend. (EventStore backend, StoreConstraints backend IO, Show (Cursor backend)) => BackendHandle backend -> IO ()
+testMultiStreamCorrelationIdPreservation store = do
+    streamId1 <- StreamId <$> UUID.nextRandom
+    streamId2 <- StreamId <$> UUID.nextRandom
+    tombstoneStreamId <- StreamId <$> UUID.nextRandom
+    corrId <- CorrelationId <$> UUID.nextRandom
+    receivedEvents <- newIORef []
+    completionVar <- newEmptyMVar
+
+    -- Use two streams to trigger multi-stream code path
+    -- Note: tombstone is inserted separately to ensure it gets a higher sequence
+    -- number than all UserCreated events (Map iteration order depends on UUID)
+    let events1 = map makeUserEvent [1, 2]
+        events2 = map makeUserEvent [3, 4]
+    result <-
+        insertEvents
+            store
+            (Just corrId)
+            ( Transaction
+                ( Map.fromList
+                    [ (streamId1, StreamWrite Any events1)
+                    , (streamId2, StreamWrite Any events2)
+                    ]
+                )
+            )
+
+    case result of
+        FailedInsertion err -> assertFailure $ "Failed to insert events: " ++ show err
+        SuccessfulInsertion _ -> do
+            -- Insert tombstone separately to ensure it has highest seqNo
+            _ <-
+                insertEvents
+                    store
+                    Nothing
+                    (Transaction (Map.singleton tombstoneStreamId (StreamWrite Any [makeTombstone])))
+
+            handle <-
+                subscribe
+                    store
+                    ( match UserCreated (collectEvents receivedEvents)
+                        :? match Tombstone (handleTombstone completionVar)
+                        :? MatchEnd
+                    )
+                    EventSelector{streamId = AllStreams, startupPosition = FromBeginning}
+
+            takeMVar completionVar
+            handle.cancel
+            events <- readIORef receivedEvents
+            -- Verify all 4 UserCreated events have the correlationId
+            length events @?= 4
             mapM_ (\evt -> evt.correlationId @?= Just corrId) events
 
 testAsyncSubscription :: forall backend. (EventStore backend, StoreConstraints backend IO, Show (Cursor backend)) => BackendHandle backend -> IO ()

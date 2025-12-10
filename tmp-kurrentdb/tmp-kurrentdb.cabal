@@ -1,0 +1,36 @@
+cabal-version:      3.8
+name:               tmp-kurrentdb
+version:            0.1.0.0
+synopsis:           Temporary KurrentDB instances for testing
+description:        Spin up isolated KurrentDB Docker containers for testing, similar to tmp-postgres
+license:            BSD-3-Clause
+author:             Gaël Deest
+maintainer:         gael@hindsight.events
+copyright:          (c) 2025 Gaël Deest
+category:           Testing
+build-type:         Simple
+
+library
+    exposed-modules:  Test.KurrentDB.Tmp
+                    , Test.KurrentDB.Tmp.Instance
+                    , Test.KurrentDB.Tmp.Pool
+    build-depends:    base >= 4.20.1 && < 5
+                    , async >= 2.2 && < 2.3
+                    , bytestring >= 0.12.1 && < 0.13
+                    , process >= 1.6 && < 1.7
+                    , random >= 1.2 && < 1.4
+                    , stm >= 2.5 && < 2.6
+    hs-source-dirs:   src
+    default-language: GHC2021
+    default-extensions: OverloadedRecordDot, DataKinds, DuplicateRecordFields, StrictData, Strict
+    ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -Wunused-packages -Werror=incomplete-patterns
+
+test-suite simple-test
+    type:             exitcode-stdio-1.0
+    default-language: GHC2021
+    hs-source-dirs:   test
+    main-is:          SimpleTest.hs
+    build-depends:    base
+                    , tmp-kurrentdb
+                    , process
+    ghc-options: -threaded
