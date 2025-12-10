@@ -60,6 +60,7 @@ import Data.Int (Int32, Int64)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (listToMaybe)
 import Data.Proxy (Proxy (..))
+import Data.Vector qualified as Vector
 import Data.Text (Text, isInfixOf, pack)
 import Data.Text qualified as T
 import Data.Text.Encoding (decodeUtf8)
@@ -211,8 +212,11 @@ subscribe handle matcher selector = do
                 FromBeginning -> SQLCursor (-1) (-1)
                 FromPosition cursor -> cursor
 
+        -- Extract event names from matcher for server-side filtering
+        let eventNames = matcherEventNames matcher
+
         -- Spawn an independent worker thread for this subscription
-        workerThread <- async $ runInIO $ workerLoop (pool handle) tickChannel initialCursor matcher selector
+        workerThread <- async $ runInIO $ workerLoop (pool handle) tickChannel initialCursor eventNames matcher selector
 
         -- Return a handle that allows the user to cancel the subscription
         pure $
@@ -227,15 +231,17 @@ workerLoop ::
     Pool ->
     TChan () ->
     SQLCursor ->
+    [Text] ->
+    -- ^ Event names to filter by (from EventMatcher)
     EventMatcher ts SQLStore m ->
     EventSelector SQLStore ->
     m ()
-workerLoop pool tickChannel initialCursor matcher selector = do
+workerLoop pool tickChannel initialCursor eventNames matcher selector = do
     cursorRef <- newIORef initialCursor
     let batchSize = 1000 -- A configurable batch size would be better
     let loop = do
             cursor <- readIORef cursorRef
-            batch <- fetchEventBatch pool cursor batchSize selector
+            batch <- fetchEventBatch pool cursor batchSize eventNames selector
 
             if null batch
                 then do
@@ -269,20 +275,23 @@ data EventData = EventData
     deriving (Show)
 
 -- | Fetches a batch of events from the database using the given selector.
+-- The eventNames list is used for server-side filtering to avoid fetching unwanted events.
 fetchEventBatch ::
     (MonadIO m) =>
     Pool ->
     SQLCursor ->
     Int ->
+    [Text] ->
+    -- ^ Event names to filter by (from EventMatcher)
     EventSelector SQLStore ->
     m [EventData]
-fetchEventBatch pool cursor limit selector = liftIO $ do
+fetchEventBatch pool cursor limit eventNames selector = liftIO $ do
     let (sql, params) = case selector.streamId of
-            AllStreams -> (allStreamsSql, allStreamsEncoder)
-            SingleStream _ -> (singleStreamSql, singleStreamEncoder)
+            AllStreams -> (allStreamsSqlFiltered, allStreamsEncoderFiltered)
+            SingleStream _ -> (singleStreamSqlFiltered, singleStreamEncoderFiltered)
 
         statement = Statement sql params decoder True
-        runSession = Session.statement (cursor, limit, selector) statement
+        runSession = Session.statement (cursor, limit, eventNames, selector) statement
 
     Pool.use pool runSession >>= \case
         Right events -> pure events
@@ -308,31 +317,38 @@ fetchEventBatch pool cursor limit selector = liftIO $ do
 
 -- SQL statements and encoders
 
-baseSql :: ByteString
-baseSql =
+{- | Base SQL for event queries.
+Uses server-side filtering on event_name via = ANY($4) for efficient filtering.
+The event_name filter leverages the idx_events_transaction_event_name index.
+-}
+baseSqlFiltered :: ByteString
+baseSqlFiltered =
     "SELECT transaction_xid8::text::bigint, seq_no, event_id, stream_id, correlation_id, created_at, event_name, event_version, payload, stream_version "
         <> "FROM events "
         <> "WHERE (transaction_xid8::text::bigint, seq_no) > ($1, $2) "
         <> "AND transaction_xid8 < get_safe_transaction_xid8() "
+        <> "AND event_name = ANY($4) "
 
-allStreamsSql :: ByteString
-allStreamsSql = baseSql <> "ORDER BY transaction_xid8, seq_no LIMIT $3"
+allStreamsSqlFiltered :: ByteString
+allStreamsSqlFiltered = baseSqlFiltered <> "ORDER BY transaction_xid8, seq_no LIMIT $3"
 
-singleStreamSql :: ByteString
-singleStreamSql = baseSql <> "AND stream_id = $4 ORDER BY transaction_xid8, seq_no LIMIT $3"
+singleStreamSqlFiltered :: ByteString
+singleStreamSqlFiltered = baseSqlFiltered <> "AND stream_id = $5 ORDER BY transaction_xid8, seq_no LIMIT $3"
 
-allStreamsEncoder :: E.Params (SQLCursor, Int, EventSelector SQLStore)
-allStreamsEncoder =
-    contramap (\(c, _, _) -> c.transactionXid8) (E.param (E.nonNullable E.int8))
-        <> contramap (\(c, _, _) -> c.sequenceNo) (E.param (E.nonNullable E.int4))
-        <> contramap (\(_, l, _) -> fromIntegral l) (E.param (E.nonNullable E.int4))
+allStreamsEncoderFiltered :: E.Params (SQLCursor, Int, [Text], EventSelector SQLStore)
+allStreamsEncoderFiltered =
+    contramap (\(c, _, _, _) -> c.transactionXid8) (E.param (E.nonNullable E.int8))
+        <> contramap (\(c, _, _, _) -> c.sequenceNo) (E.param (E.nonNullable E.int4))
+        <> contramap (\(_, l, _, _) -> fromIntegral l) (E.param (E.nonNullable E.int4))
+        <> contramap (\(_, _, names, _) -> Vector.fromList names) (E.param (E.nonNullable (E.foldableArray (E.nonNullable E.text))))
 
-singleStreamEncoder :: E.Params (SQLCursor, Int, EventSelector SQLStore)
-singleStreamEncoder =
-    contramap (\(c, _, _) -> c.transactionXid8) (E.param (E.nonNullable E.int8))
-        <> contramap (\(c, _, _) -> c.sequenceNo) (E.param (E.nonNullable E.int4))
-        <> contramap (\(_, l, _) -> fromIntegral l) (E.param (E.nonNullable E.int4))
-        <> contramap (\(_, _, s) -> case s.streamId of SingleStream (StreamId sid) -> sid; _ -> error "impossible") (E.param (E.nonNullable E.uuid))
+singleStreamEncoderFiltered :: E.Params (SQLCursor, Int, [Text], EventSelector SQLStore)
+singleStreamEncoderFiltered =
+    contramap (\(c, _, _, _) -> c.transactionXid8) (E.param (E.nonNullable E.int8))
+        <> contramap (\(c, _, _, _) -> c.sequenceNo) (E.param (E.nonNullable E.int4))
+        <> contramap (\(_, l, _, _) -> fromIntegral l) (E.param (E.nonNullable E.int4))
+        <> contramap (\(_, _, names, _) -> Vector.fromList names) (E.param (E.nonNullable (E.foldableArray (E.nonNullable E.text))))
+        <> contramap (\(_, _, _, s) -> case s.streamId of SingleStream (StreamId sid) -> sid; _ -> error "impossible") (E.param (E.nonNullable E.uuid))
 
 {- | Processes a batch of events, calling the appropriate handlers.
 Returns (cursor, shouldContinue) where shouldContinue = False means handler returned Stop
