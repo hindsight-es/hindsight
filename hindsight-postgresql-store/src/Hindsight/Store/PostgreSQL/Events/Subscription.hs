@@ -60,12 +60,12 @@ import Data.Int (Int32, Int64)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (listToMaybe)
 import Data.Proxy (Proxy (..))
-import Data.Vector qualified as Vector
 import Data.Text (Text, isInfixOf, pack)
 import Data.Text qualified as T
 import Data.Text.Encoding (decodeUtf8)
 import Data.Time (UTCTime)
 import Data.UUID (UUID)
+import Data.Vector qualified as Vector
 import GHC.Generics (Generic)
 import Hasql.Connection qualified as Connection
 import Hasql.Connection.Setting qualified as ConnectionSetting
@@ -231,8 +231,8 @@ workerLoop ::
     Pool ->
     TChan () ->
     SQLCursor ->
+    -- | Event names to filter by (from EventMatcher)
     [Text] ->
-    -- ^ Event names to filter by (from EventMatcher)
     EventMatcher ts SQLStore m ->
     EventSelector SQLStore ->
     m ()
@@ -274,15 +274,16 @@ data EventData = EventData
     }
     deriving (Show)
 
--- | Fetches a batch of events from the database using the given selector.
--- The eventNames list is used for server-side filtering to avoid fetching unwanted events.
+{- | Fetches a batch of events from the database using the given selector.
+The eventNames list is used for server-side filtering to avoid fetching unwanted events.
+-}
 fetchEventBatch ::
     (MonadIO m) =>
     Pool ->
     SQLCursor ->
     Int ->
+    -- | Event names to filter by (from EventMatcher)
     [Text] ->
-    -- ^ Event names to filter by (from EventMatcher)
     EventSelector SQLStore ->
     m [EventData]
 fetchEventBatch pool cursor limit eventNames selector = liftIO $ do
