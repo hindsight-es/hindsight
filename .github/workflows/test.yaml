@@ -104,40 +104,8 @@ jobs:
           # HIE files generated during build, use full cabal.project for weeder source-repository-package
           nix develop .#ci --command bash -c "weeder" || echo "??????  Weeder found dead code (non-fatal)"
 
-  # KurrentDB integration tests - runs only on Linux where Docker is available
-  test-kurrentdb:
-    name: KurrentDB Integration Tests
-    runs-on: ubuntu-latest
-    needs: test
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Install Nix
-        uses: DeterminateSystems/nix-installer-action@main
-
-      - name: Setup Cachix
-        uses: cachix/cachix-action@v15
-        with:
-          name: hindsight-es
-          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
-
-      - name: Prepare dependencies
-        run: |
-          set -e
-          rm -f cabal.project.freeze
-          nix develop .#ci --command echo "Dependencies ready"
-          nix develop .#ci --command cabal update
-
-      - name: Build KurrentDB packages
-        run: |
-          nix develop .#ci --command cabal build \
-            hindsight-kurrentdb-store \
-            tmp-kurrentdb \
-            --project-file=cabal.project.ci
-
-      - name: Run KurrentDB tests
+      - name: Run KurrentDB integration tests
+        if: runner.os == 'Linux'
         run: |
           set -e
           echo "???? Running KurrentDB integration tests..."
