@@ -17,6 +17,33 @@ on:
   workflow_dispatch:
 
 jobs:
+  # Formatting check runs in parallel with tests
+  format-check:
+    name: Check Formatting
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@main
+
+      - name: Setup Cachix
+        uses: cachix/cachix-action@v15
+        with:
+          name: hindsight-es
+          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+
+      - name: Check code formatting
+        run: |
+          set -e
+          echo "Checking code formatting with fourmolu..."
+          nix develop .#ci --command bash -c "
+            fourmolu --mode check \$(find . -name '*.hs' -not -path '*/dist-newstyle/*' -not -path '*/result/*' -not -path '*/Proto/*')
+          "
+          echo "Code formatting check passed"
+
   test:
     name: Build and Test
     strategy:
@@ -54,15 +81,6 @@ jobs:
           echo "???? Building all packages..."
           nix develop .#ci --command cabal build all --project-file=cabal.project.ci
           echo "??? Build completed"
-
-      - name: Check code formatting
-        run: |
-          set -e
-          echo "Checking code formatting with fourmolu..."
-          nix develop .#ci --command bash -c "
-            fourmolu --mode check \$(find . -name '*.hs' -not -path '*/dist-newstyle/*' -not -path '*/result/*' -not -path '*/Proto/*')
-          "
-          echo "Code formatting check passed"
 
       - name: Run test suite
         run: |
