@@ -134,33 +134,46 @@ getCurrentStreamVersionStmt = Statement sql encoder decoder True
 
 -- * Helper functions
 
--- | Calculate stream versions for events based on current stream state
+{- | Calculate stream versions for events based on current stream state
+Returns Nothing for streams that don't exist yet, Just v for streams at version v
+-}
 calculateStreamVersions ::
     Map StreamId (StreamWrite t SomeLatestEvent SQLStore) ->
-    HasqlTransaction.Transaction (Map StreamId StreamVersion)
+    HasqlTransaction.Transaction (Map StreamId (Maybe StreamVersion))
 calculateStreamVersions eventBatches = do
     -- Get current stream versions for all streams
     currentVersions <- mapM getCurrentStreamVersion (Map.keys eventBatches)
     pure $ Map.fromList $ zip (Map.keys eventBatches) currentVersions
   where
-    getCurrentStreamVersion :: StreamId -> HasqlTransaction.Transaction StreamVersion
-    getCurrentStreamVersion (StreamId streamUUID) = do
-        result <- HasqlTransaction.statement streamUUID getCurrentStreamVersionStmt
-        pure $ maybe (StreamVersion 0) id result
+    getCurrentStreamVersion :: StreamId -> HasqlTransaction.Transaction (Maybe StreamVersion)
+    getCurrentStreamVersion (StreamId streamUUID) =
+        HasqlTransaction.statement streamUUID getCurrentStreamVersionStmt
 
--- | Calculate next stream versions for each stream
+{- | Calculate next stream versions for each stream
+Takes Maybe StreamVersion: Nothing = new stream (starts at 0), Just v = continue from v+1
+-}
 nextStreamVersions ::
     (Foldable t) =>
     Map StreamId (StreamWrite t SomeLatestEvent SQLStore) ->
-    Map StreamId StreamVersion ->
+    Map StreamId (Maybe StreamVersion) ->
     Map StreamId [StreamVersion]
 nextStreamVersions eventBatches currentVersions =
     Map.mapWithKey calculateNextVersionsForStream eventBatches
   where
     calculateNextVersionsForStream streamId batch =
-        let currentVersion = Map.findWithDefault (StreamVersion 0) streamId currentVersions
-            eventCount = length $ Foldable.toList batch.events
-         in [currentVersion + 1 .. currentVersion + fromIntegral eventCount]
+        let mbCurrentVersion = Map.findWithDefault Nothing streamId currentVersions
+            eventCount = length batch.events
+         in nextVersionsFrom mbCurrentVersion eventCount
+
+{- | Generate the next N stream versions starting from current state
+Nothing = new stream, first event gets version 0
+Just v  = existing stream at version v, next event gets version v+1
+-}
+nextVersionsFrom :: Maybe StreamVersion -> Int -> [StreamVersion]
+nextVersionsFrom Nothing n =
+    [StreamVersion 0 .. StreamVersion (fromIntegral n - 1)]
+nextVersionsFrom (Just (StreamVersion v)) n =
+    [StreamVersion (v + 1) .. StreamVersion (v + fromIntegral n)]
 
 -- * Main insertion functions
 

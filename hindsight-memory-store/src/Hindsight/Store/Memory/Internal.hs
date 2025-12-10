@@ -234,6 +234,16 @@ updateState event state =
         , globalNotification = state.globalNotification
         }
 
+{- | Generate the next N stream versions starting from current state
+Nothing = new stream, first event gets version 0
+Just v  = existing stream at version v, next event gets version v+1
+-}
+nextVersionsFrom :: Maybe StreamVersion -> Int -> [StreamVersion]
+nextVersionsFrom Nothing n =
+    [StreamVersion 0 .. StreamVersion (fromIntegral n - 1)]
+nextVersionsFrom (Just (StreamVersion v)) n =
+    [StreamVersion (v + 1) .. StreamVersion (v + fromIntegral n)]
+
 -- | Make stored events from raw data
 makeStoredEvents ::
     forall t backend.
@@ -248,8 +258,8 @@ makeStoredEvents ::
 makeStoredEvents state mbCorrId now eventIds streamId batch =
     let baseSeq = state.nextSequence
         seqNos = [baseSeq .. baseSeq + fromIntegral (length batch.events) - 1]
-        currentStreamVersion = Map.findWithDefault (StreamVersion 0) streamId state.streamLocalVersions
-        streamVersions = [currentStreamVersion + 1 .. currentStreamVersion + fromIntegral (length batch.events)]
+        mbCurrentVersion = Map.lookup streamId state.streamLocalVersions
+        streamVersions = nextVersionsFrom mbCurrentVersion (length batch.events)
         mkStoredEvent (sn, (eid, SomeLatestEvent (proxy :: Proxy event) payload), streamVer) =
             let name = getEventName event
                 version = fromInteger $ getMaxVersion proxy
