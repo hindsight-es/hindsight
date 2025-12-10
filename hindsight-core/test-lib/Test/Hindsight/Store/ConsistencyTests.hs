@@ -163,10 +163,11 @@ testExactStreamVersionCondition store = do
                         FailedInsertion err -> assertFailure $ "Unexpected error: " ++ show err
                         SuccessfulInsertion _ -> assertFailure "Third write should have failed with wrong stream version"
 
--- | Test that ExactStreamVersion fails on non-existent stream
--- This is the critical test for the Maybe StreamVersion distinction:
--- - Nothing (stream doesn't exist) is NOT the same as Just (StreamVersion 0)
--- - Expecting version 0 on a non-existent stream should fail
+{- | Test that ExactStreamVersion fails on non-existent stream
+This is the critical test for the Maybe StreamVersion distinction:
+- Nothing (stream doesn't exist) is NOT the same as Just (StreamVersion 0)
+- Expecting version 0 on a non-existent stream should fail
+-}
 testExactStreamVersionOnNonExistentStream :: forall backend. (EventStore backend, StoreConstraints backend IO, Show (Cursor backend)) => BackendHandle backend -> IO ()
 testExactStreamVersionOnNonExistentStream store = do
     streamId <- StreamId <$> UUID.nextRandom

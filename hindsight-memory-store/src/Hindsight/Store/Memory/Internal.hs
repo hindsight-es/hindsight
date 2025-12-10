@@ -234,9 +234,10 @@ updateState event state =
         , globalNotification = state.globalNotification
         }
 
--- | Generate the next N stream versions starting from current state
--- Nothing = new stream, first event gets version 0
--- Just v  = existing stream at version v, next event gets version v+1
+{- | Generate the next N stream versions starting from current state
+Nothing = new stream, first event gets version 0
+Just v  = existing stream at version v, next event gets version v+1
+-}
 nextVersionsFrom :: Maybe StreamVersion -> Int -> [StreamVersion]
 nextVersionsFrom Nothing n =
     [StreamVersion 0 .. StreamVersion (fromIntegral n - 1)]

@@ -134,8 +134,9 @@ getCurrentStreamVersionStmt = Statement sql encoder decoder True
 
 -- * Helper functions
 
--- | Calculate stream versions for events based on current stream state
--- Returns Nothing for streams that don't exist yet, Just v for streams at version v
+{- | Calculate stream versions for events based on current stream state
+Returns Nothing for streams that don't exist yet, Just v for streams at version v
+-}
 calculateStreamVersions ::
     Map StreamId (StreamWrite t SomeLatestEvent SQLStore) ->
     HasqlTransaction.Transaction (Map StreamId (Maybe StreamVersion))
@@ -148,8 +149,9 @@ calculateStreamVersions eventBatches = do
     getCurrentStreamVersion (StreamId streamUUID) =
         HasqlTransaction.statement streamUUID getCurrentStreamVersionStmt
 
--- | Calculate next stream versions for each stream
--- Takes Maybe StreamVersion: Nothing = new stream (starts at 0), Just v = continue from v+1
+{- | Calculate next stream versions for each stream
+Takes Maybe StreamVersion: Nothing = new stream (starts at 0), Just v = continue from v+1
+-}
 nextStreamVersions ::
     (Foldable t) =>
     Map StreamId (StreamWrite t SomeLatestEvent SQLStore) ->
@@ -163,9 +165,10 @@ nextStreamVersions eventBatches currentVersions =
             eventCount = length batch.events
          in nextVersionsFrom mbCurrentVersion eventCount
 
--- | Generate the next N stream versions starting from current state
--- Nothing = new stream, first event gets version 0
--- Just v  = existing stream at version v, next event gets version v+1
+{- | Generate the next N stream versions starting from current state
+Nothing = new stream, first event gets version 0
+Just v  = existing stream at version v, next event gets version v+1
+-}
 nextVersionsFrom :: Maybe StreamVersion -> Int -> [StreamVersion]
 nextVersionsFrom Nothing n =
     [StreamVersion 0 .. StreamVersion (fromIntegral n - 1)]
