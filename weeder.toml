@@ -20,6 +20,9 @@ roots = [
   # Internal modules used by backend implementations (cross-package usage)
   # These are exported from hindsight package but used by store backends
   "^Hindsight\\.Store\\.Internal\\..*",
+
+  # Auto-generated protobuf modules (KurrentDB gRPC)
+  "^Proto\\..*",
 ]
 
 type-class-roots = true

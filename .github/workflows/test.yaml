@@ -17,6 +17,33 @@ on:
   workflow_dispatch:
 
 jobs:
+  # Formatting check runs in parallel with tests
+  format-check:
+    name: Check Formatting
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@main
+
+      - name: Setup Cachix
+        uses: cachix/cachix-action@v15
+        with:
+          name: hindsight-es
+          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+
+      - name: Check code formatting
+        run: |
+          set -e
+          echo "Checking code formatting with fourmolu..."
+          nix develop .#ci --command bash -c "
+            fourmolu --mode check \$(find . -name '*.hs' -not -path '*/dist-newstyle/*' -not -path '*/result/*' -not -path '*/Proto/*')
+          "
+          echo "Code formatting check passed"
+
   test:
     name: Build and Test
     strategy:
@@ -55,15 +82,6 @@ jobs:
           nix develop .#ci --command cabal build all --project-file=cabal.project.ci
           echo "??? Build completed"
 
-      - name: Check code formatting
-        run: |
-          set -e
-          echo "Checking code formatting with fourmolu..."
-          nix develop .#ci --command bash -c "
-            fourmolu --mode check \$(find . -name '*.hs' -not -path '*/dist-newstyle/*' -not -path '*/result/*' -not -path '*/Proto/*')
-          "
-          echo "Code formatting check passed"
-
       - name: Run test suite
         run: |
           set -e
@@ -82,44 +100,11 @@ jobs:
       - name: Check for dead code (weeder)
         run: |
           set -e
-          echo "???? Checking for dead code..."
-          # HIE files generated during build, use full cabal.project for weeder source-repository-package
-          nix develop .#ci --command bash -c "weeder" || echo "??????  Weeder found dead code (non-fatal)"
+          echo "Checking for dead code..."
+          nix develop .#ci --command weeder || echo "Weeder found dead code (non-fatal)"
 
-  # KurrentDB integration tests - runs only on Linux where Docker is available
-  test-kurrentdb:
-    name: KurrentDB Integration Tests
-    runs-on: ubuntu-latest
-    needs: test
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Install Nix
-        uses: DeterminateSystems/nix-installer-action@main
-
-      - name: Setup Cachix
-        uses: cachix/cachix-action@v15
-        with:
-          name: hindsight-es
-          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
-
-      - name: Prepare dependencies
-        run: |
-          set -e
-          rm -f cabal.project.freeze
-          nix develop .#ci --command echo "Dependencies ready"
-          nix develop .#ci --command cabal update
-
-      - name: Build KurrentDB packages
-        run: |
-          nix develop .#ci --command cabal build \
-            hindsight-kurrentdb-store \
-            tmp-kurrentdb \
-            --project-file=cabal.project.ci
-
-      - name: Run KurrentDB tests
+      - name: Run KurrentDB integration tests
+        if: runner.os == 'Linux'
         run: |
           set -e
           echo "???? Running KurrentDB integration tests..."
