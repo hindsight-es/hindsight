@@ -159,6 +159,7 @@ module Hindsight.Store (
     EventHandler,
     EventMatcher (..),
     match,
+    matcherEventNames,
 )
 where
 
@@ -462,6 +463,21 @@ match ::
     -- | Handler pair for use with '(:?)'
     (Proxy event, a)
 match event = \handler -> (Proxy @event, handler)
+
+{- | Extract all event type names from an EventMatcher.
+
+Used by backends to build server-side filters for efficient event streaming.
+Only events matching these names will be transferred from the store.
+
+@
+let names = matcherEventNames matcher
+-- names == ["user_created", "user_updated"]
+@
+-}
+matcherEventNames :: EventMatcher ts backend m -> [Text]
+matcherEventNames MatchEnd = []
+matcherEventNames ((_ :: Proxy event, _) :? rest) =
+    getEventName event : matcherEventNames rest
 
 {- | Position marker within an event store, backend-specific.
 

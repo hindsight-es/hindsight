@@ -56,11 +56,12 @@ import UnliftIO (MonadUnliftIO, withRunInIO)
 {- | Build a ReadReq for subscribing to events
 
 This creates a gRPC request for the Streams.Read RPC based on the event selector.
+The event names list is used for server-side filtering to avoid transferring unwanted events.
 -}
-buildReadRequest :: EventSelector KurrentStore -> Proto.ReadReq
-buildReadRequest selector =
+buildReadRequest :: [T.Text] -> EventSelector KurrentStore -> Proto.ReadReq
+buildReadRequest eventNames selector =
     defMessage
-        & #options .~ buildReadOptions selector
+        & #options .~ buildReadOptions eventNames selector
 
 {- | Build ReadReq options for subscription
 
@@ -68,20 +69,77 @@ Configures:
 - Stream selection ($all or specific stream)
 - Start position (beginning or specific cursor)
 - Subscription mode (live, not count-limited)
-- No filtering (for now)
+- Event type filtering (server-side, ONLY for $all subscriptions)
 - Forward direction
 - No link resolution
+
+NOTE: KurrentDB only supports server-side filtering on $all subscriptions.
+Single-stream subscriptions don't support filtering (and don't need it as
+much since you're already subscribed to a single stream).
 -}
-buildReadOptions :: EventSelector KurrentStore -> Proto.ReadReq'Options
-buildReadOptions selector =
+buildReadOptions :: [T.Text] -> EventSelector KurrentStore -> Proto.ReadReq'Options
+buildReadOptions eventNames selector =
     let uuidOption = defMessage & #maybe'content .~ Just (Proto.ReadReq'Options'UUIDOption'String defMessage)
+        -- Only apply filtering for AllStreams - single-stream subscriptions don't support it
+        filterOption = case selector.streamId of
+            AllStreams -> buildFilterOption eventNames
+            SingleStream _ -> Proto.ReadReq'Options'NoFilter defMessage
      in defMessage
             & #maybe'streamOption .~ buildStreamOption selector.streamId selector.startupPosition
             & #readDirection .~ Proto.ReadReq'Options'Forwards
             & #resolveLinks .~ False
             & #maybe'countOption .~ Just (Proto.ReadReq'Options'Subscription defMessage)
-            & #maybe'filterOption .~ Just (Proto.ReadReq'Options'NoFilter defMessage)
+            & #maybe'filterOption .~ Just filterOption
             & #uuidOption .~ uuidOption
+
+{- | Build filter option for event type filtering
+
+Uses regex matching on event type names. Empty list means no handlers,
+so we use a regex that matches nothing (empty string only).
+
+IMPORTANT: When using FilterOptions with SubscriptionOptions, you MUST set:
+1. checkpointIntervalMultiplier - controls checkpoint frequency
+2. window (max or count) - controls how events are batched for filtering
+
+Without these, KurrentDB silently hangs.
+See: https://github.com/EventStore/EventStore/issues/3501
+-}
+buildFilterOption :: [T.Text] -> Proto.ReadReq'Options'FilterOption
+buildFilterOption [] =
+    -- No handlers = use regex that matches nothing
+    Proto.ReadReq'Options'Filter $
+        defMessage
+            & #eventType .~ (defMessage & #regex .~ "^$")
+            & #maybe'window .~ Just (Proto.ReadReq'Options'FilterOptions'Count defMessage)
+            & #checkpointIntervalMultiplier .~ 1
+buildFilterOption names =
+    -- Filter to only the event types we have handlers for
+    Proto.ReadReq'Options'Filter $
+        defMessage
+            & #eventType .~ (defMessage & #regex .~ buildEventTypeRegex names)
+            & #maybe'window .~ Just (Proto.ReadReq'Options'FilterOptions'Count defMessage)
+            & #checkpointIntervalMultiplier .~ 1
+
+{- | Build regex pattern for matching event type names
+
+Creates pattern like "^(user_created|user_updated|order_placed)$"
+for exact matching of event type names.
+-}
+buildEventTypeRegex :: [T.Text] -> T.Text
+buildEventTypeRegex names =
+    "^(" <> T.intercalate "|" (map escapeRegexChars names) <> ")$"
+
+{- | Escape special regex characters in event names
+
+Event names typically use snake_case which has no special chars,
+but we escape defensively just in case.
+-}
+escapeRegexChars :: T.Text -> T.Text
+escapeRegexChars = T.concatMap escapeChar
+  where
+    escapeChar c
+        | c `elem` ("\\^$.|?*+()[]{}" :: String) = T.pack ['\\', c]
+        | otherwise = T.singleton c
 
 {- | Build stream option (single stream or $all)
 
@@ -237,7 +295,9 @@ workerLoop handle matcher selector = withRunInIO $ \runInIO -> do
         (GRPC.openConnection def (serverFromConfig handle.config))
         GRPC.closeConnection
         $ \conn -> do
-            let request = buildReadRequest selector
+            -- Extract event names from matcher for server-side filtering
+            let eventNames = matcherEventNames matcher
+            let request = buildReadRequest eventNames selector
 
             GRPC.withRPC conn def (Proxy @(Protobuf Streams "read")) $ \call -> do
                 -- Send the subscription request
